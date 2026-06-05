@@ -1,0 +1,19 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "enumeration-ui",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "cwd": "./frontend",
+      "port": 5173
+    },
+    {
+      "name": "enumeration-api",
+      "runtimeExecutable": "../.venv/bin/python",
+      "runtimeArgs": ["-m", "uvicorn", "app:app", "--host", "127.0.0.1", "--port", "8011"],
+      "cwd": "./backend",
+      "port": 8011
+    }
+  ]
+}

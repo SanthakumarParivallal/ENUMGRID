@@ -1,0 +1,42 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+env/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# ---- Node / frontend ----
+node_modules/
+frontend/dist/
+frontend/.vite/
+*.local
+
+# ---- Tool output ----
+# Scan reports + exports are operator data; never commit them.
+purplerecon_*.json
+purplerecon_*.html
+purplerecon_*.csv
+*.rdb
+
+# ---- OUI cache (large, downloadable) ----
+oui.csv
+oui.txt
+
+# ---- Editor / OS noise ----
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# ---- Machine-local Claude settings (keep launch.json, ignore local perms) ----
+.claude/settings.local.json

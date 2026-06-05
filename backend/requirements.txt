@@ -1,0 +1,6 @@
+# Backend: FastAPI + python-nmap two-tiered scan pipeline.
+# Install into the project venv:  ../.venv/bin/python -m pip install -r requirements.txt
+fastapi>=0.110
+uvicorn>=0.27
+python-nmap>=0.7.1
+# pydantic 2.x is pulled in by fastapi
