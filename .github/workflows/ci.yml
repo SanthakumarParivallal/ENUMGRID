@@ -21,6 +21,20 @@ jobs:
       - name: Lint
         run: ruff check .
 
+  security:
+    name: security (bandit SAST + pip-audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install bandit pip-audit
+      - name: Bandit (static analysis)
+        run: bandit -r purple_recon.py backend/ -c pyproject.toml
+      - name: pip-audit (Python dependency CVEs)
+        run: pip-audit -r backend/requirements.txt -r requirements-dev.txt
+
   cli:
     name: CLI pytest · py${{ matrix.python-version }}
     runs-on: ubuntu-latest
@@ -86,6 +100,8 @@ jobs:
           cache-dependency-path: frontend/package-lock.json
       - name: Install dependencies
         run: npm ci
+      - name: Audit shipped dependencies (dev tooling excluded)
+        run: npm audit --omit=dev
       - name: Unit tests
         run: npm test
       - name: Production build
