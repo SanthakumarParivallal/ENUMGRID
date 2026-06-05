@@ -70,6 +70,7 @@ const initialState = {
   source: null, // 'live' (FastAPI SSE) | 'mock' (offline demo)
   deepScan: false, // run NSE vuln scripts (--script vuln)
   sessions: seededSessions,
+  drift: null, // 'what changed since last scan' for the current target (live only)
 };
 
 // Default to the live FastAPI stream; set VITE_USE_MOCK=true to force the
@@ -105,12 +106,16 @@ function reducer(state, action) {
         finishedAt: null,
         running: true,
         source,
+        drift: null, // clear last run's drift until this scan completes
         sessions: [session, ...state.sessions],
       };
     }
 
     case 'SET_SOURCE':
       return { ...state, source: action.source };
+
+    case 'SET_DRIFT':
+      return { ...state, drift: action.drift };
 
     case 'TOGGLE_DEEP':
       return { ...state, deepScan: !state.deepScan };
@@ -256,6 +261,19 @@ export function ScanProvider({ children }) {
     }
   }, []);
 
+  // After a live scan completes, ask the backend what changed vs the previous
+  // scan of the same target (new/gone devices, opened/closed ports). Best-effort
+  // and live-only — the mock engine has no history backend.
+  const fetchDrift = useCallback((target) => {
+    if (!target) return;
+    fetch(`/api/history/diff?target=${encodeURIComponent(target)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((drift) => {
+        if (drift) dispatch({ type: 'SET_DRIFT', drift });
+      })
+      .catch(() => {});
+  }, []);
+
   // Open the FastAPI SSE stream. Each frame is a ScanState; the reducer ingests
   // it verbatim. If the stream never connects, fall back to the mock engine.
   const connectSSE = useCallback(
@@ -277,6 +295,7 @@ export function ScanProvider({ children }) {
         dispatch({ type: 'SNAPSHOT', snapshot });
         if (snapshot.phase === ScanPhase.COMPLETE) {
           dispatch({ type: 'COMPLETE' });
+          fetchDrift(target); // pull 'what changed' now that this scan is saved
           es.close();
         } else if (snapshot.phase === ScanPhase.ERROR) {
           dispatch({ type: 'ERROR' });
@@ -292,7 +311,7 @@ export function ScanProvider({ children }) {
 
       activeRef.current = { stop: () => es.close() };
     },
-    [startMock],
+    [startMock, fetchDrift],
   );
 
   const startScan = useCallback(

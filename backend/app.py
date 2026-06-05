@@ -16,6 +16,9 @@ Run (from the backend/ directory, using the project's venv):
 
 from __future__ import annotations
 
+import json
+
+import history
 from discovery import run_discovery
 from fastapi import FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -157,7 +160,15 @@ async def scan_stream(
                 else run_discovery(target, id)
             )
             async for snapshot in stream:
-                yield f"data: {snapshot.model_dump_json()}\n\n"
+                data = snapshot.model_dump(mode="json")
+                # Persist the final snapshot *before* the client sees COMPLETE,
+                # so a follow-up drift query is guaranteed to find it.
+                if data.get("phase") == ScanPhase.COMPLETE.value:
+                    try:
+                        history.save_scan(data, mode=mode)
+                    except Exception:  # noqa: BLE001 - history is best-effort
+                        pass
+                yield f"data: {json.dumps(data)}\n\n"
 
     return StreamingResponse(
         event_source(), media_type="text/event-stream", headers=_SSE_HEADERS
@@ -192,6 +203,28 @@ async def host_scan(
             )
         host = await scan_single_host(ip, deep)
     return JSONResponse(host.model_dump())
+
+
+@app.get("/api/history")
+def history_list(
+    target: str | None = Query(None, description="filter to one target"),
+    limit: int = Query(50, description="max rows (newest first)"),
+) -> dict:
+    """Recent scan summaries — powers the dashboard's history timeline."""
+    return {"scans": history.list_scans(target, limit)}
+
+
+@app.get("/api/history/diff")
+def history_diff(
+    target: str = Query(..., description="target to compute drift for"),
+) -> dict:
+    """'What changed since last time?' for `target`.
+
+    Compares the two most recent stored scans and returns new/gone devices and
+    per-host opened/closed ports. `available` is False until there are two scans
+    of the same target to compare.
+    """
+    return history.drift_for_target(target)
 
 
 @app.get("/")
