@@ -1,0 +1,92 @@
+name: CI
+
+# Full-stack gate: lint + the CLI engine, the FastAPI backend, and the React
+# frontend each get their own job, run on every push and pull request.
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch: {}
+
+jobs:
+  lint:
+    name: ruff (lint + import order)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install ruff
+      - name: Lint
+        run: ruff check .
+
+  cli:
+    name: CLI pytest · py${{ matrix.python-version }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt
+      - name: Byte-compile (syntax gate)
+        run: python -m py_compile purple_recon.py
+      - name: CLI smoke test (--help loads cleanly)
+        run: python purple_recon.py --help
+      - name: Guardrail smoke test (loopback must be refused, exit 2)
+        run: |
+          set +e
+          python purple_recon.py 127.0.0.1 --no-export >/dev/null 2>&1
+          code=$?
+          set -e
+          test "$code" -eq 2 || { echo "expected exit 2, got $code"; exit 1; }
+      - name: Run CLI test suite
+        run: python -m pytest -v
+
+  backend:
+    name: Backend pytest (FastAPI / scope guard / NSE parsing)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-dev.txt
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements-dev.txt
+      - name: Run backend test suite
+        working-directory: backend
+        run: python -m pytest test_scanner.py test_security.py -v
+
+  frontend:
+    name: Frontend (Vitest + build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install dependencies
+        run: npm ci
+      - name: Unit tests
+        run: npm test
+      - name: Production build
+        run: npm run build

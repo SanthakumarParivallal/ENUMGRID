@@ -1,0 +1,22 @@
+# Ruff config for PurpleRecon.
+#
+# Deliberately correctness-focused and low-noise: we gate on the rules that
+# catch real bugs (undefined names, unused imports/vars, syntax errors) plus
+# import ordering — not stylistic bikeshedding — so the CI lint signal stays
+# meaningful rather than annoying.
+
+line-length = 100
+target-version = "py310"
+extend-exclude = [".venv", "frontend", "dist", "build"]
+
+[lint]
+select = [
+    "E9",   # syntax / runtime errors
+    "F63",  # invalid comparisons / assert tuples
+    "F7",   # statement misuse (break/continue/return outside scope)
+    "F82",  # undefined name
+    "F401", # unused import
+    "F811", # redefinition of unused name
+    "F841", # unused local variable
+    "I",    # import sorting (isort)
+]

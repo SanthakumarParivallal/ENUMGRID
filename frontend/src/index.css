@@ -1,0 +1,79 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background-color: #020617;
+  color: #e2e8f0;
+  font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+
+  /* Faint engineering "blueprint" grid for the industrial chassis feel. */
+  background-image:
+    linear-gradient(rgba(148, 163, 184, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.035) 1px, transparent 1px);
+  background-size: 34px 34px;
+  background-attachment: fixed;
+}
+
+/* Tabular, lined-up numerics for IPs / ports / versions. */
+.font-mono {
+  font-feature-settings: 'tnum' 1, 'zero' 1;
+  letter-spacing: -0.01em;
+}
+
+::selection {
+  background: rgba(255, 179, 0, 0.28);
+  color: #fff;
+}
+
+/* Industrial thin scrollbars ------------------------------------------------ */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #1e293b #0b1220;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: #0b1220;
+}
+::-webkit-scrollbar-thumb {
+  background: #1e293b;
+  border: 2px solid #0b1220;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #334155;
+}
+
+/* Striped, energized progress fill used while a scan is live. */
+.progress-stripes {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    rgba(0, 0, 0, 0.22) 0,
+    rgba(0, 0, 0, 0.22) 6px,
+    transparent 6px,
+    transparent 14px
+  );
+  background-size: 28px 28px;
+}
+
+/* Hide number-input spinners inside the cockpit chrome. */
+input[type='number']::-webkit-outer-spin-button,
+input[type='number']::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
