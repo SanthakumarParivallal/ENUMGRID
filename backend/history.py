@@ -109,14 +109,17 @@ def list_scans(target: str | None = None, limit: int = 50) -> list[dict]:
     init_db()
     limit = max(1, min(int(limit), 500))
     with _connect() as conn:
+        # NB: the only interpolated value (`_SUMMARY_COLS`) is a hardcoded module
+        # constant — never user input. All user-supplied values (target, limit)
+        # are bound via `?` placeholders, so this is not an injection vector.
         if target:
             rows = conn.execute(
-                f"SELECT {_SUMMARY_COLS} FROM scans WHERE target = ? ORDER BY id DESC LIMIT ?",
+                f"SELECT {_SUMMARY_COLS} FROM scans WHERE target = ? ORDER BY id DESC LIMIT ?",  # nosec B608
                 (target, limit),
             ).fetchall()
         else:
             rows = conn.execute(
-                f"SELECT {_SUMMARY_COLS} FROM scans ORDER BY id DESC LIMIT ?",
+                f"SELECT {_SUMMARY_COLS} FROM scans ORDER BY id DESC LIMIT ?",  # nosec B608
                 (limit,),
             ).fetchall()
     return [dict(r) for r in rows]

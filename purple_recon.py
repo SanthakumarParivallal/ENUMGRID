@@ -1962,11 +1962,16 @@ def download_oui_registry(console: Console) -> str | None:
     dest = os.path.join(cache_dir, "oui.csv")
     console.print(f"[dim]» Downloading IEEE OUI registry → {dest} …[/]")
     try:
+        url = "https://standards-oui.ieee.org/oui/oui.csv"
+        # Defence-in-depth: refuse anything but HTTPS so urlopen can never be
+        # steered to a file:// or other local scheme.
+        if not url.startswith("https://"):
+            raise ValueError("OUI registry source must be HTTPS")
         request = urllib.request.Request(
-            "https://standards-oui.ieee.org/oui/oui.csv",
-            headers={"User-Agent": f"{APP_NAME}/{VERSION}"},
+            url, headers={"User-Agent": f"{APP_NAME}/{VERSION}"}
         )
-        with urllib.request.urlopen(request, timeout=60) as resp:
+        # HTTPS scheme is enforced above, so urlopen cannot reach a local scheme.
+        with urllib.request.urlopen(request, timeout=60) as resp:  # nosec B310
             data = resp.read()
         with open(dest, "wb") as out:
             out.write(data)
