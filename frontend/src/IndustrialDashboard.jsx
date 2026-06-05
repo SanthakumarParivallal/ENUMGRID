@@ -324,7 +324,8 @@ const SOURCE_BADGE = {
 
 function ControlBar() {
   const { target, phase, progress, running, source, deepScan, startScan, stopScan, toggleDeep,
-    setTarget, scanAll, downloadReport, hosts, stats } = useScan();
+    setTarget, scanAll, downloadReport, hosts, monitor, monitorEverySec, toggleMonitor,
+    setMonitorInterval } = useScan();
   const [input, setInput] = useState(target);
   const hasHosts = hosts.length > 0;
   const unscanned = hosts.filter((h) => h.status === HostStatus.UP && !h.ports.length).length;
@@ -451,6 +452,34 @@ function ControlBar() {
             <Icon.Download className="h-4 w-4" />
             Report
           </button>
+
+          {/* Monitor: auto re-scan on an interval + alert on drift. */}
+          <button
+            onClick={toggleMonitor}
+            aria-pressed={monitor}
+            title="Monitor mode: automatically re-scan on an interval and alert when devices appear/disappear or ports change."
+            className={`inline-flex shrink-0 items-center gap-1.5 rounded border px-3 py-2 text-sm font-semibold transition ${
+              monitor
+                ? 'border-matrix/60 bg-matrix/15 text-matrix shadow-glow-matrix'
+                : 'border-slate-700 bg-steel-900 text-slate-400 hover:border-slate-500 hover:text-slate-200'
+            }`}
+          >
+            <Icon.Activity className={`h-4 w-4 ${monitor ? 'animate-pulse-glow' : ''}`} />
+            Monitor
+          </button>
+          {monitor && (
+            <select
+              value={monitorEverySec}
+              onChange={(e) => setMonitorInterval(Number(e.target.value))}
+              title="Re-scan interval"
+              className="shrink-0 rounded border border-slate-700 bg-steel-900 px-1.5 py-2 font-mono text-xs text-slate-300 outline-none focus:border-matrix/60"
+            >
+              <option value={30}>every 30s</option>
+              <option value={120}>every 2m</option>
+              <option value={300}>every 5m</option>
+              <option value={900}>every 15m</option>
+            </select>
+          )}
         </div>
 
         {/* Phase status --------------------------------------------------- */}
@@ -1556,6 +1585,40 @@ function AssetMatrix({ hosts }) {
  * Root
  * ========================================================================== */
 
+function DriftAlertBanner() {
+  const { driftAlert, dismissAlert } = useScan();
+  if (!driftAlert) return null;
+  const { appeared = [], disappeared = [], changed = [] } = driftAlert;
+  const sample = [
+    ...appeared.map((h) => `+${h.ip}`),
+    ...disappeared.map((h) => `−${h.ip}`),
+    ...changed.map((c) => `~${c.ip}`),
+  ]
+    .slice(0, 4)
+    .join('  ');
+  return (
+    <div className="flex items-center gap-3 border-b border-amber/40 bg-amber/10 px-4 py-2">
+      <Icon.Alert className="h-4 w-4 shrink-0 text-amber" />
+      <div className="min-w-0 flex-1">
+        <span className="text-sm font-semibold text-amber">Network changed during monitoring</span>
+        <span className="ml-2 font-mono text-xs text-amber/90">
+          {appeared.length > 0 && `+${appeared.length} new  `}
+          {disappeared.length > 0 && `−${disappeared.length} gone  `}
+          {changed.length > 0 && `~${changed.length} changed  `}
+          <span className="text-amber/70">{sample}</span>
+        </span>
+      </div>
+      <span className="shrink-0 font-mono text-[10px] text-amber/70">{relativeTime(driftAlert.at)}</span>
+      <button
+        onClick={dismissAlert}
+        className="shrink-0 rounded border border-amber/40 px-2 py-0.5 text-xs font-semibold text-amber transition hover:bg-amber/20"
+      >
+        Dismiss
+      </button>
+    </div>
+  );
+}
+
 export default function IndustrialDashboard() {
   const { hosts, phase } = useScan();
 
@@ -1570,6 +1633,7 @@ export default function IndustrialDashboard() {
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-steel-950 text-slate-200">
       <ControlBar />
+      <DriftAlertBanner />
       <div className="flex min-h-0 flex-1">
         <Sidebar />
         <main className="flex min-h-0 min-w-0 flex-1 flex-col">

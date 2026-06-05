@@ -41,6 +41,9 @@ press **Start Scan with the field empty** and it auto-detects and sweeps your wh
    and versions fill in live.
 3. Toggle **Deep** first to add NSE vuln scripts + CVE/CVSS findings.
 4. **Report** → downloads a one-click **PDF** of exactly what's on screen.
+5. **Monitor** → auto-re-scans on an interval and alerts you when the network
+   changes (new/gone devices, opened/closed ports). Switch **Matrix ⇄ Topology**
+   for the map view.
 
 A green **LIVE STREAM** badge means the real backend is connected; amber
 **DEMO STREAM** means only the frontend is running (offline mock data). `make dev`
@@ -101,6 +104,10 @@ Phase 2  Vertical deep-dive nmap -sV (+ NSE)   service / version / vuln detectio
   per-host nmap uses `-6` for IPv6 targets.
 - **Topology map** (web) — a Zenmap-style radial view: the gateway as the hub,
   devices on rings coloured by type, click a node to nmap it. Toggle Matrix ⇄ Topology.
+- **Continuous monitor mode** (web) — one toggle auto-re-scans on an interval
+  (30s / 2m / 5m / 15m) and raises a dismissible banner **+ desktop notification**
+  the moment a device appears/disappears or a port opens/closes. Network watch,
+  not just a one-shot scan.
 - **Service / version detection** — Phase 2 runs real `nmap -sV`; ports, service
   names and product versions stream into each device's expandable detail table.
 - **History + drift** — every completed scan is saved to SQLite; the **"What

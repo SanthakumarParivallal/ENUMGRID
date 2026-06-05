@@ -37,6 +37,29 @@ const uuid = () =>
 
 const shortId = (id) => (id ? id.slice(0, 8) : '—');
 
+// Best-effort desktop notification when monitoring detects network drift.
+function notifyDrift(alert) {
+  try {
+    if (typeof Notification === 'undefined') return;
+    const fire = () => {
+      const parts = [];
+      if (alert.appeared.length) parts.push(`+${alert.appeared.length} new`);
+      if (alert.disappeared.length) parts.push(`-${alert.disappeared.length} gone`);
+      if (alert.changed.length) parts.push(`${alert.changed.length} changed`);
+      // eslint-disable-next-line no-new
+      new Notification('PurpleRecon — network changed', {
+        body: `${alert.target}: ${parts.join(' · ') || 'configuration drift'}`,
+      });
+    };
+    if (Notification.permission === 'granted') fire();
+    else if (Notification.permission !== 'denied') {
+      Notification.requestPermission().then((p) => p === 'granted' && fire());
+    }
+  } catch {
+    /* notifications are optional */
+  }
+}
+
 // A couple of seeded "history" sessions so the sidebar log reads like a tool
 // that's been in service, not a blank slate.
 const seededSessions = [
@@ -71,6 +94,9 @@ const initialState = {
   deepScan: false, // run NSE vuln scripts (--script vuln)
   sessions: seededSessions,
   drift: null, // 'what changed since last scan' for the current target (live only)
+  monitor: false, // continuous mode: auto re-scan + alert on drift
+  monitorEverySec: 300, // re-scan interval when monitoring
+  driftAlert: null, // { appeared, disappeared, changed, at } when monitoring sees a change
 };
 
 // Default to the live FastAPI stream; set VITE_USE_MOCK=true to force the
@@ -116,6 +142,18 @@ function reducer(state, action) {
 
     case 'SET_DRIFT':
       return { ...state, drift: action.drift };
+
+    case 'TOGGLE_MONITOR':
+      return { ...state, monitor: !state.monitor, driftAlert: null };
+
+    case 'SET_MONITOR_INTERVAL':
+      return { ...state, monitorEverySec: action.seconds };
+
+    case 'DRIFT_ALERT':
+      return { ...state, driftAlert: action.alert };
+
+    case 'CLEAR_ALERT':
+      return { ...state, driftAlert: null };
 
     case 'TOGGLE_DEEP':
       return { ...state, deepScan: !state.deepScan };
@@ -263,13 +301,26 @@ export function ScanProvider({ children }) {
 
   // After a live scan completes, ask the backend what changed vs the previous
   // scan of the same target (new/gone devices, opened/closed ports). Best-effort
-  // and live-only — the mock engine has no history backend.
+  // and live-only — the mock engine has no history backend. While monitoring,
+  // a real change raises a dismissible alert + a browser notification.
   const fetchDrift = useCallback((target) => {
     if (!target) return;
     fetch(`/api/history/diff?target=${encodeURIComponent(target)}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((drift) => {
-        if (drift) dispatch({ type: 'SET_DRIFT', drift });
+        if (!drift) return;
+        dispatch({ type: 'SET_DRIFT', drift });
+        if (stateRef.current.monitor && drift.available && drift.has_changes) {
+          const alert = {
+            target,
+            at: Date.now() / 1000,
+            appeared: drift.appeared_hosts || [],
+            disappeared: drift.disappeared_hosts || [],
+            changed: drift.changed_hosts || [],
+          };
+          dispatch({ type: 'DRIFT_ALERT', alert });
+          notifyDrift(alert);
+        }
       })
       .catch(() => {});
   }, []);
@@ -354,6 +405,42 @@ export function ScanProvider({ children }) {
   );
 
   const toggleDeep = useCallback(() => dispatch({ type: 'TOGGLE_DEEP' }), []);
+
+  // --- continuous monitor mode --------------------------------------------- #
+  const toggleMonitor = useCallback(() => dispatch({ type: 'TOGGLE_MONITOR' }), []);
+  const setMonitorInterval = useCallback(
+    (seconds) => dispatch({ type: 'SET_MONITOR_INTERVAL', seconds }),
+    [],
+  );
+  const dismissAlert = useCallback(() => dispatch({ type: 'CLEAR_ALERT' }), []);
+
+  // When monitoring, schedule the next re-scan once the current one completes.
+  // Declarative: the timer is (re)created whenever a scan finishes and is torn
+  // down if monitoring is turned off or a new scan starts — so it never stacks.
+  const monitorTimerRef = useRef(null);
+  useEffect(() => {
+    clearTimeout(monitorTimerRef.current);
+    if (
+      state.monitor &&
+      !state.running &&
+      state.target &&
+      (state.phase === ScanPhase.COMPLETE || state.phase === ScanPhase.HALTED)
+    ) {
+      monitorTimerRef.current = setTimeout(
+        () => startScan(state.target, state.deepScan),
+        Math.max(15, state.monitorEverySec) * 1000,
+      );
+    }
+    return () => clearTimeout(monitorTimerRef.current);
+  }, [
+    state.monitor,
+    state.running,
+    state.phase,
+    state.target,
+    state.deepScan,
+    state.monitorEverySec,
+    startScan,
+  ]);
 
   // Run ONE host's nmap service scan and merge the result back into the grid.
   // `deep` adds the NSE vuln-script pass. Always resolves (never rejects) so it
@@ -465,12 +552,28 @@ export function ScanProvider({ children }) {
       stopScan,
       setTarget,
       toggleDeep,
+      toggleMonitor,
+      setMonitorInterval,
+      dismissAlert,
       scanHostVulns,
       scanAll,
       downloadReport,
       shortId,
     }),
-    [state, stats, startScan, stopScan, setTarget, toggleDeep, scanHostVulns, scanAll, downloadReport],
+    [
+      state,
+      stats,
+      startScan,
+      stopScan,
+      setTarget,
+      toggleDeep,
+      toggleMonitor,
+      setMonitorInterval,
+      dismissAlert,
+      scanHostVulns,
+      scanAll,
+      downloadReport,
+    ],
   );
 
   return <ScanContext.Provider value={value}>{children}</ScanContext.Provider>;
