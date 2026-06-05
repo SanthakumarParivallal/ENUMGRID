@@ -77,6 +77,7 @@ class Host(BaseModel):
     os: str = "Unknown"
     mac: str | None = None          # L2 address (local subnet, from ARP)
     vendor: str | None = None       # OUI vendor or "(private/random)"
+    device_type: str = ""           # heuristic type (Router/Phone/Printer/...) — not nmap -O
     discovered_via: str = ""        # "icmp" / "arp" / "tcp/<port>"
     scanning: bool = False
     ports: list[Port] = Field(default_factory=list)

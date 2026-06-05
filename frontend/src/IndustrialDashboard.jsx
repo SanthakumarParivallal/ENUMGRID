@@ -155,6 +155,13 @@ const Icon = {
       <path d="M3 13 L12 18 L21 13" />
     </I>
   ),
+  Download: ({ className }) => (
+    <I className={className}>
+      <path d="M12 3 V15" />
+      <path d="M7 10 L12 15 L17 10" />
+      <path d="M4 19 H20" />
+    </I>
+  ),
   Shield: ({ className }) => (
     <I className={className}>
       <path d="M12 3 L20 6 V11 C20 16 16.5 19.5 12 21 C7.5 19.5 4 16 4 11 V6 Z" />
@@ -199,7 +206,7 @@ const SEVERITY_STYLE = {
 // Shared column template so the matrix header and every row stay aligned.
 // chevron | status | IP | hostname | vendor | MAC | open-ports | scan-status
 const GRID_COLS =
-  'grid grid-cols-[34px_52px_minmax(108px,1fr)_minmax(120px,1.2fr)_minmax(120px,1.2fr)_minmax(140px,150px)_72px_118px] items-center';
+  'grid grid-cols-[34px_48px_minmax(104px,1fr)_minmax(96px,0.9fr)_minmax(110px,1.1fr)_minmax(118px,1.1fr)_minmax(126px,140px)_56px_104px] items-center';
 
 const QUICK_FILTERS = [
   { key: 'web', label: 'Web · 80/443', Icon: Icon.Globe },
@@ -317,8 +324,10 @@ const SOURCE_BADGE = {
 
 function ControlBar() {
   const { target, phase, progress, running, source, deepScan, startScan, stopScan, toggleDeep,
-    setTarget } = useScan();
+    setTarget, scanAll, downloadReport, hosts, stats } = useScan();
   const [input, setInput] = useState(target);
+  const hasHosts = hosts.length > 0;
+  const unscanned = hosts.filter((h) => h.status === HostStatus.UP && !h.ports.length).length;
   const badge = SOURCE_BADGE[source] || SOURCE_BADGE.null;
 
   // Auto-detect the network you're actually on (via the backend) and pre-fill
@@ -419,6 +428,28 @@ function ControlBar() {
           >
             <Icon.Shield className="h-4 w-4" />
             Deep
+          </button>
+
+          {/* Scan All — nmap every discovered host (services/OS/ports) at once. */}
+          <button
+            onClick={scanAll}
+            disabled={!unscanned}
+            title="Run an nmap service scan on every discovered host (ports, services, versions, OS). Deep toggle adds CVE checks."
+            className="inline-flex shrink-0 items-center gap-1.5 rounded border border-amber/50 bg-amber/10 px-3 py-2 text-sm font-semibold text-amber transition hover:bg-amber hover:text-steel-950 disabled:cursor-not-allowed disabled:border-slate-700 disabled:bg-steel-900 disabled:text-slate-600"
+          >
+            <Icon.Cpu className="h-4 w-4" />
+            Scan All{unscanned ? ` (${unscanned})` : ''}
+          </button>
+
+          {/* One-click PDF report of the current results. */}
+          <button
+            onClick={downloadReport}
+            disabled={!hasHosts}
+            title="Download a PDF report of the current scan results"
+            className="inline-flex shrink-0 items-center gap-1.5 rounded border border-slate-700 bg-steel-900 px-3 py-2 text-sm font-semibold text-slate-300 transition hover:border-slate-500 hover:text-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Icon.Download className="h-4 w-4" />
+            Report
           </button>
         </div>
 
@@ -1112,6 +1143,24 @@ function AssetRow({ host, expanded, onToggle }) {
             <span className="text-slate-600">—</span>
           )}
         </span>
+        {/* device type / OS */}
+        <span className="min-w-0 truncate text-xs leading-tight">
+          {host.device_type || (host.os && host.os !== 'Unknown' && host.os !== 'Fingerprinting…') ? (
+            <span className="block">
+              {host.device_type && (
+                <span className="flex items-center gap-1 truncate text-slate-200">
+                  <Icon.Layers className="h-3 w-3 shrink-0 text-slate-500" />
+                  <span className="truncate">{host.device_type}</span>
+                </span>
+              )}
+              {host.os && host.os !== 'Unknown' && host.os !== 'Fingerprinting…' && (
+                <span className="block truncate font-mono text-[10px] text-matrix/80">{host.os}</span>
+              )}
+            </span>
+          ) : (
+            <span className="text-slate-600">—</span>
+          )}
+        </span>
         {/* mac */}
         <span className="truncate font-mono text-[11px] text-slate-400">
           {host.mac || <span className="text-slate-600">—</span>}
@@ -1219,6 +1268,7 @@ function MatrixHeader({ sort, onSort, allExpanded, onToggleAll }) {
       />
       <span className="uppercase tracking-wider text-slate-500">Hostname</span>
       <span className="uppercase tracking-wider text-slate-500">Vendor</span>
+      <span className="uppercase tracking-wider text-slate-500">Device / OS</span>
       <span className="uppercase tracking-wider text-slate-500">MAC</span>
       <SortHeader
         label="Ports"

@@ -220,6 +220,7 @@ export function HostModel(data = {}) {
     os: data.os ? String(data.os) : 'Unknown',
     mac: data.mac != null ? String(data.mac) : null,
     vendor: data.vendor != null ? String(data.vendor) : null,
+    device_type: data.device_type != null ? String(data.device_type) : '',
     discovered_via: data.discovered_via != null ? String(data.discovered_via) : '',
     scanning: Boolean(data.scanning),
     vulnScanning: Boolean(data.vulnScanning), // transient: per-host deep scan in flight

@@ -26,6 +26,7 @@ from concurrent.futures import ThreadPoolExecutor
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
+from fingerprint import guess_device_type  # noqa: E402
 from models import Host, HostStatus, ScanPhase, ScanState  # noqa: E402
 
 import purple_recon as pr  # noqa: E402  (path set above)
@@ -139,6 +140,7 @@ async def run_discovery(target: str, scan_id: str | None):
         host = hosts.get(ip) or Host(ip=ip, status=HostStatus.UP, discovered_via="arp")
         host.mac = mac
         host.vendor = pr._mac_vendor(mac, oui)
+        host.device_type = guess_device_type(vendor=host.vendor, hostname=host.hostname)
         hosts[ip] = host
     yield snapshot(ScanPhase.NMAP_ENUMERATION, 75)
 
@@ -151,5 +153,9 @@ async def run_discovery(target: str, scan_id: str | None):
                     hosts[ip].hostname = name
     finally:
         socket.setdefaulttimeout(previous_timeout)
+
+    # Refine the device-type guess now that hostnames are in (vendor + hostname).
+    for host in hosts.values():
+        host.device_type = guess_device_type(vendor=host.vendor, hostname=host.hostname)
 
     yield snapshot(ScanPhase.COMPLETE, 100, finished=True)

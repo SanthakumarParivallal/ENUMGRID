@@ -10,7 +10,12 @@ It ships in two forms that share one engine:
 | | What | Where |
 |---|---|---|
 | **CLI cockpit** | Single-file `rich` terminal dashboard — fast sweep → nmap deep-dive, JSON/HTML/CSV export, config-drift `--diff` | `purple_recon.py` |
-| **Web cockpit** | FastAPI (SSE) backend + React/Tailwind dashboard — live device list, per-device nmap on demand | `backend/`, `frontend/` |
+| **Web cockpit** | FastAPI (SSE) backend + React/Tailwind dashboard — live device list, device-type fingerprinting, per-device **or whole-network** nmap, SQLite history + drift, one-click **PDF report** | `backend/`, `frontend/` |
+
+It's the trio you actually want in one place: **Angry IP / Fing** (instant device
+inventory with vendor + MAC + device type), **Zenmap / nmap** (real service,
+version and port detection on demand), and **network monitoring** (scan history +
+"what changed since last time"), with a one-click PDF you can hand in.
 
 > ⚠️ **Authorized use only.** Scan only systems/networks you own or have
 > explicit, written permission to test. The tool **hard-refuses** loopback,
@@ -26,10 +31,26 @@ make setup     # one-time: venv + python deps + npm install
 make dev       # start backend (:8011) + frontend (:5173) together
 ```
 
-Open <http://localhost:5173> — the target **auto-fills to your network**, so just
-click **Start Scan**. A green **LIVE STREAM** badge means the real backend is
-connected; amber **DEMO STREAM** means only the frontend is running (offline mock
-data). `make dev` runs both, so you always get live data.
+Open <http://localhost:5173>. The target **auto-fills to your network** — or just
+press **Start Scan with the field empty** and it auto-detects and sweeps your whole
+`/24`. Then:
+
+1. **Start Scan** → instant device list (IP · vendor · MAC · device type) in ~20s.
+2. **Scan All** → runs nmap service/version detection on every device at once
+   (or expand one row → **Nmap Scan** for just that host). Open ports, services
+   and versions fill in live.
+3. Toggle **Deep** first to add NSE vuln scripts + CVE/CVSS findings.
+4. **Report** → downloads a one-click **PDF** of exactly what's on screen.
+
+A green **LIVE STREAM** badge means the real backend is connected; amber
+**DEMO STREAM** means only the frontend is running (offline mock data). `make dev`
+runs both, so you always get live data.
+
+> **OS detection:** nmap's authoritative OS fingerprint (`-O`) needs raw sockets,
+> so run the backend with `sudo` to enable it. Unprivileged (the default), the
+> tool infers OS from service banners/CPEs where possible and otherwise shows a
+> **device-type** label (Router / Phone / Printer / Camera / …) derived from the
+> vendor + open ports — a real, explainable signal, never a hallucinated OS.
 
 ### Or just the CLI
 
@@ -58,6 +79,16 @@ Phase 2  Vertical deep-dive nmap -sV (+ NSE)   service / version / vuln detectio
   `RST` is `weak` and suppressed by default (firewalls forge those).
 - **Vendor naming** — MAC → IEEE OUI lookup (39k+ entries via `--download-oui`);
   randomized "private Wi-Fi" MACs are detected and labelled, not guessed.
+- **Device-type fingerprinting** — vendor + open ports + services + hostname →
+  a coarse type (Router / Phone / Printer / Camera / Media-TV / NAS / IoT /
+  Computer). Evidence-driven and explainable; shows nothing when unsure.
+- **Service / version detection** — Phase 2 runs real `nmap -sV`; ports, service
+  names and product versions stream into each device's expandable detail table.
+- **History + drift** — every completed scan is saved to SQLite; the **"What
+  Changed"** panel and `/api/history/diff` surface new/gone devices and
+  opened/closed ports vs the previous scan of the same target.
+- **PDF report** — `POST /api/report/pdf` renders the live snapshot (summary +
+  inventory + per-host ports/vulns) into a self-contained PDF (one-click in the UI).
 
 See [`docs`-level detail in the code](purple_recon.py) and
 [`backend/README.md`](backend/README.md) for the API + security model.
@@ -87,7 +118,7 @@ make test      # ruff lint + CLI pytest + backend pytest + frontend Vitest
 | Suite | Count | Scope |
 |---|---|---|
 | `test_purple_recon.py` | 69 | guardrails, discovery policy, ARP/OUI, reports, export, renderers |
-| `backend/test_*.py` | 52 | scope enforcement, token gate, NSE/CVSS parsing, OS detection |
+| `backend/test_*.py` | 83 | scope enforcement, token gate, NSE/CVSS parsing, OS detection, device fingerprinting, SQLite history + drift, PDF report |
 | `frontend/src/**/*.test.js` | 10 | schema coercion / null-safety, derived counters |
 
 CI (`.github/workflows/ci.yml`) runs lint + all three suites on every push
