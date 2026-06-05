@@ -487,3 +487,65 @@ def test_write_html_is_atomic_and_mode_600(tmp_path):
     assert not os.path.exists(path + ".tmp")
     assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
     assert "<!doctype html>" in open(path).read().lower()
+
+
+# --------------------------------------------------------------------------- #
+# IPv6 support (ScopeValidator dual-stack + NDP neighbour-cache parsing)
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize(
+    "target",
+    ["::1", "ff02::1", "fe80::1", "fe80::1%en0", "::"],
+)
+def test_scope_refuses_forbidden_ipv6(target):
+    with pytest.raises(pr.ScopeError):
+        pr.ScopeValidator(max_hosts=4096).validate(target)
+
+
+@pytest.mark.parametrize("target", ["fd00::1", "2001:db8::/120"])
+def test_scope_allows_safe_ipv6(target):
+    result = pr.ScopeValidator(max_hosts=4096).validate(target)
+    assert result.n_hosts >= 1
+
+
+def test_scope_refuses_oversized_ipv6_prefix():
+    with pytest.raises(pr.ScopeError):
+        pr.ScopeValidator(max_hosts=4096).validate("2001:db8::/64")
+
+
+def test_read_ndp_table_macos(monkeypatch):
+    sample = (
+        "Neighbor                                Linklayer Address  Netif Expire    St Flgs Prbs\n"
+        "fe80::1%lo0                             (incomplete)         lo0 permanent R\n"
+        "fe80::c68:f607:56bb:45%en0             7e:79:7:fd:3:34      en0 20h S\n"
+        "fe80::4449:5fff:feb6:cb60%awdl0         46:49:5f:b6:cb:60  awdl0 permanent R\n"
+    )
+
+    class _Result:
+        stdout = sample
+
+    monkeypatch.setattr(pr.subprocess, "run", lambda *a, **k: _Result())
+    table = pr._read_ndp_table()
+    # MAC is normalized (zero-padded) and correlated to its IPv6 address.
+    assert table.get("7e:79:07:fd:03:34") == ["fe80::c68:f607:56bb:45"]
+    # Non-physical interfaces (awdl) and incomplete (lo) entries are filtered.
+    assert "46:49:5f:b6:cb:60" not in table
+    assert all("lo0" not in v for vs in table.values() for v in vs)
+
+
+def test_read_ndp_table_linux(monkeypatch):
+    # macOS `ndp` returns nothing -> Linux `ip -6 neigh` fallback kicks in.
+    calls = {"n": 0}
+    linux = "2001:db8::5 dev eth0 lladdr aa:bb:cc:dd:ee:ff REACHABLE\nfe80::9 dev awdl0 lladdr 11:22:33:44:55:66 STALE\n"
+
+    class _R:
+        def __init__(self, out):
+            self.stdout = out
+
+    def fake_run(cmd, *a, **k):
+        calls["n"] += 1
+        return _R("" if cmd[:1] == ["ndp"] else linux)
+
+    monkeypatch.setattr(pr.subprocess, "run", fake_run)
+    table = pr._read_ndp_table()
+    assert table.get("aa:bb:cc:dd:ee:ff") == ["2001:db8::5"]
+    assert "11:22:33:44:55:66" not in table  # awdl0 filtered

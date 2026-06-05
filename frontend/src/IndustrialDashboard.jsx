@@ -998,6 +998,18 @@ function PortDetailTable({ host }) {
         </button>
       </div>
 
+      {/* IPv6 addresses correlated from the NDP neighbour cache (same MAC). */}
+      {host.ipv6?.length > 0 && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded border border-matrix/30 bg-matrix/[0.06] px-3 py-1.5 font-mono text-[10px] text-slate-300">
+          <span className="rounded-sm border border-matrix/40 bg-matrix/10 px-1 text-[8px] font-semibold uppercase tracking-wider text-matrix">
+            IPv6
+          </span>
+          {host.ipv6.map((a) => (
+            <span key={a} className="text-slate-400">{a}</span>
+          ))}
+        </div>
+      )}
+
       {host.vulnScanning ? (
         <div className="flex items-center gap-2 px-3 py-4 font-mono text-xs text-amber">
           <Spinner className="h-4 w-4" />
@@ -1161,9 +1173,17 @@ function AssetRow({ host, expanded, onToggle }) {
             <span className="text-slate-600">—</span>
           )}
         </span>
-        {/* mac */}
-        <span className="truncate font-mono text-[11px] text-slate-400">
-          {host.mac || <span className="text-slate-600">—</span>}
+        {/* mac (+ IPv6 indicator) */}
+        <span className="flex items-center gap-1 truncate font-mono text-[11px] text-slate-400">
+          <span className="truncate">{host.mac || <span className="text-slate-600">—</span>}</span>
+          {host.ipv6?.length > 0 && (
+            <span
+              title={`IPv6:\n${host.ipv6.join('\n')}`}
+              className="shrink-0 rounded-sm border border-matrix/40 bg-matrix/10 px-1 text-[8px] font-semibold uppercase text-matrix"
+            >
+              v6
+            </span>
+          )}
         </span>
         {/* open ports count */}
         <span className="flex items-center justify-center gap-1">
@@ -1309,7 +1329,107 @@ function EmptyState() {
   );
 }
 
+/* ========================================================================== *
+ * Topology view — a Zenmap-style radial network map (gateway at the hub)
+ * ========================================================================== */
+
+function topoColor(host) {
+  if (isCriticalHost(host)) return '#D32F2F'; // crimson — has a finding
+  const t = (host.device_type || '').toLowerCase();
+  if (t.includes('router') || t.includes('gateway')) return '#FFB300'; // amber
+  if (t.includes('smart') || t.includes('iot') || t.includes('media')) return '#00E676'; // matrix
+  if (t.includes('camera')) return '#D32F2F';
+  return '#94a3b8'; // slate
+}
+
+function TopoNode({ x, y, host, radius, center, onScan }) {
+  const color = topoColor(host);
+  const last = host.ip.split('.').pop();
+  const label = host.hostname || host.vendor || host.device_type || '';
+  const open = countOpenPorts(host);
+  const tip =
+    `${host.ip}` +
+    (host.hostname ? ` · ${host.hostname}` : '') +
+    (host.vendor ? ` · ${host.vendor}` : '') +
+    (host.device_type ? ` · ${host.device_type}` : '') +
+    (open ? ` · ${open} open` : '') +
+    '\nClick to nmap';
+  return (
+    <g className="cursor-pointer" onClick={() => onScan(host.ip)}>
+      <title>{tip}</title>
+      {center && <circle cx={x} cy={y} r={radius + 9} fill="none" stroke={color} strokeOpacity="0.3" />}
+      <circle
+        cx={x}
+        cy={y}
+        r={radius}
+        fill={color}
+        fillOpacity="0.14"
+        stroke={color}
+        strokeWidth={center ? 2.5 : 1.5}
+      />
+      {host.vulnScanning && (
+        <circle cx={x} cy={y} r={radius + 5} fill="none" stroke="#FFB300" strokeWidth="2" strokeDasharray="3 3">
+          <animateTransform attributeName="transform" type="rotate" from={`0 ${x} ${y}`} to={`360 ${x} ${y}`} dur="2s" repeatCount="indefinite" />
+        </circle>
+      )}
+      <text x={x} y={y + 4} textAnchor="middle" fontSize={center ? 13 : 11} fontFamily="monospace" fontWeight="bold" fill={color}>
+        .{last}
+      </text>
+      <text x={x} y={y + radius + 13} textAnchor="middle" fontSize="9" fontFamily="monospace" fill="#94a3b8">
+        {String(label).slice(0, 18)}
+      </text>
+    </g>
+  );
+}
+
+function TopologyView({ hosts, onScan }) {
+  const W = 920;
+  const H = 620;
+  const cx = W / 2;
+  const cy = H / 2;
+
+  // Hub = the gateway/router (by type, else the .1 host, else the first host).
+  const gw =
+    hosts.find((h) => /router|gateway/i.test(h.device_type || '')) ||
+    hosts.find((h) => h.ip.endsWith('.1')) ||
+    hosts[0];
+  const others = hosts.filter((h) => h !== gw);
+
+  const PER_RING = 12;
+  const BASE_R = 135;
+  const RING_STEP = 115;
+  const nodes = others.map((h, i) => {
+    const ring = Math.floor(i / PER_RING);
+    const ringStart = ring * PER_RING;
+    const inRing = Math.min(PER_RING, others.length - ringStart);
+    const pos = i - ringStart;
+    const r = BASE_R + ring * RING_STEP;
+    const angle = (2 * Math.PI * pos) / inRing - Math.PI / 2;
+    return { host: h, x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) };
+  });
+
+  return (
+    <div className="min-h-0 flex-1 overflow-auto p-4">
+      <svg viewBox={`0 0 ${W} ${H}`} className="mx-auto block w-full max-w-[1100px]" style={{ minHeight: 460 }}>
+        {nodes.map((n) => (
+          <line key={`e-${n.host.ip}`} x1={cx} y1={cy} x2={n.x} y2={n.y} stroke="#1e293b" strokeWidth="1" />
+        ))}
+        {gw && <TopoNode x={cx} y={cy} host={gw} radius={28} center onScan={onScan} />}
+        {nodes.map((n) => (
+          <TopoNode key={n.host.ip} x={n.x} y={n.y} host={n.host} radius={18} onScan={onScan} />
+        ))}
+      </svg>
+      <p className="mt-2 text-center font-mono text-[10px] text-slate-600">
+        hub = gateway · ring = discovered devices · color = device type (amber router · green smart/IoT · crimson
+        finding) · click a node to nmap it
+      </p>
+    </div>
+  );
+}
+
 function AssetMatrix({ hosts }) {
+  const { scanHostVulns } = useScan();
+  const [view, setView] = useState('table'); // 'table' | 'map'
   const [query, setQuery] = useState('');
   const [filters, setFilters] = useState(() => new Set());
   const [upOnly, setUpOnly] = useState(false);
@@ -1375,30 +1495,58 @@ function AssetMatrix({ hosts }) {
       {hosts.length === 0 ? (
         <EmptyState />
       ) : (
-        <div className="min-h-0 flex-1 overflow-auto">
-          <MatrixHeader
-            sort={sort}
-            onSort={onSort}
-            allExpanded={allExpanded}
-            onToggleAll={toggleAll}
-          />
-          {visible.length === 0 ? (
-            <div className="px-6 py-16 text-center font-mono text-sm text-slate-500">
-              // no hosts match the active search / filters
-            </div>
+        <>
+          {/* View toggle: data grid (Angry-IP style) vs topology map (Zenmap). */}
+          <div className="flex items-center gap-1.5 border-b border-slate-800 bg-steel-900/40 px-3 py-1.5">
+            <span className="mr-1 text-[10px] font-semibold uppercase tracking-widest text-slate-500">View</span>
+            {[
+              { key: 'table', label: 'Matrix', Ico: Icon.Layers },
+              { key: 'map', label: 'Topology', Ico: Icon.Radar },
+            ].map(({ key, label, Ico }) => (
+              <button
+                key={key}
+                onClick={() => setView(key)}
+                className={`inline-flex items-center gap-1.5 rounded border px-2.5 py-1 text-[11px] font-semibold transition ${
+                  view === key
+                    ? 'border-amber/50 bg-amber/10 text-amber'
+                    : 'border-slate-700 bg-steel-900 text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <Ico className="h-3.5 w-3.5" />
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {view === 'map' ? (
+            <TopologyView hosts={visible} onScan={scanHostVulns} />
           ) : (
-            <div className="divide-y divide-slate-800/80">
-              {visible.map((host) => (
-                <AssetRow
-                  key={host.ip}
-                  host={host}
-                  expanded={expanded.has(host.ip)}
-                  onToggle={() => toggleRow(host.ip)}
-                />
-              ))}
+            <div className="min-h-0 flex-1 overflow-auto">
+              <MatrixHeader
+                sort={sort}
+                onSort={onSort}
+                allExpanded={allExpanded}
+                onToggleAll={toggleAll}
+              />
+              {visible.length === 0 ? (
+                <div className="px-6 py-16 text-center font-mono text-sm text-slate-500">
+                  // no hosts match the active search / filters
+                </div>
+              ) : (
+                <div className="divide-y divide-slate-800/80">
+                  {visible.map((host) => (
+                    <AssetRow
+                      key={host.ip}
+                      host={host}
+                      expanded={expanded.has(host.ip)}
+                      onToggle={() => toggleRow(host.ip)}
+                    />
+                  ))}
+                </div>
+              )}
             </div>
           )}
-        </div>
+        </>
       )}
     </div>
   );

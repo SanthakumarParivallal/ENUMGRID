@@ -29,6 +29,7 @@ if _ROOT not in sys.path:
 from fingerprint import guess_device_type  # noqa: E402
 from mdns import discover_mdns  # noqa: E402
 from models import Host, HostStatus, ScanPhase, ScanState  # noqa: E402
+from osfp import os_hint  # noqa: E402
 
 import purple_recon as pr  # noqa: E402  (path set above)
 
@@ -154,6 +155,29 @@ async def run_discovery(target: str, scan_id: str | None):
                     hosts[ip].hostname = name
     finally:
         socket.setdefaulttimeout(previous_timeout)
+
+    # --- 3b) OS-family hint from ping-reply TTL (unprivileged, parallel) ---- #
+    # Real `nmap -O` needs root; this gives an honest OS family without it. A
+    # later nmap service scan can still refine it (CPE/banner), and the client
+    # keeps the better of the two.
+    with ThreadPoolExecutor(max_workers=32, thread_name_prefix="ttl") as ttl_pool:
+        for ip, os_label in zip(list(hosts), ttl_pool.map(os_hint, list(hosts))):
+            if os_label and hosts[ip].os in ("", "Unknown"):
+                hosts[ip].os = os_label
+
+    # --- 3c) IPv6 neighbour cache (NDP): show each device's IPv6, by MAC ----- #
+    # The IPv6 analogue of the ARP pass — correlates IPv6 addresses to the same
+    # device discovered over IPv4 via its MAC (dual-stack visibility).
+    try:
+        ndp = pr._read_ndp_table()
+    except Exception:
+        ndp = {}
+    if ndp:
+        by_mac = {h.mac: h for h in hosts.values() if h.mac}
+        for mac, v6_addrs in ndp.items():
+            host = by_mac.get(mac)
+            if host is not None:
+                host.ipv6 = v6_addrs
 
     # --- 4) mDNS/Bonjour enrichment: real names + authoritative device types  #
     # Run *after* the active probe so the 128-thread sweep isn't dropping the

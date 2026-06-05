@@ -69,7 +69,7 @@ jobs:
           python -m pip install -r requirements-dev.txt
       - name: Run backend test suite
         working-directory: backend
-        run: python -m pytest test_scanner.py test_security.py test_history.py test_fingerprint.py test_report.py test_mdns.py -v
+        run: python -m pytest test_scanner.py test_security.py test_history.py test_fingerprint.py test_report.py test_mdns.py test_osfp.py -v
 
   frontend:
     name: Frontend (Vitest + build)
