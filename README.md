@@ -62,6 +62,13 @@ runs both, so you always get live data.
 ./.venv/bin/python purple_recon.py 192.168.0.10 --top-ports 1000 --html --csv
 ```
 
+**Install it as a command** (`pyproject.toml`, single-file module):
+
+```bash
+pip install -e .                 # or: pip install -e ".[nmap,web]"
+purplerecon 192.168.0.0/24 --discover
+```
+
 ---
 
 ## How it works
@@ -82,6 +89,10 @@ Phase 2  Vertical deep-dive nmap -sV (+ NSE)   service / version / vuln detectio
 - **Device-type fingerprinting** — vendor + open ports + services + hostname →
   a coarse type (Router / Phone / Printer / Camera / Media-TV / NAS / IoT /
   Computer). Evidence-driven and explainable; shows nothing when unsure.
+- **mDNS / Bonjour resolution** (web) — browses the network for advertised
+  services (printers, Apple gear, Chromecasts, Sonos, HomeKit) to fill real
+  device **names** and confident types for hosts that have no reverse-DNS record
+  — the Fing/Angry-IP "what is this device" experience. Best-effort, never faked.
 - **Service / version detection** — Phase 2 runs real `nmap -sV`; ports, service
   names and product versions stream into each device's expandable detail table.
 - **History + drift** — every completed scan is saved to SQLite; the **"What
@@ -118,8 +129,8 @@ make test      # ruff lint + CLI pytest + backend pytest + frontend Vitest
 | Suite | Count | Scope |
 |---|---|---|
 | `test_purple_recon.py` | 69 | guardrails, discovery policy, ARP/OUI, reports, export, renderers |
-| `backend/test_*.py` | 83 | scope enforcement, token gate, NSE/CVSS parsing, OS detection, device fingerprinting, SQLite history + drift, PDF report |
-| `frontend/src/**/*.test.js` | 10 | schema coercion / null-safety, derived counters |
+| `backend/test_*.py` | 95 | scope enforcement, token gate, NSE/CVSS parsing, OS detection, device + mDNS fingerprinting, SQLite history + drift, PDF report |
+| `frontend/src/**/*.test.js` | 11 | schema coercion / null-safety, derived counters |
 
 CI (`.github/workflows/ci.yml`) runs lint + all three suites on every push
 across Python 3.10–3.13.
@@ -131,7 +142,13 @@ across Python 3.10–3.13.
 ```
 purple_recon.py        # the single-file CLI engine (shared primitives)
 test_purple_recon.py   # CLI test suite
+pyproject.toml         # pip-installable: `purplerecon` console command
 backend/               # FastAPI SSE service (reuses the CLI engine)
+  ├─ scanner.py        #   two-tiered nmap pipeline + NSE/CVSS parsing
+  ├─ discovery.py      #   fast device discovery (ICMP/ARP/mDNS, no nmap)
+  ├─ fingerprint.py    #   device-type heuristics  ·  mdns.py  Bonjour names
+  ├─ security.py       #   ScopeValidator reuse + auth + concurrency cap
+  ├─ history.py        #   SQLite scan history + drift  ·  report.py  PDF
 frontend/              # Vite + React + Tailwind cockpit
 scripts/dev.sh         # runs both servers together (make dev)
 Makefile               # setup / dev / test / lint / clean

@@ -4,4 +4,5 @@ fastapi>=0.110
 uvicorn>=0.27
 python-nmap>=0.7.1
 reportlab>=4.0   # one-click PDF report (pure-Python, no system libraries)
+zeroconf>=0.130  # mDNS / Bonjour device-name + service discovery (optional but recommended)
 # pydantic 2.x is pulled in by fastapi

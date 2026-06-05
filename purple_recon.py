@@ -2215,9 +2215,14 @@ def main(argv: list[str] | None = None) -> int:
     return 0
 
 
-if __name__ == "__main__":
-    # Top-level guard: convert *any* unexpected failure or Ctrl-C into a clean,
-    # operator-friendly message and exit code — never a raw traceback.
+def cli() -> None:
+    """Console-script entry point (``purplerecon`` once pip-installed).
+
+    Wraps :func:`main` with the same last-resort guard the ``__main__`` block
+    uses, so the installed command converts *any* unexpected failure or Ctrl-C
+    into a clean, operator-friendly message and exit code — never a raw
+    traceback.
+    """
     try:
         raise SystemExit(main())
     except KeyboardInterrupt:
@@ -2231,3 +2236,7 @@ if __name__ == "__main__":
         except Exception:
             sys.stderr.write(f"Fatal error: {_exc}\n")
         raise SystemExit(1)
+
+
+if __name__ == "__main__":
+    cli()
