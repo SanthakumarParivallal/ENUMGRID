@@ -24,6 +24,7 @@ import re
 import time
 
 import nmap
+from fingerprint import guess_device_type
 from models import (
     Host,
     HostStatus,
@@ -142,7 +143,7 @@ def _service_scan(ip: str, privileged: bool, deep: bool) -> dict:
     scanner.scan(hosts=ip, arguments=args)
 
     if ip not in scanner.all_hosts():
-        return {"os": "Unknown", "hostname": None, "ports": [], "vulns": []}
+        return {"os": "Unknown", "hostname": None, "ports": [], "vulns": [], "device_type": ""}
 
     node = scanner[ip]
     ports: list[Port] = []
@@ -174,11 +175,15 @@ def _service_scan(ip: str, privileged: bool, deep: bool) -> dict:
                 )
             )
 
+    hostname = node.hostname() or None
+    open_ports = [p.port for p in ports if p.state in (PortState.OPEN, PortState.OPEN_FILTERED)]
+    services = [p.service for p in ports]
     return {
         "os": _detect_os(node, ports),
-        "hostname": node.hostname() or None,
+        "hostname": hostname,
         "ports": ports,
         "vulns": _parse_hostscript(node.get("hostscript", [])),
+        "device_type": guess_device_type(hostname=hostname, ports=open_ports, services=services),
     }
 
 
@@ -415,6 +420,8 @@ async def run_pipeline(target: str, scan_id: str | None, deep: bool = False):
             host.os = result["os"]
             host.ports = result["ports"]
             host.vulns = result["vulns"]
+            if result.get("device_type"):
+                host.device_type = result["device_type"]
             if result["hostname"]:
                 host.hostname = result["hostname"]
         except nmap.PortScannerError:
@@ -446,6 +453,7 @@ async def scan_single_host(ip: str, deep: bool = True) -> Host:
         hostname=result["hostname"],
         status=HostStatus.UP,  # the button only targets hosts already known up
         os=result["os"],
+        device_type=result.get("device_type", ""),
         scanning=False,
         ports=result["ports"],
         vulns=result["vulns"],

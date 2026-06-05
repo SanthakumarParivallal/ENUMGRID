@@ -51,15 +51,21 @@ describe('HostModel', () => {
       ip: '192.168.0.1',
       mac: '18:0c:7a:90:48:00',
       vendor: 'Sagemcom',
+      device_type: 'Router / Gateway',
       discovered_via: 'arp',
       ports: [{ port: 80, service: 'http' }],
     });
     expect(h.ip).toBe('192.168.0.1');
     expect(h.vendor).toBe('Sagemcom');
+    expect(h.device_type).toBe('Router / Gateway');
     expect(h.discovered_via).toBe('arp');
     expect(h.status).toBe('unknown'); // default
     expect(h.ports).toHaveLength(1);
     expect(h.ports[0].port).toBe(80);
+  });
+
+  it('defaults device_type to empty string when absent', () => {
+    expect(HostModel({ ip: '10.0.0.1' }).device_type).toBe('');
   });
 });
 

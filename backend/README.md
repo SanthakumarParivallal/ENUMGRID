@@ -35,15 +35,23 @@ forwards `/api/*` to this server, so the dashboard talks to it same-origin.
 | Method | Path | Description |
 | ------ | ---- | ----------- |
 | GET | `/api/health` | `{ status, nmap, privileged, max_concurrent_scans, allow_public }` |
-| GET | `/api/network` | best-effort `{ primary_ip, suggested_target }` (dashboard auto-fill) |
+| GET | `/api/network` | best-effort `{ primary_ip, suggested_target }` (dashboard auto-fill / empty-target Start) |
 | GET | `/api/scan/stream?target=<t>&id=<id>&mode=<discover\|full>&deep=<0\|1>` | SSE stream of `ScanState` frames |
-| GET | `/api/host/scan?ip=<ip>&deep=<0\|1>` | deep-scan one host, returns its `Host` (per-row action) |
+| GET | `/api/host/scan?ip=<ip>&deep=<0\|1>` | nmap one host, returns its `Host` (per-row "Nmap Scan" + "Scan All") |
+| POST | `/api/report/pdf` | body = a `ScanState` snapshot → `application/pdf` download |
+| GET | `/api/history?target=<t>&limit=<n>` | recent scan summaries (timeline) |
+| GET | `/api/history/diff?target=<t>` | drift vs the previous scan: new/gone devices + opened/closed ports |
 
-`mode=discover` (default) is the fast device inventory (MAC + vendor + hostname,
-no nmap). `mode=full` runs the two-tiered nmap pipeline. `deep=1` adds an NSE
-**vuln-script** pass (`nmap --script vuln,vulners`), populating each port's
-`vulns[]` with real findings (CVE id, CVSS, severity). It's much slower, so it's
-opt-in.
+`mode=discover` (default) is the fast device inventory (MAC + vendor + hostname +
+**device-type** fingerprint, no nmap). `mode=full` runs the two-tiered nmap
+pipeline. `deep=1` adds an NSE **vuln-script** pass (`nmap --script vuln,vulners`),
+populating each port's `vulns[]` with real findings (CVE id, CVSS, severity). It's
+much slower, so it's opt-in.
+
+Each completed scan is persisted to SQLite (`PURPLERECON_DB`, default beside the
+backend) so `/api/history*` and the dashboard's **"What Changed"** panel can show
+drift over time. The PDF report is **stateless** — it renders exactly the snapshot
+you POST, so the document always matches the screen.
 
 Quick check (streams live frames to your terminal — use *your own* subnet):
 

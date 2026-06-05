@@ -17,13 +17,15 @@ Run (from the backend/ directory, using the project's venv):
 from __future__ import annotations
 
 import json
+from datetime import datetime
 
 import history
 from discovery import run_discovery
-from fastapi import FastAPI, Header, HTTPException, Query
+from fastapi import Body, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse, Response, StreamingResponse
 from models import ScanPhase, ScanState
+from report import build_pdf
 from scanner import (
     is_privileged,
     nmap_available,
@@ -50,7 +52,7 @@ app.add_middleware(
         "http://127.0.0.1:5173",
     ],
     allow_credentials=False,
-    allow_methods=["GET"],
+    allow_methods=["GET", "POST"],
     allow_headers=["*"],
 )
 
@@ -203,6 +205,25 @@ async def host_scan(
             )
         host = await scan_single_host(ip, deep)
     return JSONResponse(host.model_dump())
+
+
+@app.post("/api/report/pdf")
+def report_pdf(payload: dict = Body(...)) -> Response:
+    """Render the supplied ScanState snapshot into a downloadable PDF report.
+
+    The dashboard POSTs exactly what it's showing, so the report can never drift
+    from the screen. Stateless: the server holds no scan, it just formats.
+    """
+    pdf = build_pdf(payload)
+    raw = str(payload.get("target") or "scan")
+    safe = "".join(c if c.isalnum() else "-" for c in raw).strip("-")[:40] or "scan"
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    filename = f"purplerecon_{safe}_{stamp}.pdf"
+    return Response(
+        content=pdf,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @app.get("/api/history")

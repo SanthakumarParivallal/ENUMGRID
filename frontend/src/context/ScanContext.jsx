@@ -314,10 +314,8 @@ export function ScanProvider({ children }) {
     [startMock, fetchDrift],
   );
 
-  const startScan = useCallback(
-    (rawTarget, deep = false) => {
-      const target = (rawTarget || '').trim();
-      if (!target) return;
+  const launch = useCallback(
+    (target, deep) => {
       activeRef.current?.stop?.(); // cancel anything already running
       const scanId = uuid();
       const startedAt = Date.now() / 1000;
@@ -334,43 +332,118 @@ export function ScanProvider({ children }) {
     [connectSSE, startMock],
   );
 
+  // Start a scan. With NO target typed, auto-detect the local network and scan
+  // the whole /24 — "just press Start" does a complete network sweep.
+  const startScan = useCallback(
+    (rawTarget, deep = false) => {
+      const target = (rawTarget || '').trim();
+      if (target) {
+        launch(target, deep);
+        return;
+      }
+      if (USE_MOCK) {
+        launch('10.0.0.0/24', deep);
+        return;
+      }
+      fetch('/api/network')
+        .then((r) => (r.ok ? r.json() : null))
+        .then((d) => launch((d && d.suggested_target) || '192.168.1.0/24', deep))
+        .catch(() => launch('192.168.1.0/24', deep));
+    },
+    [launch],
+  );
+
   const toggleDeep = useCallback(() => dispatch({ type: 'TOGGLE_DEEP' }), []);
 
-  // Per-host deep scan ("Scan Vulns" row action). Scans just this host and
-  // merges its vulns back into the grid without disturbing the others.
-  const scanHostVulns = useCallback((ip) => {
-    if (!ip) return;
+  // Run ONE host's nmap service scan and merge the result back into the grid.
+  // `deep` adds the NSE vuln-script pass. Always resolves (never rejects) so it
+  // can be chained by "Scan All". Falls back to the mock engine when offline.
+  const runHostScan = useCallback((ip, deep) => {
     dispatch({ type: 'HOST_VULN_START', ip });
 
-    const mockMerge = () => {
-      const host = stateRef.current.hosts.find((h) => h.ip === ip);
-      if (host) {
-        setTimeout(() => dispatch({ type: 'HOST_MERGE', host: deepScanHost(host) }), 700);
-      } else {
-        dispatch({ type: 'HOST_VULN_ERROR', ip });
-      }
-    };
+    const mockMerge = () =>
+      new Promise((resolve) => {
+        const host = stateRef.current.hosts.find((h) => h.ip === ip);
+        if (host) {
+          setTimeout(() => {
+            dispatch({ type: 'HOST_MERGE', host: deepScanHost(host) });
+            resolve();
+          }, 600);
+        } else {
+          dispatch({ type: 'HOST_VULN_ERROR', ip });
+          resolve();
+        }
+      });
 
-    // Offline / mock data source → skip the network and simulate locally.
-    if (USE_MOCK || stateRef.current.source === 'mock') {
-      mockMerge();
-      return;
-    }
+    if (USE_MOCK || stateRef.current.source === 'mock') return mockMerge();
 
     const signal =
       typeof AbortSignal !== 'undefined' && AbortSignal.timeout
-        ? AbortSignal.timeout(150000) // NSE scripts are slow; allow generous time
+        ? AbortSignal.timeout(180000) // -sV (+ optional NSE) can be slow
         : undefined;
-    fetch(`/api/host/scan?ip=${encodeURIComponent(ip)}&deep=1`, { signal })
+    return fetch(`/api/host/scan?ip=${encodeURIComponent(ip)}&deep=${deep ? 1 : 0}`, { signal })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((host) => {
         if (host && host.ip) dispatch({ type: 'HOST_MERGE', host });
         else dispatch({ type: 'HOST_VULN_ERROR', ip });
       })
       .catch((e) => {
-        // Connection refused (backend down) → offline mock; timeout → give up.
         if (e && e.name === 'AbortError') dispatch({ type: 'HOST_VULN_ERROR', ip });
-        else mockMerge();
+        else return mockMerge();
+      });
+  }, []);
+
+  // Per-host "Nmap Scan" row action — fast service scan; Deep toggle adds NSE.
+  const scanHostVulns = useCallback(
+    (ip) => {
+      if (ip) runHostScan(ip, stateRef.current.deepScan);
+    },
+    [runHostScan],
+  );
+
+  // "Scan All" — nmap every live, not-yet-scanned host (a few at a time; the
+  // backend also caps concurrency). One click fills OS/ports/services for the
+  // whole network.
+  const scanAll = useCallback(() => {
+    const deep = stateRef.current.deepScan;
+    const queue = stateRef.current.hosts
+      .filter((h) => h.status === HostStatus.UP && !h.ports.length && !h.vulnScanning)
+      .map((h) => h.ip);
+    if (!queue.length) return;
+    let i = 0;
+    const worker = () => {
+      if (i >= queue.length) return Promise.resolve();
+      const ip = queue[i++];
+      return runHostScan(ip, deep).then(worker);
+    };
+    const CONCURRENCY = 3;
+    for (let w = 0; w < Math.min(CONCURRENCY, queue.length); w += 1) worker();
+  }, [runHostScan]);
+
+  // One-click PDF report: POST the exact on-screen snapshot to the backend
+  // renderer and trigger a download. Stateless — report always matches screen.
+  const downloadReport = useCallback(() => {
+    const s = stateRef.current;
+    if (!s.hosts.length) return;
+    fetch('/api/report/pdf', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target: s.target, hosts: s.hosts }),
+    })
+      .then((r) => (r.ok ? r.blob() : Promise.reject(new Error('report failed'))))
+      .then((blob) => {
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `purplerecon_${(s.target || 'scan').replace(/[^a-z0-9]+/gi, '-')}.pdf`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+      })
+      .catch(() => {
+        // eslint-disable-next-line no-console
+        console.warn('[report] PDF generation needs the live backend running');
       });
   }, []);
 
@@ -393,9 +466,11 @@ export function ScanProvider({ children }) {
       setTarget,
       toggleDeep,
       scanHostVulns,
+      scanAll,
+      downloadReport,
       shortId,
     }),
-    [state, stats, startScan, stopScan, setTarget, toggleDeep, scanHostVulns],
+    [state, stats, startScan, stopScan, setTarget, toggleDeep, scanHostVulns, scanAll, downloadReport],
   );
 
   return <ScanContext.Provider value={value}>{children}</ScanContext.Provider>;
