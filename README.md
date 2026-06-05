@@ -46,11 +46,11 @@ A green **LIVE STREAM** badge means the real backend is connected; amber
 **DEMO STREAM** means only the frontend is running (offline mock data). `make dev`
 runs both, so you always get live data.
 
-> **OS detection:** nmap's authoritative OS fingerprint (`-O`) needs raw sockets,
-> so run the backend with `sudo` to enable it. Unprivileged (the default), the
-> tool infers OS from service banners/CPEs where possible and otherwise shows a
-> **device-type** label (Router / Phone / Printer / Camera / …) derived from the
-> vendor + open ports — a real, explainable signal, never a hallucinated OS.
+> **OS detection:** even **unprivileged**, every responsive host gets an OS
+> **family** from its ping-reply TTL (64 → Linux/macOS/Unix, 128 → Windows, 255 →
+> network device/IoT) plus service-banner/CPE inference — shown in the *Device /
+> OS* column. Run the backend with `sudo` to add nmap's authoritative `-O`
+> fingerprint on top. The OS is never fabricated: ambiguous TTLs stay "Unknown".
 
 ### Or just the CLI
 
@@ -93,6 +93,14 @@ Phase 2  Vertical deep-dive nmap -sV (+ NSE)   service / version / vuln detectio
   services (printers, Apple gear, Chromecasts, Sonos, HomeKit) to fill real
   device **names** and confident types for hosts that have no reverse-DNS record
   — the Fing/Angry-IP "what is this device" experience. Best-effort, never faked.
+- **OS family (unprivileged)** — ping-reply **TTL** → OS family (Linux/macOS/Unix
+  · Windows · network/IoT); `sudo` adds nmap `-O`. Honest: ambiguous → Unknown.
+- **IPv6-aware** — `ScopeValidator` is dual-stack (accepts IPv6 targets, refuses
+  `::1`/multicast/link-local/oversized); the **NDP neighbour cache** correlates
+  each device's IPv6 address to its IPv4 entry by MAC (a "v6" badge in the grid);
+  per-host nmap uses `-6` for IPv6 targets.
+- **Topology map** (web) — a Zenmap-style radial view: the gateway as the hub,
+  devices on rings coloured by type, click a node to nmap it. Toggle Matrix ⇄ Topology.
 - **Service / version detection** — Phase 2 runs real `nmap -sV`; ports, service
   names and product versions stream into each device's expandable detail table.
 - **History + drift** — every completed scan is saved to SQLite; the **"What
@@ -128,8 +136,8 @@ make test      # ruff lint + CLI pytest + backend pytest + frontend Vitest
 
 | Suite | Count | Scope |
 |---|---|---|
-| `test_purple_recon.py` | 69 | guardrails, discovery policy, ARP/OUI, reports, export, renderers |
-| `backend/test_*.py` | 95 | scope enforcement, token gate, NSE/CVSS parsing, OS detection, device + mDNS fingerprinting, SQLite history + drift, PDF report |
+| `test_purple_recon.py` | 79 | guardrails (incl. IPv6 scope), NDP/ARP/OUI parsing, discovery policy, reports, export, renderers |
+| `backend/test_*.py` | 104 | scope enforcement, token gate, NSE/CVSS parsing, OS/TTL + device + mDNS fingerprinting, SQLite history + drift, PDF report |
 | `frontend/src/**/*.test.js` | 11 | schema coercion / null-safety, derived counters |
 
 CI (`.github/workflows/ci.yml`) runs lint + all three suites on every push
@@ -144,10 +152,11 @@ purple_recon.py        # the single-file CLI engine (shared primitives)
 test_purple_recon.py   # CLI test suite
 pyproject.toml         # pip-installable: `purplerecon` console command
 backend/               # FastAPI SSE service (reuses the CLI engine)
-  ├─ scanner.py        #   two-tiered nmap pipeline + NSE/CVSS parsing
-  ├─ discovery.py      #   fast device discovery (ICMP/ARP/mDNS, no nmap)
+  ├─ scanner.py        #   two-tiered nmap pipeline (+ nmap -6) + NSE/CVSS parsing
+  ├─ discovery.py      #   fast device discovery (ICMP/ARP/NDP/mDNS/TTL, no nmap)
   ├─ fingerprint.py    #   device-type heuristics  ·  mdns.py  Bonjour names
-  ├─ security.py       #   ScopeValidator reuse + auth + concurrency cap
+  ├─ osfp.py           #   OS family from ping TTL (unprivileged)
+  ├─ security.py       #   ScopeValidator reuse (dual-stack) + auth + concurrency cap
   ├─ history.py        #   SQLite scan history + drift  ·  report.py  PDF
 frontend/              # Vite + React + Tailwind cockpit
 scripts/dev.sh         # runs both servers together (make dev)

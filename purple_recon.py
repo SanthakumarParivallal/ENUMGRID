@@ -337,20 +337,28 @@ class ScopeValidator:
         self.max_hosts = max_hosts
 
     @staticmethod
-    def _classify(addr: ipaddress.IPv4Address) -> str | None:
-        """Return a human reason if ``addr`` is forbidden, else ``None``."""
+    def _classify(
+        addr: ipaddress.IPv4Address | ipaddress.IPv6Address,
+    ) -> str | None:
+        """Return a human reason if ``addr`` is forbidden, else ``None``.
+
+        Works for both IPv4 and IPv6 — the ``ipaddress`` properties below are
+        defined on both, so loopback (``127.0.0.0/8`` / ``::1``), multicast
+        (``224.0.0.0/4`` / ``ff00::/8``), link-local, unspecified and reserved
+        space are all refused regardless of family.
+        """
         if addr.is_loopback:
-            return "loopback (127.0.0.0/8)"
+            return "loopback (127.0.0.0/8 or ::1)"
         if addr.is_multicast:
-            return "multicast (224.0.0.0/4)"
+            return "multicast (224.0.0.0/4 or ff00::/8)"
         if addr.is_unspecified:
-            return "unspecified (0.0.0.0)"
+            return "unspecified (0.0.0.0 or ::)"
         if addr.is_link_local:
-            return "link-local (169.254.0.0/16)"
+            return "link-local (169.254.0.0/16 or fe80::/10)"
         if addr.is_reserved:
             return "reserved / broadcast space"
         # The all-ones limited broadcast is reserved, but guard it explicitly.
-        if int(addr) == 0xFFFFFFFF:
+        if isinstance(addr, ipaddress.IPv4Address) and int(addr) == 0xFFFFFFFF:
             return "limited broadcast (255.255.255.255)"
         return None
 
@@ -433,16 +441,17 @@ class ScopeValidator:
         )
 
     @staticmethod
-    def _parse_entry(entry: str) -> ipaddress.IPv4Network:
-        """Parse a single entry into an IPv4 network (IPv6 is rejected here)."""
-        # Reject IPv6 early with a friendly message (out of scope for v1).
-        if ":" in entry:
-            raise ScopeError(
-                f"IPv6 target '{entry}' is not supported in this version."
-            )
+    def _parse_entry(entry: str) -> ipaddress.IPv4Network | ipaddress.IPv6Network:
+        """Parse a single entry into an IPv4 *or* IPv6 network.
+
+        ``ip_network`` auto-detects the family. An oversized IPv6 prefix (e.g. a
+        ``/64``) is not rejected here — it simply trips the host cap in
+        :meth:`validate` once expansion exceeds ``max_hosts``, which is the
+        correct behaviour (you can't sweep 2^64 addresses).
+        """
         try:
             # strict=False lets the user pass a host bit set in a CIDR.
-            return ipaddress.IPv4Network(entry, strict=False)
+            return ipaddress.ip_network(entry, strict=False)
         except ValueError as exc:
             raise ScopeError(f"Invalid target '{entry}': {exc}") from exc
 
@@ -1816,6 +1825,68 @@ def _read_arp_table() -> dict[str, str]:
             pass
 
     return table
+
+
+# Non-physical interfaces whose neighbours aren't real LAN devices (Apple
+# AWDL/llw peer-to-peer, VPN tunnels, loopback, bridges).
+_NDP_SKIP_IFACES = ("lo", "awdl", "llw", "utun", "gif", "stf", "bridge", "ap", "anpi", "tun", "tap")
+
+
+def _read_ndp_table() -> dict[str, list[str]]:
+    """Read the IPv6 neighbour cache as ``{mac: [ipv6, ...]}`` for LAN devices.
+
+    The IPv6 analogue of the ARP cache: ``ndp -an`` (macOS / BSD) or
+    ``ip -6 neigh`` (Linux). Incomplete entries and non-physical interfaces
+    (AWDL, VPN ``utun``, loopback) are filtered out. Keyed by MAC so an IPv6
+    address can be correlated to the same device discovered over IPv4.
+    Best-effort + unprivileged; returns ``{}`` on any failure.
+    """
+    by_mac: dict[str, set[str]] = {}
+
+    def _skip_iface(iface: str) -> bool:
+        return any(iface.startswith(s) for s in _NDP_SKIP_IFACES)
+
+    # macOS / BSD: `ndp -an`
+    try:
+        out = subprocess.run(
+            ["ndp", "-an"], capture_output=True, text=True, timeout=6, check=False
+        ).stdout
+    except (OSError, subprocess.TimeoutExpired):
+        out = ""
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) < 2 or "(incomplete)" in line:
+            continue
+        neigh, mac = parts[0], parts[1]
+        if "%" in neigh:
+            addr, iface = neigh.split("%", 1)
+        else:
+            addr, iface = neigh, (parts[2] if len(parts) > 2 else "")
+        if _skip_iface(iface):
+            continue
+        mac = _normalise_mac(mac)
+        if _is_host_mac(mac):
+            by_mac.setdefault(mac, set()).add(addr)
+
+    # Linux fallback: `ip -6 neigh`
+    if not by_mac:
+        try:
+            out = subprocess.run(
+                ["ip", "-6", "neigh"], capture_output=True, text=True, timeout=6, check=False
+            ).stdout
+        except (OSError, subprocess.TimeoutExpired):
+            out = ""
+        for line in out.splitlines():
+            toks = line.split()
+            if "lladdr" not in toks or "dev" not in toks:
+                continue
+            addr = toks[0]
+            iface = toks[toks.index("dev") + 1] if toks.index("dev") + 1 < len(toks) else ""
+            mac = _normalise_mac(toks[toks.index("lladdr") + 1])
+            if not _skip_iface(iface) and _is_host_mac(mac) and toks[-1] not in ("FAILED", "INCOMPLETE"):
+                by_mac.setdefault(mac, set()).add(addr)
+
+    return {mac: sorted(addrs) for mac, addrs in by_mac.items()}
 
 
 def _oui_key(six_hex: str) -> str:

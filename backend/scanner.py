@@ -57,9 +57,11 @@ _MAX_VULNERS = 8  # cap CVEs per port so the UI stays readable
 CRITICAL_PORTS = {21, 23, 135, 139, 445, 1433, 3389, 5985, 6379}
 CRITICAL_SERVICES = {"telnet", "ftp", "microsoft-ds", "ms-wbt-server", "rdp", "vnc"}
 
-# Strict target allowlist: IPv4 / CIDR / octet-range / hostname. Must start with
-# an alphanumeric (blocks leading '-' flags) and contain no whitespace.
-_TARGET_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._\-/]{0,62}$")
+# Strict target allowlist: IPv4 / IPv6 / CIDR / octet-range / hostname. Must
+# start with an alphanumeric or ':' (IPv6 "::"), block a leading '-' (flags),
+# and contain no whitespace — so no extra nmap args can ever be injected. Colon
+# and '%' (IPv6 + link-local scope) are allowed; they can't split an argument.
+_TARGET_RE = re.compile(r"^[A-Za-z0-9:][A-Za-z0-9._:\-/%]{0,90}$")
 
 _NMAP_STATE_MAP = {
     "open": PortState.OPEN,
@@ -135,6 +137,8 @@ def _service_scan(ip: str, privileged: bool, deep: bool) -> dict:
     `deep` adds NSE vuln scripts; `privileged` (root) adds OS detection (-O).
     """
     args = SERVICE_ARGS
+    if ":" in ip:  # IPv6 target — nmap needs -6
+        args += " -6"
     if privileged:
         args += " -O"
     if deep:
