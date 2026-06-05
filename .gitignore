@@ -28,6 +28,11 @@ purplerecon_*.html
 purplerecon_*.csv
 *.rdb
 
+# ---- Scan history database (local operator data) ----
+*.db
+*.sqlite
+*.sqlite3
+
 # ---- OUI cache (large, downloadable) ----
 oui.csv
 oui.txt

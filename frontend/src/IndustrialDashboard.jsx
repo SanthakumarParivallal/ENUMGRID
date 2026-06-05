@@ -663,11 +663,132 @@ function SessionLog() {
   );
 }
 
+function DriftRow({ sign, signClass, ip, label, dim }) {
+  return (
+    <div className="flex items-center gap-2 px-3 py-2">
+      <span className={`w-3 shrink-0 text-center font-mono text-sm font-bold ${signClass}`}>{sign}</span>
+      <div className="min-w-0 flex-1">
+        <div className={`truncate font-mono text-xs ${dim ? 'text-slate-400' : 'text-slate-200'}`}>{ip}</div>
+        <div className="truncate text-[10px] text-slate-500">{label}</div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * "What Changed" — network drift vs the previous scan of the same target.
+ * Populated from `/api/history/diff` after a live scan completes. Renders
+ * nothing in the mock/offline path (no history backend) or before the first
+ * completed scan this session.
+ */
+function DriftPanel() {
+  const { drift } = useScan();
+  if (!drift) return null;
+
+  const icon = <Icon.Activity className="h-3.5 w-3.5 text-matrix" />;
+
+  if (!drift.available) {
+    return (
+      <Panel title="What Changed" icon={icon} bodyClassName="px-3 py-2.5">
+        <p className="text-[11px] leading-relaxed text-slate-400">
+          Baseline recorded for{' '}
+          <span className="font-mono text-slate-300">{drift.target}</span>. Re-scan this
+          network to see what changed since.
+        </p>
+      </Panel>
+    );
+  }
+
+  if (!drift.has_changes) {
+    return (
+      <Panel title="What Changed" icon={icon} bodyClassName="px-3 py-2.5">
+        <div className="flex items-center gap-2 text-[11px] font-semibold text-matrix">
+          <Icon.Check className="h-3.5 w-3.5" />
+          No changes since last scan — network stable.
+        </div>
+      </Panel>
+    );
+  }
+
+  const appeared = drift.appeared_hosts || [];
+  const disappeared = drift.disappeared_hosts || [];
+  const changed = drift.changed_hosts || [];
+
+  return (
+    <Panel
+      title="What Changed"
+      icon={icon}
+      action={
+        <span className="rounded-sm bg-matrix/15 px-1.5 py-0.5 font-mono text-[9px] uppercase tracking-wider text-matrix">
+          drift
+        </span>
+      }
+      bodyClassName="divide-y divide-slate-800 max-h-64 overflow-y-auto"
+    >
+      {appeared.map((h) => (
+        <DriftRow
+          key={`a-${h.ip}`}
+          sign="+"
+          signClass="text-matrix"
+          ip={h.ip}
+          label={`new · ${h.vendor || h.hostname || 'unknown device'}`}
+        />
+      ))}
+      {disappeared.map((h) => (
+        <DriftRow
+          key={`d-${h.ip}`}
+          sign="−"
+          signClass="text-slate-500"
+          ip={h.ip}
+          label={`gone · ${h.vendor || h.hostname || 'offline'}`}
+          dim
+        />
+      ))}
+      {changed.map((c) => (
+        <div key={`c-${c.ip}`} className="px-3 py-2">
+          <div className="flex items-center gap-2">
+            <span className="w-3 text-center font-mono text-sm font-bold text-amber">~</span>
+            <span className="font-mono text-xs text-slate-200">{c.ip}</span>
+          </div>
+          <div className="mt-1 flex flex-wrap gap-1 pl-5">
+            {(c.opened_ports || []).map((p) => (
+              <span
+                key={`o-${p}`}
+                className="rounded-sm border border-matrix/40 bg-matrix/10 px-1 font-mono text-[10px] text-matrix"
+              >
+                +{p}
+              </span>
+            ))}
+            {(c.closed_ports || []).map((p) => (
+              <span
+                key={`cl-${p}`}
+                className="rounded-sm border border-slate-600/40 bg-slate-700/20 px-1 font-mono text-[10px] text-slate-400"
+              >
+                −{p}
+              </span>
+            ))}
+            {(c.service_changes || []).map((s, i) => (
+              <span
+                key={`s-${i}`}
+                className="rounded-sm border border-amber/40 bg-amber/10 px-1 font-mono text-[10px] text-amber"
+                title={`${s.from} → ${s.to}`}
+              >
+                ~{s.port}
+              </span>
+            ))}
+          </div>
+        </div>
+      ))}
+    </Panel>
+  );
+}
+
 function Sidebar() {
   return (
     <aside className="flex w-[320px] shrink-0 flex-col gap-3 overflow-y-auto border-r border-slate-800 bg-steel-950/60 p-3">
       <PipelineStepper />
       <StatGrid />
+      <DriftPanel />
       <SessionLog />
       <div className="mt-auto px-1 pt-2 font-mono text-[9px] leading-relaxed text-slate-600">
         <p className="uppercase tracking-widest text-slate-500">// operator note</p>
