@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "purplerecon"
+version = "1.0.0"
+description = "Two-tiered purple-team network enumeration cockpit — Angry-IP-style device discovery plus nmap service/vuln depth, in one terminal UI."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Authorized / educational use only" }
+authors = [{ name = "santhakumarParivallal" }]
+keywords = ["security", "network", "enumeration", "nmap", "discovery", "purple-team", "asset-inventory"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Topic :: Security",
+    "Topic :: System :: Networking :: Monitoring",
+    "Environment :: Console",
+    "Intended Audience :: Information Technology",
+]
+
+# The CLI needs only `rich`; nmap is optional and degrades to a built-in socket
+# scanner when absent. Install extras for the FastAPI web cockpit.
+dependencies = ["rich>=13.0"]
+
+[project.optional-dependencies]
+nmap = ["python-nmap>=0.7.1"]
+web = [
+    "fastapi>=0.110",
+    "uvicorn>=0.27",
+    "python-nmap>=0.7.1",
+    "reportlab>=4.0",
+    "zeroconf>=0.130",
+]
+dev = ["pytest>=8.0", "ruff>=0.6"]
+
+[project.urls]
+Homepage = "https://example.com/purplerecon"
+
+[project.scripts]
+purplerecon = "purple_recon:cli"
+
+# Single-file module (not a package directory).
+[tool.setuptools]
+py-modules = ["purple_recon"]

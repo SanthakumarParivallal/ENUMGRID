@@ -27,6 +27,7 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 from fingerprint import guess_device_type  # noqa: E402
+from mdns import discover_mdns  # noqa: E402
 from models import Host, HostStatus, ScanPhase, ScanState  # noqa: E402
 
 import purple_recon as pr  # noqa: E402  (path set above)
@@ -154,8 +155,29 @@ async def run_discovery(target: str, scan_id: str | None):
     finally:
         socket.setdefaulttimeout(previous_timeout)
 
-    # Refine the device-type guess now that hostnames are in (vendor + hostname).
+    # --- 4) mDNS/Bonjour enrichment: real names + authoritative device types  #
+    # Run *after* the active probe so the 128-thread sweep isn't dropping the
+    # multicast replies; the quiet window makes name resolution reliable.
+    try:
+        mdns = await loop.run_in_executor(None, lambda: discover_mdns(5.0))
+    except Exception:
+        mdns = {}
+    for ip, info in mdns.items():
+        if ip not in candidate_set:
+            continue  # keep results inside the requested scope
+        host = hosts.get(ip)
+        if host is None:
+            # Announced over mDNS but missed by ICMP/ARP — still a real device.
+            host = Host(ip=ip, status=HostStatus.UP, discovered_via="mdns")
+            hosts[ip] = host
+        if info.get("hostname") and not host.hostname:
+            host.hostname = info["hostname"]
+        if info.get("device_type"):
+            host.device_type = info["device_type"]  # service-based type is authoritative
+
+    # Fill any still-empty device types from vendor + hostname (mDNS wins above).
     for host in hosts.values():
-        host.device_type = guess_device_type(vendor=host.vendor, hostname=host.hostname)
+        if not host.device_type:
+            host.device_type = guess_device_type(vendor=host.vendor, hostname=host.hostname)
 
     yield snapshot(ScanPhase.COMPLETE, 100, finished=True)

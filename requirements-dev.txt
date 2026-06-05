@@ -10,3 +10,4 @@ ruff>=0.6
 fastapi>=0.110
 pydantic>=2.0
 reportlab>=4.0  # PDF report generation (test_report.py)
+zeroconf>=0.130  # mDNS device discovery (test_mdns.py)
