@@ -20,10 +20,13 @@ import asyncio
 import json
 from datetime import datetime
 
+import adscan
 import audit
+import cloudscan
 import credscan
 import cve
 import history
+import jobs
 import notify
 import osv
 import threatintel
@@ -387,6 +390,132 @@ def audit_log(
     if not token_ok(token, authorization):
         raise HTTPException(status_code=401, detail="unauthorized")
     return {"entries": audit.tail(limit)}
+
+
+# --------------------------------------------------------------------------- #
+# Cloud (AWS) + Active Directory (LDAP) discovery — credential-gated.
+# --------------------------------------------------------------------------- #
+@app.get("/api/cloud/aws")
+def cloud_aws(
+    region: str | None = Query(None),
+    token: str | None = Query(None),
+    authorization: str | None = Header(None),
+) -> JSONResponse:
+    """AWS inventory: EC2 + world-open security groups + public S3 (read-only).
+
+    Uses your standard AWS credential chain (env / shared config / IAM role)."""
+    if not admin_ok(token, authorization):
+        raise HTTPException(status_code=401, detail="admin token required")
+    result = cloudscan.aws_inventory(region)
+    audit.record("cloud_aws", region=region or "default", ok=bool(result.get("ok")),
+                 assets=len(result.get("assets", [])), findings=len(result.get("findings", [])))
+    return JSONResponse(result)
+
+
+@app.post("/api/ad/enum")
+def ad_enum(
+    payload: dict = Body(...),
+    token: str | None = Query(None),
+    authorization: str | None = Header(None),
+) -> JSONResponse:
+    """Active Directory enumeration over LDAP (computers + users), read-only.
+
+    Body: ``{dc_host, domain, username, password, use_ssl?}``. Credentials are
+    used in memory only — never logged. Authorized use only (your own domain)."""
+    if not admin_ok(token, authorization):
+        raise HTTPException(status_code=401, detail="admin token required")
+    required = ("dc_host", "domain", "username", "password")
+    if not all(str(payload.get(k) or "").strip() for k in required):
+        return JSONResponse({"ok": False, "error": "dc_host, domain, username, password required"},
+                            status_code=400)
+    result = adscan.enumerate_domain(
+        str(payload["dc_host"]).strip(), str(payload["domain"]).strip(),
+        str(payload["username"]).strip(), str(payload["password"]),
+        use_ssl=bool(payload.get("use_ssl", True)),
+    )
+    audit.record("ad_enum", domain=payload.get("domain"), user=payload.get("username"),
+                 ok=bool(result.get("ok")), computers=len(result.get("computers", [])))
+    return JSONResponse(result)
+
+
+# --------------------------------------------------------------------------- #
+# Job queue — submit scans as background jobs, poll for results (scale).
+# --------------------------------------------------------------------------- #
+def _job_host_scan(params: dict) -> dict:
+    """Worker handler: run one nmap host scan and return the Host record."""
+    ip = str(params.get("ip") or "")
+    vet_target(ip)  # scope guard inside the worker too
+    host = asyncio.run(scan_single_host(
+        ip, deep=bool(params.get("deep", False)),
+        profile=params.get("profile"), scripts=params.get("scripts"), ports=params.get("ports"),
+    ))
+    return host.model_dump()
+
+
+_JOB_HANDLERS = {"host_scan": _job_host_scan}
+_job_stop = asyncio.Event()
+
+
+@app.on_event("startup")
+async def _start_workers() -> None:
+    asyncio.create_task(jobs.run_workers(_JOB_HANDLERS, _job_stop))
+
+
+@app.on_event("shutdown")
+async def _stop_workers() -> None:
+    _job_stop.set()
+
+
+@app.post("/api/jobs/submit")
+def jobs_submit(
+    payload: dict = Body(...),
+    token: str | None = Query(None),
+    authorization: str | None = Header(None),
+) -> JSONResponse:
+    """Queue a scan as a background job → returns a job id to poll.
+
+    Body: ``{kind: "host_scan", ip, profile?, deep?, scripts?, ports?}``."""
+    if not admin_ok(token, authorization):
+        raise HTTPException(status_code=401, detail="admin token required")
+    kind = str(payload.get("kind") or "host_scan")
+    if kind not in _JOB_HANDLERS:
+        return JSONResponse({"error": f"unknown job kind '{kind}'"}, status_code=400)
+    params = {k: v for k, v in payload.items() if k != "kind"}
+    if params.get("ip"):
+        try:
+            vet_target(str(params["ip"]))
+        except ScopeRejected as exc:
+            return JSONResponse({"error": exc.reason}, status_code=400)
+    job_id = jobs.enqueue(kind, params)
+    audit.record("job_submit", kind=kind, job_id=job_id, target=params.get("ip"))
+    return JSONResponse({"job_id": job_id, "status": "queued"})
+
+
+@app.get("/api/jobs")
+def jobs_list(
+    limit: int = Query(50),
+    token: str | None = Query(None),
+    authorization: str | None = Header(None),
+) -> dict:
+    """Recent jobs (newest first)."""
+    if not token_ok(token, authorization):
+        raise HTTPException(status_code=401, detail="unauthorized")
+    return {"jobs": jobs.list_jobs(limit)}
+
+
+@app.get("/api/jobs/{job_id}")
+def jobs_get(
+    job_id: int,
+    token: str | None = Query(None),
+    authorization: str | None = Header(None),
+) -> JSONResponse:
+    """One job's status + result."""
+    if not token_ok(token, authorization):
+        raise HTTPException(status_code=401, detail="unauthorized")
+    job = jobs.get(job_id)
+    if not job:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    return JSONResponse(job)
 
 
 @app.get("/")

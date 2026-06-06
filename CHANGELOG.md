@@ -63,6 +63,19 @@ identity, automatic CVE intelligence, measured accuracy and a security self-audi
 - **RBAC** (`security.py`) — admin (scan) vs viewer (read-only) tokens; open in
   localhost dev. **TLS**: `./start.sh --tls` serves the backend over HTTPS.
 
+### Reach & scale
+- **Cloud (AWS) discovery** (`backend/cloudscan.py`, `GET /api/cloud/aws`) — EC2
+  + world-open security groups + public S3, via boto3 (optional) + your AWS
+  credential chain. Read-only.
+- **Active Directory enumeration** (`backend/adscan.py`, `POST /api/ad/enum`) —
+  computers + users over LDAP via ldap3 (optional). Read-only; creds never logged.
+- **Job queue** (`backend/jobs.py`, `/api/jobs/*`) — submit a scan, poll for the
+  result; a bounded worker pool drains a persistent SQLite queue (survives
+  restarts). Scales vertically; the queue is swappable for Redis (horizontal).
+- **SSO** documented via authenticating reverse proxy (Caddy + oauth2-proxy) on
+  top of the built-in RBAC. Responsive UI fixes (no more clipped target field /
+  overlapping inputs on small screens).
+
 ### Operations
 - **SNMP device naming** (`backend/snmp.py`) — names switches/APs/printers with
   no DNS/mDNS from SNMP sysName/sysDescr.
@@ -91,7 +104,7 @@ identity, automatic CVE intelligence, measured accuracy and a security self-audi
 - [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md).
 
 ### Quality & reproducibility
-- **386 tests** (CLI 84 · backend 278 · evaluation 7 · frontend 17): unit,
+- **403 tests** (CLI 84 · backend 295 · evaluation 7 · frontend 17): unit,
   **FastAPI TestClient integration**, **hypothesis fuzzing**. ruff 0,
   **bandit 0 high/medium**, pip-audit 0 CVEs.
 - **Measured evaluation** vs `nmap -sn` ([`docs/EVALUATION.md`](docs/EVALUATION.md)):

@@ -7,4 +7,9 @@ reportlab>=4.0   # one-click PDF report (pure-Python, no system libraries)
 zeroconf>=0.130  # mDNS / Bonjour device-name + service discovery (optional but recommended)
 paramiko>=3.4    # optional: authenticated (SSH) credentialed host scans (exact OS/packages)
 # pydantic 2.x is pulled in by fastapi
-# CVE/threat-intel (NVD, CISA KEV, FIRST EPSS) + SNMP use only the Python stdlib.
+# CVE/threat-intel (NVD, CISA KEV, FIRST EPSS), OSV backport matching, SNMP and
+# the job queue use only the Python stdlib.
+#
+# Optional integrations (install only if you use them):
+#   boto3>=1.34   # AWS cloud asset discovery  (GET /api/cloud/aws)
+#   ldap3>=2.9    # Active Directory enumeration (POST /api/ad/enum)
