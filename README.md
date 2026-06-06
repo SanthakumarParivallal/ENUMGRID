@@ -89,6 +89,8 @@ Phase 2  Vertical deep-dive nmap -sV (+ NSE)   service / version / vuln detectio
   `RST` is `weak` and suppressed by default (firewalls forge those).
 - **Vendor naming** — MAC → IEEE OUI lookup (39k+ entries via `--download-oui`);
   randomized "private Wi-Fi" MACs are detected and labelled, not guessed.
+> 📊 **Measured:** on a real `/24`, PurpleRecon found **11/12 live hosts (recall 1.00)** vs unprivileged `nmap -sn`'s **3 (recall 0.27)** — faster, zero false positives. See [`docs/EVALUATION.md`](docs/EVALUATION.md).
+
 - **Device-type fingerprinting** — vendor + open ports + services + hostname →
   a coarse type (Router / Phone / Printer / Camera / Media-TV / NAS / IoT /
   Computer). Evidence-driven and explainable; shows nothing when unsure.

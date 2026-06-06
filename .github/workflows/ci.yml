@@ -66,6 +66,8 @@ jobs:
           test "$code" -eq 2 || { echo "expected exit 2, got $code"; exit 1; }
       - name: Run CLI test suite (with coverage gate)
         run: python -m pytest -v --cov=purple_recon --cov-report=term-missing --cov-fail-under=50
+      - name: Evaluation harness unit tests
+        run: python -m pytest evaluation/test_benchmark.py -v
 
   backend:
     name: Backend pytest (FastAPI / scope guard / NSE parsing)
