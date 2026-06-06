@@ -31,7 +31,7 @@ def _rejects(target: str) -> bool:
         "239.255.255.250",    # multicast (SSDP)
         "255.255.255.255",    # limited broadcast
         "169.254.10.10",      # link-local
-        "0.0.0.0",            # unspecified
+        "0.0.0.0",            # unspecified  # nosec B104 - test data, not a bind addr
     ],
 )
 def test_protected_space_is_refused(target):

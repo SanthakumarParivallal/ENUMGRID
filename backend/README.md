@@ -84,8 +84,16 @@ needs no configuration. Set a token before exposing the API beyond localhost.
 ## Notes
 
 - **Run as root for richer data.** Unprivileged scans use TCP connect discovery
-  and connect service scans (no `sudo` needed). Running with `sudo` enables OS
-  detection (`-O`) and raw-packet host discovery.
+  and connect service scans (no `sudo` needed) — and still derive a *specific* OS
+  label by fusing TTL + OUI vendor + hostname + mDNS `model=`. Running with `sudo`
+  (easiest: `./start.sh --accurate-os` from the repo root) enables nmap OS
+  detection (`-O`, exact build) and raw-packet/SYN host discovery.
+- **Scan profiles** (`GET /api/profiles`): 11 Zenmap-style presets —
+  `quick · default · intense · recon · aggressive · stealth · vuln · safe ·
+  fullports · comprehensive · udp`. A request only sends a profile *name* plus an
+  optional validated port spec and NSE script list; the nmap args are
+  server-defined constants, so no user input is ever spliced into the command
+  line. Intrusive `brute`/`exploit`/`dos`/`malware` scripts are refused.
 - **Tunables** (env vars): `NMAP_DISCOVERY_ARGS`, `NMAP_SERVICE_ARGS`,
   `NMAP_TOP_PORTS`.
 - **Target safety.** `target` is strictly allowlisted (IPv4 / CIDR / range /

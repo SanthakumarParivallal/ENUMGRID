@@ -37,6 +37,10 @@ enumgrid_*.csv
 oui.csv
 oui.txt
 
+# ---- start.sh runtime logs ----
+.backend.log
+.frontend.log
+
 # ---- Editor / OS noise ----
 .DS_Store
 .idea/

@@ -29,7 +29,8 @@ if _ROOT not in sys.path:
 from fingerprint import guess_device_type  # noqa: E402
 from mdns import discover_mdns  # noqa: E402
 from models import Host, HostStatus, ScanPhase, ScanState  # noqa: E402
-from osfp import os_hint  # noqa: E402
+from nbns import nbns_names  # noqa: E402
+from osfp import os_hint, refine_os  # noqa: E402
 
 import purple_recon as pr  # noqa: E402  (path set above)
 
@@ -156,6 +157,19 @@ async def run_discovery(target: str, scan_id: str | None):
     finally:
         socket.setdefaulttimeout(previous_timeout)
 
+    # --- 3a) NetBIOS (NBNS) names for hosts still lacking one --------------- #
+    # Catches Windows PCs, printers, NAS and IoT that have no reverse-DNS record
+    # but answer a NetBIOS node-status query (the Angry IP / Fing technique).
+    no_name = [ip for ip, h in hosts.items() if not h.hostname]
+    if no_name:
+        try:
+            nb = await loop.run_in_executor(None, lambda: nbns_names(no_name, 1.0))
+        except Exception:
+            nb = {}
+        for ip, name in nb.items():
+            if name and not hosts[ip].hostname:
+                hosts[ip].hostname = name
+
     # --- 3b) OS-family hint from ping-reply TTL (unprivileged, parallel) ---- #
     # Real `nmap -O` needs root; this gives an honest OS family without it. A
     # later nmap service scan can still refine it (CPE/banner), and the client
@@ -198,10 +212,31 @@ async def run_discovery(target: str, scan_id: str | None):
             host.hostname = info["hostname"]
         if info.get("device_type"):
             host.device_type = info["device_type"]  # service-based type is authoritative
+        if info.get("os"):
+            host.os = info["os"]  # device-announced model → exact OS class
 
     # Fill any still-empty device types from vendor + hostname (mDNS wins above).
     for host in hosts.values():
         if not host.device_type:
             host.device_type = guess_device_type(vendor=host.vendor, hostname=host.hostname)
+
+    # Sharpen each host's coarse TTL family into a *specific* OS using the
+    # vendor, hostname and device type we now have — e.g. the vague
+    # "Linux / macOS / Unix" becomes "macOS (Apple)", "Android",
+    # "Router firmware (Linux)", etc. We only touch the coarse TTL families (or
+    # an empty/Unknown OS); an authoritative mDNS model label is left alone. This
+    # stays honest: it's still a family unless a privileged `nmap -O` per-host
+    # scan supplies the exact version (the OS column then upgrades in place).
+    _coarse = {"", "Unknown", "Linux / macOS / Unix", "Windows", "Network device / IoT"}
+    for host in hosts.values():
+        if host.os in _coarse:
+            refined = refine_os(
+                host.os if host.os and host.os != "Unknown" else "",
+                vendor=host.vendor,
+                hostname=host.hostname,
+                device_type=host.device_type,
+            )
+            if refined:
+                host.os = refined
 
     yield snapshot(ScanPhase.COMPLETE, 100, finished=True)
