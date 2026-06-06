@@ -48,6 +48,18 @@ def test_count_packages_rpm():
     assert credscan.count_packages(text) == 3
 
 
+def test_parse_packages_dpkg_query():
+    text = "bash 5.1-6ubuntu1.1\nopenssl 3.0.2-0ubuntu1.15\ncurl 7.81.0-1ubuntu1.16\n"
+    pkgs = credscan.parse_packages(text)
+    assert ("openssl", "3.0.2-0ubuntu1.15") in pkgs
+    assert len(pkgs) == 3
+
+
+def test_parse_packages_ignores_headers():
+    text = "Desired=Unknown\n|/ Err\n+++-===\nbash 5.1\n"
+    assert credscan.parse_packages(text) == [("bash", "5.1")]
+
+
 def test_ssh_facts_without_paramiko_is_clean(monkeypatch):
     monkeypatch.setattr(credscan, "_HAVE_PARAMIKO", False)
     out = credscan.ssh_facts("10.0.0.1", "user", "pass")

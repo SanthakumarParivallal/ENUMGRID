@@ -51,6 +51,15 @@ MAX_CONCURRENT_SCANS = _env_int("ENUMGRID_MAX_SCANS", 4)
 MAX_HOSTS = _env_int("ENUMGRID_MAX_HOSTS", 4096)
 API_TOKEN = os.environ.get("ENUMGRID_API_TOKEN") or None
 
+# --- role-based access control (RBAC) -------------------------------------- #
+# Two roles: ADMIN (can launch scans / credentialed checks) and VIEWER
+# (read-only: health, history, audit). The legacy ENUMGRID_API_TOKEN counts as
+# admin. When NO tokens are configured at all, access is open — preserving the
+# zero-config localhost dev flow. Configure tokens before exposing the API.
+# (Effective tokens are resolved at call time so they stay overridable/testable.)
+ADMIN_TOKEN = os.environ.get("ENUMGRID_ADMIN_TOKEN") or None
+VIEWER_TOKEN = os.environ.get("ENUMGRID_VIEWER_TOKEN") or None
+
 # A single process-wide gate on concurrent scans (set once at import).
 scan_semaphore = asyncio.Semaphore(MAX_CONCURRENT_SCANS)
 
@@ -89,22 +98,44 @@ def vet_target(target: str) -> None:
         )
 
 
-def token_ok(token: str | None, authorization: str | None) -> bool:
-    """Return True if the request is authorized.
-
-    Auth is *disabled* (always True) unless ``ENUMGRID_API_TOKEN`` is set,
-    so the default localhost-only dev flow needs no configuration. When a token
-    is configured, accept it via ``?token=`` (EventSource can't set headers) or
-    an ``Authorization: Bearer <token>`` header.
-    """
-    if not API_TOKEN:
-        return True
-    provided = token
-    if not provided and authorization:
+def _provided(token: str | None, authorization: str | None) -> str | None:
+    """Pull the token from ``?token=`` or an ``Authorization: Bearer …`` header."""
+    if token:
+        return token
+    if authorization:
         scheme, _, value = authorization.partition(" ")
         if scheme.lower() == "bearer" and value:
-            provided = value.strip()
-    return provided == API_TOKEN
+            return value.strip()
+    return None
+
+
+def role_for(token: str | None, authorization: str | None) -> str | None:
+    """Resolve the caller's role: 'admin', 'viewer', or None (unauthorized).
+
+    Open ('admin') when no tokens are configured, so localhost dev needs none.
+    Effective tokens are read at call time (ENUMGRID_ADMIN_TOKEN, or the legacy
+    ENUMGRID_API_TOKEN, as admin; ENUMGRID_VIEWER_TOKEN as viewer).
+    """
+    admin = ADMIN_TOKEN or API_TOKEN
+    viewer = VIEWER_TOKEN
+    if not (admin or viewer):
+        return "admin"  # no auth configured → open dev mode
+    provided = _provided(token, authorization)
+    if admin and provided == admin:
+        return "admin"
+    if viewer and provided == viewer:
+        return "viewer"
+    return None
+
+
+def token_ok(token: str | None, authorization: str | None) -> bool:
+    """Authorized for READ access (viewer or admin)."""
+    return role_for(token, authorization) is not None
+
+
+def admin_ok(token: str | None, authorization: str | None) -> bool:
+    """Authorized for WRITE/scan actions (admin only)."""
+    return role_for(token, authorization) == "admin"
 
 
 class scan_slot:

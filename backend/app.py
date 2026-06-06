@@ -25,6 +25,9 @@ import credscan
 import cve
 import history
 import notify
+import osv
+import threatintel
+import webscan
 from discovery import run_discovery
 from fastapi import Body, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -43,6 +46,7 @@ from security import (
     ALLOW_PUBLIC,
     MAX_CONCURRENT_SCANS,
     ScopeRejected,
+    admin_ok,
     scan_slot,
     token_ok,
     vet_target,
@@ -150,8 +154,8 @@ async def scan_stream(
     broadcast, reserved space, oversized scopes and (by default) public targets
     are refused. Each `data:` frame is a JSON-serialized `ScanState`.
     """
-    if not token_ok(token, authorization):
-        raise HTTPException(status_code=401, detail="unauthorized")
+    if not admin_ok(token, authorization):
+        raise HTTPException(status_code=401, detail="admin token required")
 
     try:
         vet_target(target)
@@ -233,8 +237,8 @@ async def host_scan(
     `scripts` and `ports` are validated server-side (no nmap-arg injection).
     Subject to the same auth, scope and concurrency policy as the stream.
     """
-    if not token_ok(token, authorization):
-        raise HTTPException(status_code=401, detail="unauthorized")
+    if not admin_ok(token, authorization):
+        raise HTTPException(status_code=401, detail="admin token required")
     try:
         vet_target(ip)
     except ScopeRejected as exc:
@@ -273,8 +277,8 @@ def host_credscan(
     memory only — never logged or stored. Authorized use only: scan hosts you
     administer. Body: ``{ip, username, password?, key_filename?, port?}``.
     """
-    if not token_ok(token, authorization):
-        raise HTTPException(status_code=401, detail="unauthorized")
+    if not admin_ok(token, authorization):
+        raise HTTPException(status_code=401, detail="admin token required")
     ip = str(payload.get("ip") or "").strip()
     username = str(payload.get("username") or "").strip()
     if not ip or not username:
@@ -291,9 +295,42 @@ def host_credscan(
         key_filename=payload.get("key_filename"),
         port=int(payload.get("port") or 22),
     )
+    # Backport-aware CVEs from the *exact* installed packages (OSV.dev): this is
+    # authoritative assessment — a fix backported by the distro is not flagged.
+    if facts.get("ok") and facts.get("package_list"):
+        ecosystem = osv.ecosystem_from_os(facts.get("os", ""))
+        findings = osv.scan_packages(facts["package_list"], ecosystem) if ecosystem else []
+        findings = threatintel.enrich(findings)  # add KEV/EPSS + risk-rank
+        facts["ecosystem"] = ecosystem
+        facts["vulns"] = [v.model_dump() for v in findings]
+        facts.pop("package_list", None)  # don't ship the full inventory to the client
     # Audit the attempt WITHOUT the credentials.
-    audit.record("credscan", target=ip, user=username, ok=bool(facts.get("ok")))
+    audit.record(
+        "credscan", target=ip, user=username, ok=bool(facts.get("ok")),
+        findings=len(facts.get("vulns", [])),
+    )
     return JSONResponse(facts)
+
+
+@app.get("/api/host/webscan")
+def host_webscan(
+    ip: str = Query(...),
+    port: int = Query(80),
+    https: bool | None = Query(None),
+    token: str | None = Query(None),
+    authorization: str | None = Header(None),
+) -> JSONResponse:
+    """Passive web-posture audit (security headers / cookies / TLS cert) of one
+    HTTP(S) port. Safe: a single GET of '/', no crawling or payloads."""
+    if not admin_ok(token, authorization):
+        raise HTTPException(status_code=401, detail="admin token required")
+    try:
+        vet_target(ip)
+    except ScopeRejected as exc:
+        return JSONResponse({"ok": False, "error": exc.reason}, status_code=400)
+    result = webscan.scan(ip, port, https)
+    audit.record("webscan", target=ip, port=port, findings=len(result.get("vulns", [])))
+    return JSONResponse(result)
 
 
 @app.post("/api/report/pdf")
@@ -338,8 +375,17 @@ def history_diff(
 
 
 @app.get("/api/audit")
-def audit_log(limit: int = Query(100, description="max entries (newest first)")) -> dict:
-    """Recent audit entries — every scan, refusal and completion is recorded."""
+def audit_log(
+    limit: int = Query(100, description="max entries (newest first)"),
+    token: str | None = Query(None),
+    authorization: str | None = Header(None),
+) -> dict:
+    """Recent audit entries — every scan, refusal and completion is recorded.
+
+    Read access (viewer or admin); open when no tokens are configured.
+    """
+    if not token_ok(token, authorization):
+        raise HTTPException(status_code=401, detail="unauthorized")
     return {"entries": audit.tail(limit)}
 
 

@@ -44,6 +44,7 @@ FRONTEND_PORT="${FRONTEND_PORT:-5173}"
 PYTHON="$ROOT/.venv/bin/python"
 ACCURATE_OS=0
 OPEN_BROWSER=1
+TLS=0
 
 usage() {
   cat <<EOF
@@ -57,6 +58,8 @@ Options:
                       your password once. Without this you still get a specific
                       OS family (macOS/Android/Windows/router) — just not the
                       exact build number.
+  --tls               Serve the backend over HTTPS with a self-signed cert
+                      (auto-generated). The UI proxy uses it transparently.
   --no-open           Don't open the browser automatically.
   --port-back N       Backend port (default ${BACKEND_PORT}).
   --port-front N      Frontend port (default ${FRONTEND_PORT}).
@@ -65,12 +68,14 @@ Options:
 Examples:
   ./start.sh                 # quick start, no password
   ./start.sh --accurate-os   # exact OS/versions (asks for sudo password)
+  ./start.sh --tls           # encrypt the backend (HTTPS)
 EOF
 }
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --accurate-os|-o|--privileged|--os) ACCURATE_OS=1; shift ;;
+    --tls)            TLS=1; shift ;;
     --no-open)        OPEN_BROWSER=0; shift ;;
     --port-back)      BACKEND_PORT="${2:?}"; shift 2 ;;
     --port-front)     FRONTEND_PORT="${2:?}"; shift 2 ;;
@@ -78,6 +83,10 @@ while [[ $# -gt 0 ]]; do
     *) die "Unknown option: $1  (try ./start.sh --help)" ;;
   esac
 done
+
+# Backend scheme + (optional) TLS cert/uvicorn flags, resolved below.
+BACKEND_SCHEME="http"
+SSL_ARGS=()
 
 OSNAME="$(uname -s)"
 
@@ -216,6 +225,27 @@ free_port "$BACKEND_PORT"
 free_port "$FRONTEND_PORT"
 
 # --------------------------------------------------------------------------- #
+# 4b) TLS — self-signed cert for the backend (optional, --tls)
+# --------------------------------------------------------------------------- #
+if [[ "$TLS" == "1" ]]; then
+  if ! command -v openssl >/dev/null 2>&1; then
+    die "--tls needs openssl (not found). Install it or run without --tls."
+  fi
+  CERT_DIR="$ROOT/.certs"
+  mkdir -p "$CERT_DIR"
+  if [[ ! -f "$CERT_DIR/cert.pem" || ! -f "$CERT_DIR/key.pem" ]]; then
+    say "Generating a self-signed TLS certificate (.certs/)…"
+    openssl req -x509 -newkey rsa:2048 -nodes -days 825 \
+      -keyout "$CERT_DIR/key.pem" -out "$CERT_DIR/cert.pem" \
+      -subj "/CN=localhost" >/dev/null 2>&1 || die "cert generation failed."
+  fi
+  SSL_ARGS=(--ssl-keyfile "$CERT_DIR/key.pem" --ssl-certfile "$CERT_DIR/cert.pem")
+  BACKEND_SCHEME="https"
+  export VITE_API_HTTPS=1   # tell the Vite proxy to use https + accept self-signed
+  ok "TLS enabled — backend served over HTTPS (self-signed; the UI proxy trusts it)"
+fi
+
+# --------------------------------------------------------------------------- #
 # 5) Privileged mode (accurate OS) — cache sudo creds up front
 # --------------------------------------------------------------------------- #
 SUDO=()
@@ -252,10 +282,11 @@ cleanup() {
 }
 trap cleanup INT TERM EXIT
 
-say "Starting backend  → http://127.0.0.1:${BACKEND_PORT}  ${DIM}(FastAPI + nmap)${RST}"
+say "Starting backend  → ${BACKEND_SCHEME}://127.0.0.1:${BACKEND_PORT}  ${DIM}(FastAPI + nmap)${RST}"
 (
   cd "$ROOT/backend"
   exec "${SUDO[@]+"${SUDO[@]}"}" "$PYTHON" -m uvicorn app:app --host 127.0.0.1 --port "$BACKEND_PORT" \
+    "${SSL_ARGS[@]+"${SSL_ARGS[@]}"}" \
     >"$ROOT/.backend.log" 2>&1
 ) &
 PIDS+=("$!")
@@ -265,7 +296,7 @@ printf '%s▸%s Waiting for the scan engine to come up ' "$CYN" "$RST"
 healthy=0
 spin='|/-\'
 for n in $(seq 1 60); do
-  if curl -fsS "http://127.0.0.1:${BACKEND_PORT}/api/health" >/dev/null 2>&1; then
+  if curl -fksS "${BACKEND_SCHEME}://127.0.0.1:${BACKEND_PORT}/api/health" >/dev/null 2>&1; then
     healthy=1; break
   fi
   if [[ -t 1 ]]; then
@@ -280,7 +311,7 @@ if [[ "$healthy" != "1" ]]; then
   tail -n 20 "$ROOT/.backend.log" 2>/dev/null || true
   die "Backend failed to start. See $ROOT/.backend.log"
 fi
-priv="$(curl -fsS "http://127.0.0.1:${BACKEND_PORT}/api/health" 2>/dev/null || true)"
+priv="$(curl -fksS "${BACKEND_SCHEME}://127.0.0.1:${BACKEND_PORT}/api/health" 2>/dev/null || true)"
 if echo "$priv" | grep -q '"privileged": *true'; then
   ok "Scan engine healthy — privileged (real nmap -O available)"
 else
