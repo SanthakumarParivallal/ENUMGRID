@@ -101,6 +101,22 @@ describe('HostModel', () => {
   it('defaults device_type to empty string when absent', () => {
     expect(HostModel({ ip: '10.0.0.1' }).device_type).toBe('');
   });
+
+  it('defaults scan-state transients to false (Ready, not Queued)', () => {
+    const h = HostModel({ ip: '10.0.0.2' });
+    expect(h.queued).toBe(false);
+    expect(h.scanned).toBe(false);
+    expect(h.scanError).toBe(false);
+    expect(h.vulnScanning).toBe(false);
+  });
+
+  it('coerces scan-state transients and carries scan_note', () => {
+    const h = HostModel({ ip: '10.0.0.3', queued: 1, scanned: true, scanError: 0, scan_note: 'UDP→connect' });
+    expect(h.queued).toBe(true);
+    expect(h.scanned).toBe(true);
+    expect(h.scanError).toBe(false);
+    expect(h.scan_note).toBe('UDP→connect');
+  });
 });
 
 describe('ScanStateModel', () => {

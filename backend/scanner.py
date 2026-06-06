@@ -21,6 +21,9 @@ import asyncio
 import functools
 import os
 import re
+import shlex
+import shutil
+import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor
 
@@ -201,9 +204,10 @@ def _confirm_filtered(ip: str, ports: list[int], privileged: bool) -> dict[int, 
         args = f"-sT -Pn -T2 --max-retries 5 -p {portspec} --host-timeout 120s"
     if ":" in ip:
         args += " -6"
-    scanner = nmap.PortScanner()
+    # _run_scan elevates via sudo when available and otherwise rewrites the SYN
+    # re-probe to a connect scan, so confirmation works at any privilege level.
     try:
-        scanner.scan(hosts=ip, arguments=args)
+        scanner, _ = _run_scan(ip, args)
     except nmap.PortScannerError:
         return {}
     if ip not in scanner.all_hosts():
@@ -283,9 +287,207 @@ def nmap_available() -> bool:
         return False
 
 
+# --------------------------------------------------------------------------- #
+# Privilege auto-adaptation
+# --------------------------------------------------------------------------- #
+# Several nmap scan types need raw sockets (root): -sS (SYN), -sU (UDP), -O (OS
+# detection). Run unprivileged they HARD-FAIL ("requires root privileges.
+# QUITTING!"), so picking Stealth/UDP in the dashboard used to error out. We fix
+# that by detecting — once — how much privilege we can get WITHOUT ever blocking
+# on a password prompt, then either elevating transparently or rewriting the
+# command so it still runs. Three tiers:
+#
+#   "root"         — the backend itself runs as root (e.g. ./start.sh --accurate-os)
+#   "sudo"         — not root, but `sudo -n nmap` works (NOPASSWD or a cached
+#                    credential): we run the scan under sudo and parse its XML
+#   "unprivileged" — neither: root-only flags are auto-rewritten to equivalent
+#                    unprivileged techniques (SYN→connect, UDP→connect, drop -O),
+#                    so the scan always completes — with an honest note about it.
+#
+# The net effect: every profile runs without error, however the server started.
+_AUTO_SUDO = os.environ.get("ENUMGRID_AUTO_SUDO", "1").lower() not in ("0", "false", "no")
+_CAPABILITY: str | None = None
+
+
+def _probe_sudo() -> bool:
+    """True iff `sudo -n nmap --version` runs without prompting (NOPASSWD/cached).
+
+    Uses `-n` (non-interactive), so this can never hang on or trigger a password
+    prompt — it returns immediately if a password would be required.
+    """
+    if not _AUTO_SUDO:
+        return False
+    if not shutil.which("sudo"):
+        return False
+    nmap_bin = shutil.which("nmap") or "nmap"
+    try:
+        proc = subprocess.run(  # noqa: S603 - fixed argv, no shell
+            ["sudo", "-n", nmap_bin, "--version"],
+            capture_output=True,
+            timeout=5,
+            check=False,
+        )
+        return proc.returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def scan_capability() -> str:
+    """How much scan privilege we can obtain *without* prompting — cached.
+
+    One of ``"root"`` / ``"sudo"`` / ``"unprivileged"``.
+    """
+    global _CAPABILITY
+    if _CAPABILITY is None:
+        if hasattr(os, "geteuid") and os.geteuid() == 0:
+            _CAPABILITY = "root"
+        elif _probe_sudo():
+            _CAPABILITY = "sudo"
+        else:
+            _CAPABILITY = "unprivileged"
+    return _CAPABILITY
+
+
+def _reset_capability_cache() -> None:
+    """Clear the cached capability (used by tests)."""
+    global _CAPABILITY
+    _CAPABILITY = None
+
+
 def is_privileged() -> bool:
-    """Root lets us add OS detection (-O) and raw-packet discovery."""
+    """True only when the process runs AS root (direct raw-socket access)."""
     return hasattr(os, "geteuid") and os.geteuid() == 0
+
+
+def can_raw_scan() -> bool:
+    """True when we can run raw-socket scans (-sS/-sU/-O) — via root *or* sudo."""
+    return scan_capability() in ("root", "sudo")
+
+
+# Root-only scan-type flags → their best unprivileged equivalent.
+_RAW_SCAN_DOWNGRADE = {
+    "-sS": "-sT",  # SYN half-open      → TCP connect
+    "-sA": "-sT",  # ACK               → TCP connect
+    "-sW": "-sT",  # Window            → TCP connect
+    "-sM": "-sT",  # Maimon            → TCP connect
+    "-sN": "-sT",  # Null              → TCP connect
+    "-sF": "-sT",  # FIN               → TCP connect
+    "-sX": "-sT",  # Xmas              → TCP connect
+    "-sU": "-sT",  # UDP (needs root)  → TCP connect (best unprivileged effort)
+}
+# Root-only flags with no unprivileged equivalent — dropped entirely.
+_RAW_ONLY_DROP = {"-O", "--osscan-guess", "-sO", "-PR"}
+
+
+def _adapt_args(args: str) -> tuple[str, str]:
+    """Rewrite root-only nmap flags into unprivileged-safe equivalents.
+
+    Guarantees the resulting command can run without root, so a scan never aborts
+    with "requires root privileges" — it trades a little fidelity (SYN→connect,
+    no OS detection) for the guarantee that *every* profile completes. Returns
+    ``(adapted_args, note)`` where ``note`` is a short human explanation of what
+    changed ("" when nothing did).
+    """
+    out: list[str] = []
+    notes: list[str] = []
+    skip_value = False
+    for tok in args.split():
+        if skip_value:  # consume the value that followed a dropped option
+            skip_value = False
+            continue
+        if tok == "--source-port":
+            skip_value = True  # also drop its value; connect scan can't set it
+            notes.append("custom source-port needs root — dropped")
+            continue
+        if tok in _RAW_ONLY_DROP:
+            notes.append(
+                "OS detection (-O) needs root — skipped"
+                if tok in ("-O", "--osscan-guess")
+                else f"{tok} needs root — skipped"
+            )
+            continue
+        if tok == "-A":
+            # -A bundles OS detect + traceroute (root-only) with -sV + -sC; keep
+            # the parts that work unprivileged and say so.
+            out.extend(["-sV", "-sC"])
+            notes.append("-A: OS detect/traceroute need root — kept -sV -sC")
+            continue
+        if tok in _RAW_SCAN_DOWNGRADE:
+            repl = _RAW_SCAN_DOWNGRADE[tok]
+            notes.append(
+                "UDP scan needs root — ran TCP connect instead"
+                if tok == "-sU"
+                else f"{tok} needs root — used {repl} (connect) instead"
+            )
+            out.append(repl)
+            continue
+        out.append(tok)
+
+    # De-dup tokens (a downgrade can introduce a second -sT/-sV) and guarantee a
+    # scan type survives.
+    deduped: list[str] = []
+    for tok in out:
+        if tok.startswith("-s") and tok in deduped:
+            continue
+        deduped.append(tok)
+    if not any(t in ("-sT", "-sV", "-sn", "-sL") for t in deduped):
+        deduped.insert(0, "-sT")
+    note = "; ".join(dict.fromkeys(notes))  # de-dup notes, keep order
+    return " ".join(deduped), note
+
+
+def _sudo_scan(hosts: str, args: str) -> "nmap.PortScanner | None":
+    """Run ``sudo -n nmap -oX - <args> <hosts>`` and parse the XML, or None.
+
+    `args` is built from server-defined profile constants + already-validated
+    script/port tokens (and `hosts` from the strict target allowlist), so the
+    argv is safe; nothing is passed through a shell. Returns None on any failure
+    (e.g. the cached sudo credential expired mid-session), letting the caller
+    fall back to the unprivileged path.
+    """
+    nmap_bin = shutil.which("nmap") or "nmap"
+    argv = ["sudo", "-n", nmap_bin, "-oX", "-", *shlex.split(args), hosts]
+    try:
+        proc = subprocess.run(  # noqa: S603 - argv built from validated tokens, no shell
+            argv, capture_output=True, timeout=HOST_SCAN_DEADLINE, check=False
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode != 0 or not proc.stdout:
+        return None
+    try:
+        scanner = nmap.PortScanner()
+        scanner.analyse_nmap_xml_scan(
+            nmap_xml_output=proc.stdout.decode("utf-8", "replace"),
+            nmap_err=proc.stderr.decode("utf-8", "replace"),
+        )
+        return scanner
+    except nmap.PortScannerError:
+        return None
+
+
+def _run_scan(hosts: str, args: str) -> "tuple[nmap.PortScanner, str]":
+    """Execute one nmap scan, adapting to whatever privilege we actually have.
+
+    Returns ``(scanner, note)``. ``note`` describes any unprivileged downgrade
+    that was applied (empty otherwise). This is the single choke-point every
+    blocking nmap call funnels through, so the privilege policy lives in one place.
+    """
+    cap = scan_capability()
+    if cap == "sudo":
+        scanner = _sudo_scan(hosts, args)
+        if scanner is not None:
+            return scanner, ""
+        # Cached sudo credential expired since startup → degrade gracefully.
+    elif cap == "root":
+        scanner = nmap.PortScanner()
+        scanner.scan(hosts=hosts, arguments=args)
+        return scanner, ""
+    # Unprivileged (or a sudo run that just failed): rewrite root-only flags.
+    safe_args, note = _adapt_args(args)
+    scanner = nmap.PortScanner()
+    scanner.scan(hosts=hosts, arguments=safe_args)
+    return scanner, note
 
 
 # --------------------------------------------------------------------------- #
@@ -295,8 +497,7 @@ def is_privileged() -> bool:
 
 def _ping_sweep(target: str) -> list[dict]:
     """Phase 1: discover which hosts are up."""
-    scanner = nmap.PortScanner()
-    scanner.scan(hosts=target, arguments=DISCOVERY_ARGS)
+    scanner, _ = _run_scan(target, DISCOVERY_ARGS)
     discovered: list[dict] = []
     for ip in scanner.all_hosts():
         node = scanner[ip]
@@ -346,11 +547,15 @@ def _service_scan(
     args = build_host_scan_args(profile, scripts, ports, privileged, deep, auto_cve)
     if ":" in ip:  # IPv6 target — nmap needs -6
         args += " -6"
-    scanner = nmap.PortScanner()
-    scanner.scan(hosts=ip, arguments=args)
+    # Single adaptive choke-point: runs under sudo when available, otherwise
+    # rewrites root-only flags so the scan always completes (never QUITTING!).
+    scanner, scan_note = _run_scan(ip, args)
 
     if ip not in scanner.all_hosts():
-        return {"os": "Unknown", "hostname": None, "ports": [], "vulns": [], "device_type": ""}
+        return {
+            "os": "Unknown", "hostname": None, "ports": [], "vulns": [],
+            "device_type": "", "note": scan_note,
+        }
 
     node = scanner[ip]
     ports: list[Port] = []
@@ -418,6 +623,7 @@ def _service_scan(
         "ports": ports,
         "vulns": host_vulns,
         "device_type": guess_device_type(hostname=hostname, ports=open_ports, services=services),
+        "note": scan_note,
     }
 
 
@@ -713,7 +919,7 @@ async def run_pipeline(target: str, scan_id: str | None, deep: bool = False):
 
     # ---- Phase 2: Nmap Enumeration ---------------------------------------- #
     state.phase = ScanPhase.NMAP_ENUMERATION
-    privileged = is_privileged()
+    privileged = can_raw_scan()  # root OR passwordless sudo → real raw-socket scans
     count = len(up_hosts) or 1
     for i, host in enumerate(up_hosts):
         host.scanning = True
@@ -727,6 +933,7 @@ async def run_pipeline(target: str, scan_id: str | None, deep: bool = False):
             host.os = result["os"]
             host.ports = result["ports"]
             host.vulns = result["vulns"]
+            host.scan_note = result.get("note", "")
             if result.get("device_type"):
                 host.device_type = result["device_type"]
             if result["hostname"]:
@@ -763,7 +970,7 @@ async def scan_single_host(
     :func:`_confirm_filtered`).
     """
     loop = asyncio.get_running_loop()
-    privileged = is_privileged()
+    privileged = can_raw_scan()  # root OR passwordless sudo → real raw-socket scans
     result = await asyncio.wait_for(
         loop.run_in_executor(
             _SCAN_EXECUTOR,
@@ -807,4 +1014,5 @@ async def scan_single_host(
         scanning=False,
         ports=port_objs,
         vulns=result["vulns"],
+        scan_note=result.get("note", ""),
     )

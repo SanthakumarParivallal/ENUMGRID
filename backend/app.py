@@ -40,9 +40,11 @@ from report import build_pdf
 from scanner import (
     PROFILE_META,
     SCAN_PROFILES,
+    can_raw_scan,
     is_privileged,
     nmap_available,
     run_pipeline,
+    scan_capability,
     scan_single_host,
 )
 from security import (
@@ -84,6 +86,12 @@ def health() -> dict:
         "status": "ok",
         "nmap": nmap_available(),
         "privileged": is_privileged(),
+        # How scans get their privilege: "root" (running as root), "sudo"
+        # (passwordless sudo, elevated per scan), or "unprivileged" (root-only
+        # flags auto-rewritten so scans still run). `can_raw` is true for the
+        # first two — i.e. real -sS/-sU/-O are available.
+        "capability": scan_capability(),
+        "can_raw": can_raw_scan(),
         "max_concurrent_scans": MAX_CONCURRENT_SCANS,
         "allow_public": ALLOW_PUBLIC,
         # Live CVE intelligence status (NVD feed + growing local cache).
@@ -220,7 +228,54 @@ def profiles() -> dict:
         if scripts:
             args = f"{args} --script {scripts}"
         merged[key] = {**meta, "args": args.strip()}
-    return {"profiles": merged, "privileged": is_privileged()}
+    # `capability`/`can_raw` let the UI explain that root-only profiles still run
+    # (auto-adapted) rather than blocking them.
+    return {
+        "profiles": merged,
+        "privileged": is_privileged(),
+        "capability": scan_capability(),
+        "can_raw": can_raw_scan(),
+    }
+
+
+@app.get("/api/settings/nvd")
+def nvd_settings() -> dict:
+    """Current NVD/CVE intelligence status, for the dashboard's settings panel."""
+    return {
+        "live": not cve.DISABLED,
+        "key_active": cve.key_active(),
+        "rate_limit": "50 req / 30s" if cve.key_active() else "5 req / 30s",
+        "cached_services": cve.cache_count(),
+        "get_key_url": "https://nvd.nist.gov/developers/request-an-api-key",
+        # The exact line to make the key permanent across restarts.
+        "env_hint": "ENUMGRID_NVD_API_KEY=<your-key>",
+    }
+
+
+@app.post("/api/settings/nvd-key")
+def set_nvd_key(
+    payload: dict = Body(...),
+    token: str | None = Query(None),
+    authorization: str | None = Header(None),
+) -> JSONResponse:
+    """Set (or clear) the NVD API key at runtime — in memory only, never logged.
+
+    This is the user-friendly alternative to editing the environment: paste the
+    free key from nvd.nist.gov in the dashboard and live CVE lookups immediately
+    use the higher rate limit. For a permanent setup, also add
+    ``ENUMGRID_NVD_API_KEY`` to your ``.env`` (so it survives a restart).
+    Admin-gated; the key value is never echoed back.
+    """
+    if not admin_ok(token, authorization):
+        raise HTTPException(status_code=401, detail="admin token required")
+    key = str(payload.get("key") or "")
+    active = cve.set_api_key(key)
+    audit.record("nvd_key_set", active=active)  # records the action, never the key
+    return JSONResponse({
+        "ok": True,
+        "key_active": active,
+        "rate_limit": "50 req / 30s" if active else "5 req / 30s",
+    })
 
 
 @app.get("/api/host/scan")

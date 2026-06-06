@@ -54,10 +54,34 @@ DEFAULT_BUDGET = max(0, int(os.environ.get("ENUMGRID_NVD_BUDGET", "20")))
 _HTTP_TIMEOUT = 12
 
 # Rolling-window rate limiter (shared across threads / concurrent host scans).
-_RATE_MAX = 45 if API_KEY else 5
+# The cap depends on whether an API key is set, which can change at runtime
+# (see set_api_key), so it's computed on demand rather than frozen at import.
 _RATE_WINDOW = 30.0
 _lock = threading.Lock()
 _calls: list[float] = []
+
+
+def _rate_max() -> int:
+    """Live NVD calls allowed per window — higher with an API key."""
+    return 45 if API_KEY else 5
+
+
+def key_active() -> bool:
+    """True when an NVD API key is configured (env or set at runtime)."""
+    return bool(API_KEY)
+
+
+def set_api_key(key: str | None) -> bool:
+    """Set (or clear) the NVD API key at runtime, in memory only.
+
+    Returns True if a non-empty key is now active. The key is never written to
+    disk or logged — it lives only in this process, exactly like other secrets.
+    A blank/None value clears it (drops back to the anonymous rate limit).
+    """
+    global API_KEY
+    cleaned = (key or "").strip()
+    API_KEY = cleaned or None
+    return bool(API_KEY)
 
 
 # --------------------------------------------------------------------------- #
@@ -193,7 +217,7 @@ def _acquire_slot(deadline: float | None) -> bool:
         now = time.time()
         while _calls and now - _calls[0] > _RATE_WINDOW:
             _calls.pop(0)
-        if len(_calls) >= _RATE_MAX:
+        if len(_calls) >= _rate_max():
             wait = _RATE_WINDOW - (now - _calls[0]) + 0.2
             if deadline is not None and now + wait > deadline:
                 return False

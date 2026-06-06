@@ -39,6 +39,42 @@ def test_health():
     body = r.json()
     assert body["status"] == "ok"
     assert "max_concurrent_scans" in body and "allow_public" in body
+    # privilege auto-adaptation surface
+    assert body["capability"] in ("root", "sudo", "unprivileged")
+    assert "can_raw" in body
+
+
+# --- NVD API key: status + runtime set (user-friendly settings) ------------ #
+def test_nvd_settings_status():
+    r = client.get("/api/settings/nvd")
+    assert r.status_code == 200
+    body = r.json()
+    assert "key_active" in body and "rate_limit" in body
+    assert body["get_key_url"].startswith("https://")
+    assert "ENUMGRID_NVD_API_KEY" in body["env_hint"]
+
+
+def test_nvd_key_set_and_clear():
+    import cve
+
+    try:
+        r = client.post("/api/settings/nvd-key", json={"key": "DEMO-KEY-123"})
+        assert r.status_code == 200
+        assert r.json()["key_active"] is True
+        assert cve.key_active() is True
+        assert "50" in client.get("/api/settings/nvd").json()["rate_limit"]
+        # clearing drops back to the anonymous limit
+        client.post("/api/settings/nvd-key", json={"key": ""})
+        assert cve.key_active() is False
+    finally:
+        cve.set_api_key("")  # never leak test state into other tests
+
+
+def test_nvd_key_requires_admin(monkeypatch):
+    monkeypatch.setattr(security, "ADMIN_TOKEN", "adm1n")
+    assert client.post("/api/settings/nvd-key", json={"key": "x"}).status_code == 401
+    ok = client.post("/api/settings/nvd-key?token=adm1n", json={"key": ""})
+    assert ok.status_code == 200
 
 
 def test_network_suggestion():

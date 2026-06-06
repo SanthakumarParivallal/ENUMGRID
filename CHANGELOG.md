@@ -28,6 +28,15 @@ identity, automatic CVE intelligence, measured accuracy and a security self-audi
 - **11 Zenmap-style scan profiles** (Quick · Default · Intense · Recon · Aggressive
   · Stealth SYN · Vulnerability · Safe · All-ports · Comprehensive · UDP), plus
   validated custom NSE scripts + port ranges — injection-safe by construction.
+- **Privilege auto-adaptation — every profile runs without root, no errors.**
+  Root-only scan types (`-sS` SYN, `-sU` UDP, `-O` OS detect) used to hard-fail
+  unprivileged (`requires root privileges. QUITTING!`). The engine now detects —
+  once, without ever prompting — whether it can scan as **root**, via passwordless
+  **sudo** (`-n`, auto-elevated per scan, XML parsed), or **unprivileged**; in the
+  last case it rewrites root-only flags to safe equivalents (SYN/UDP → connect,
+  `-O`/`--source-port` dropped, `-A` → `-sV -sC`) and records an honest
+  `scan_note` on the host. `GET /api/health` + `/api/profiles` expose
+  `capability` + `can_raw`; the dashboard shows the tier and any adaptation.
 - **Filtered-state confirmation** — ports left `filtered` are re-probed with a
   different technique (patient TCP connect, or SYN from a DNS source port as root).
 - **IPv6-aware**: dual-stack `ScopeValidator`, NDP correlation by MAC, nmap `-6`.
@@ -86,6 +95,22 @@ identity, automatic CVE intelligence, measured accuracy and a security self-audi
 - **`.env` auto-loading** in `start.sh` for secrets like `ENUMGRID_NVD_API_KEY`.
 
 ### Web cockpit
+- **Honest per-host scan status** — the grid badge now distinguishes **Ready**
+  (discovered, not yet scanned) · **Queued** (genuinely waiting in a *Scan All*
+  batch) · **Scanning** · **Done** · **No ports** (scanned, none open) · **Failed**.
+  Previously every un-scanned host showed a misleading "Queued", making a single
+  per-host scan look like it ran against the whole network. Scanning one host now
+  affects only that host.
+- **Per-host scan shows the real command** (the selected profile's nmap args for
+  that one IP), not a hardcoded `-sV`.
+- **NVD API key — set it from the dashboard.** A one-click panel in the nmap bar
+  shows the current CVE rate limit, lets you paste a free key (applied instantly,
+  in memory), links to where to get one, and shows the exact `.env` line to make
+  it permanent (`GET/POST /api/settings/nvd[-key]`).
+- **Real, never fake** — if the backend is unreachable the dashboard now fails
+  with a clear error banner (and surfaces the backend's own refusal reasons)
+  instead of silently substituting simulated data. The demo engine runs only with
+  an explicit `VITE_USE_MOCK=true`.
 - FastAPI SSE backend + React/Tailwind dashboard; live device grid.
 - Per-device **and** whole-network ("Scan All") nmap; start-with-no-target auto-sweep.
 - **Rich filters** — quick chips (Web/SSH/DB/Open Ports/Vulnerable/Critical/Has
@@ -104,7 +129,7 @@ identity, automatic CVE intelligence, measured accuracy and a security self-audi
 - [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md).
 
 ### Quality & reproducibility
-- **403 tests** (CLI 84 · backend 295 · evaluation 7 · frontend 17): unit,
+- **421 tests** (CLI 84 · backend 311 · evaluation 7 · frontend 17): unit,
   **FastAPI TestClient integration**, **hypothesis fuzzing**. ruff 0,
   **bandit 0 high/medium**, pip-audit 0 CVEs.
 - **Measured evaluation** vs `nmap -sn` ([`docs/EVALUATION.md`](docs/EVALUATION.md)):

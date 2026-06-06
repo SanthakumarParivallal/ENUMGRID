@@ -17,7 +17,7 @@
  *   └──────────────┴──────────────────────────────────────────────────────────┘
  */
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useScan } from './context/ScanContext.jsx';
 import {
   ScanPhase,
@@ -104,6 +104,19 @@ const Icon = {
       <path d="M12 3 L22 19 L2 19 Z" />
       <path d="M12 10 L12 14" />
       <path d="M12 16.5 L12 16.6" strokeWidth="2.2" />
+    </I>
+  ),
+  Info: ({ className }) => (
+    <I className={className}>
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 11 L12 16" />
+      <path d="M12 8 L12 8.1" strokeWidth="2.2" />
+    </I>
+  ),
+  Key: ({ className }) => (
+    <I className={className}>
+      <circle cx="8" cy="8" r="4" />
+      <path d="M11 11 L20 20 M17 17 L19 15 M14 14 L16.5 16.5" />
     </I>
   ),
   Globe: ({ className }) => (
@@ -388,13 +401,16 @@ function ControlBar() {
     startScan(input, deepScan);
   };
 
+  const btnBase =
+    'inline-flex shrink-0 items-center justify-center gap-1.5 rounded-md border px-3 py-2 text-sm font-semibold transition focus:outline-none disabled:cursor-not-allowed';
+
   return (
     <header className="sticky top-0 z-30 border-b border-slate-700/80 bg-steel-950/95 backdrop-blur">
-      <div className="flex flex-wrap items-center gap-x-6 gap-y-3 px-4 py-3">
-        {/* Brand ---------------------------------------------------------- */}
-        <div className="flex items-center gap-3 pr-4">
-          <div className="grid h-9 w-9 place-items-center rounded border border-amber/40 bg-amber/10 text-amber">
-            <Icon.Radar className="h-6 w-6" />
+      {/* Row 1 — identity (left) + live status (right). A thin, balanced strip. */}
+      <div className="flex items-center justify-between gap-3 border-b border-slate-800/60 px-4 py-2">
+        <div className="flex items-center gap-2.5">
+          <div className="grid h-8 w-8 place-items-center rounded-md border border-amber/40 bg-amber/10 text-amber">
+            <Icon.Radar className="h-5 w-5" />
           </div>
           <div className="leading-tight">
             <div className="flex items-center gap-2">
@@ -405,132 +421,28 @@ function ControlBar() {
                 v1
               </span>
             </div>
-            <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">
+            <div className="hidden text-[10px] uppercase tracking-[0.18em] text-slate-500 sm:block">
               Network Enumeration Platform
             </div>
           </div>
         </div>
 
-        {/* Target + actions — full row on mobile (wraps below the brand), then
-            shares the header row on larger screens. ----------------------- */}
-        <div className="flex w-full flex-wrap items-center gap-2 sm:min-w-0 sm:flex-1">
-          <label className="relative flex min-w-[200px] flex-1 items-center">
-            <span className="pointer-events-none absolute left-3 text-[10px] font-semibold uppercase tracking-widest text-slate-500">
-              Target
-            </span>
-            <input
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && submit()}
-              spellCheck={false}
-              placeholder="192.168.1.0/24"
-              disabled={running}
-              className="w-full rounded border border-slate-700 bg-steel-900 py-2 pl-[58px] pr-3 font-mono text-sm text-slate-100 outline-none transition focus:border-amber/60 focus:shadow-glow-amber disabled:opacity-60"
-            />
-          </label>
-
-          {!running ? (
-            <button
-              onClick={submit}
-              className="group inline-flex items-center gap-2 rounded border border-matrix/50 bg-matrix/10 px-4 py-2 text-sm font-semibold text-matrix transition hover:bg-matrix hover:text-steel-950 hover:shadow-glow-matrix focus:outline-none focus:ring-1 focus:ring-matrix"
-            >
-              <Icon.Play className="h-4 w-4" />
-              Start Scan
-            </button>
-          ) : (
-            <button
-              onClick={stopScan}
-              className="group inline-flex items-center gap-2 rounded border border-crimson/60 bg-crimson/10 px-4 py-2 text-sm font-semibold text-crimson transition hover:bg-crimson hover:text-white hover:shadow-glow-crimson focus:outline-none focus:ring-1 focus:ring-crimson"
-            >
-              <Icon.Stop className="h-4 w-4" />
-              Stop Scan
-            </button>
-          )}
-
-          {/* Deep scan toggle — adds the NSE vuln-script pass. */}
-          <button
-            onClick={toggleDeep}
-            disabled={running}
-            aria-pressed={deepScan}
-            title="Deep Scan: run NSE vuln scripts (nmap --script vuln) for real CVE findings. Slower."
-            className={`inline-flex shrink-0 items-center gap-1.5 rounded border px-3 py-2 text-sm font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${
-              deepScan
-                ? 'border-crimson/60 bg-crimson/15 text-crimson shadow-glow-crimson'
-                : 'border-slate-700 bg-steel-900 text-slate-400 hover:border-slate-500 hover:text-slate-200'
-            }`}
-          >
-            <Icon.Shield className="h-4 w-4" />
-            Deep
-          </button>
-
-          {/* Scan All — nmap every not-yet-scanned host (services/OS/ports). */}
-          <button
-            onClick={() => scanAll(false)}
-            disabled={!unscanned}
-            title="Run an nmap service scan on every discovered host (ports, services, versions, OS). Deep toggle adds CVE checks."
-            className="inline-flex shrink-0 items-center gap-1.5 rounded border border-amber/50 bg-amber/10 px-3 py-2 text-sm font-semibold text-amber transition hover:bg-amber hover:text-steel-950 disabled:cursor-not-allowed disabled:border-slate-700 disabled:bg-steel-900 disabled:text-slate-600"
-          >
-            <Icon.Cpu className="h-4 w-4" />
-            Scan All{unscanned ? ` (${unscanned})` : ''}
-          </button>
-
-          {/* One-click PDF report of the current results. */}
-          <button
-            onClick={downloadReport}
-            disabled={!hasHosts}
-            title="Download a PDF report of the current scan results"
-            className="inline-flex shrink-0 items-center gap-1.5 rounded border border-slate-700 bg-steel-900 px-3 py-2 text-sm font-semibold text-slate-300 transition hover:border-slate-500 hover:text-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <Icon.Download className="h-4 w-4" />
-            Report
-          </button>
-
-          {/* Monitor: auto re-scan on an interval + alert on drift. */}
-          <button
-            onClick={toggleMonitor}
-            aria-pressed={monitor}
-            title="Monitor mode: automatically re-scan on an interval and alert when devices appear/disappear or ports change."
-            className={`inline-flex shrink-0 items-center gap-1.5 rounded border px-3 py-2 text-sm font-semibold transition ${
-              monitor
-                ? 'border-matrix/60 bg-matrix/15 text-matrix shadow-glow-matrix'
-                : 'border-slate-700 bg-steel-900 text-slate-400 hover:border-slate-500 hover:text-slate-200'
-            }`}
-          >
-            <Icon.Activity className={`h-4 w-4 ${monitor ? 'animate-pulse-glow' : ''}`} />
-            Monitor
-          </button>
-          {monitor && (
-            <select
-              value={monitorEverySec}
-              onChange={(e) => setMonitorInterval(Number(e.target.value))}
-              title="Re-scan interval"
-              className="shrink-0 rounded border border-slate-700 bg-steel-900 px-1.5 py-2 font-mono text-xs text-slate-300 outline-none focus:border-matrix/60"
-            >
-              <option value={30}>every 30s</option>
-              <option value={120}>every 2m</option>
-              <option value={300}>every 5m</option>
-              <option value={900}>every 15m</option>
-            </select>
-          )}
-        </div>
-
-        {/* Phase status --------------------------------------------------- */}
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2 rounded border border-slate-700 bg-steel-900 px-3 py-1.5">
+        <div className="flex items-center gap-2">
+          {/* Phase pill */}
+          <div className="flex items-center gap-2 rounded-md border border-slate-700 bg-steel-900 px-2.5 py-1">
             <span
-              className={`h-2.5 w-2.5 rounded-full ${phaseStyle.dot} ${
+              className={`h-2 w-2 rounded-full ${phaseStyle.dot} ${
                 phaseStyle.pulse ? 'animate-pulse-glow' : ''
               }`}
             />
-            <div className="leading-tight">
-              <div className="text-[9px] uppercase tracking-widest text-slate-500">Phase</div>
-              <div className={`font-mono text-xs font-semibold ${phaseStyle.text}`}>
-                {phaseMeta.label}
-              </div>
-            </div>
+            <span className="text-[9px] uppercase tracking-widest text-slate-500">Phase</span>
+            <span className={`font-mono text-xs font-semibold ${phaseStyle.text}`}>
+              {phaseMeta.label}
+            </span>
           </div>
+          {/* Live-stream pill */}
           <div
-            className={`hidden items-center gap-1.5 rounded border border-slate-700 bg-steel-900 px-2.5 py-1.5 sm:flex ${badge.text}`}
+            className={`hidden items-center gap-1.5 rounded-md border border-slate-700 bg-steel-900 px-2.5 py-1 sm:flex ${badge.text}`}
             title={
               source === 'live'
                 ? 'Streaming from the FastAPI /api/scan/stream backend'
@@ -545,6 +457,113 @@ function ControlBar() {
             <span className="font-mono text-[10px] uppercase tracking-widest">{badge.label}</span>
           </div>
         </div>
+      </div>
+
+      {/* Row 2 — controls get the FULL width, so buttons sit in one clean row on
+          desktop and wrap gracefully (never squeezed into a vertical stack). */}
+      <div className="flex flex-wrap items-center gap-2 px-4 py-2.5">
+        <label className="relative flex min-w-[220px] flex-1 items-center">
+          <span className="pointer-events-none absolute left-3 text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+            Target
+          </span>
+          <input
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => e.key === 'Enter' && submit()}
+            spellCheck={false}
+            placeholder="192.168.1.0/24"
+            disabled={running}
+            className="w-full rounded-md border border-slate-700 bg-steel-900 py-2 pl-[58px] pr-3 font-mono text-sm text-slate-100 outline-none transition focus:border-amber/60 focus:shadow-glow-amber disabled:opacity-60"
+          />
+        </label>
+
+        {/* Primary action — Start / Stop. */}
+        {!running ? (
+          <button
+            onClick={submit}
+            className={`${btnBase} border-matrix/50 bg-matrix/10 text-matrix hover:bg-matrix hover:text-steel-950 hover:shadow-glow-matrix focus:ring-1 focus:ring-matrix`}
+          >
+            <Icon.Play className="h-4 w-4" />
+            Start Scan
+          </button>
+        ) : (
+          <button
+            onClick={stopScan}
+            className={`${btnBase} border-crimson/60 bg-crimson/10 text-crimson hover:bg-crimson hover:text-white hover:shadow-glow-crimson focus:ring-1 focus:ring-crimson`}
+          >
+            <Icon.Stop className="h-4 w-4" />
+            Stop Scan
+          </button>
+        )}
+
+        {/* Deep scan toggle — adds the NSE vuln-script pass. */}
+        <button
+          onClick={toggleDeep}
+          disabled={running}
+          aria-pressed={deepScan}
+          title="Deep Scan: run NSE vuln scripts (nmap --script vuln) for real CVE findings. Slower."
+          className={`${btnBase} disabled:opacity-50 ${
+            deepScan
+              ? 'border-crimson/60 bg-crimson/15 text-crimson shadow-glow-crimson'
+              : 'border-slate-700 bg-steel-900 text-slate-400 hover:border-slate-500 hover:text-slate-200'
+          }`}
+        >
+          <Icon.Shield className="h-4 w-4" />
+          Deep
+        </button>
+
+        {/* Scan All — nmap every not-yet-scanned host (services/OS/ports). */}
+        <button
+          onClick={() => scanAll(false)}
+          disabled={!unscanned}
+          title="Run an nmap service scan on every discovered host (ports, services, versions, OS). Deep toggle adds CVE checks."
+          className={`${btnBase} border-amber/50 bg-amber/10 text-amber hover:bg-amber hover:text-steel-950 disabled:border-slate-700 disabled:bg-steel-900 disabled:text-slate-600`}
+        >
+          <Icon.Cpu className="h-4 w-4" />
+          Scan All{unscanned ? ` (${unscanned})` : ''}
+        </button>
+
+        {/* Thin divider before secondary actions. */}
+        <span className="mx-0.5 hidden h-6 w-px self-center bg-slate-700/70 lg:block" />
+
+        {/* One-click PDF report of the current results. */}
+        <button
+          onClick={downloadReport}
+          disabled={!hasHosts}
+          title="Download a PDF report of the current scan results"
+          className={`${btnBase} border-slate-700 bg-steel-900 text-slate-300 hover:border-slate-500 hover:text-slate-100 disabled:opacity-50`}
+        >
+          <Icon.Download className="h-4 w-4" />
+          Report
+        </button>
+
+        {/* Monitor: auto re-scan on an interval + alert on drift. */}
+        <button
+          onClick={toggleMonitor}
+          aria-pressed={monitor}
+          title="Monitor mode: automatically re-scan on an interval and alert when devices appear/disappear or ports change."
+          className={`${btnBase} ${
+            monitor
+              ? 'border-matrix/60 bg-matrix/15 text-matrix shadow-glow-matrix'
+              : 'border-slate-700 bg-steel-900 text-slate-400 hover:border-slate-500 hover:text-slate-200'
+          }`}
+        >
+          <Icon.Activity className={`h-4 w-4 ${monitor ? 'animate-pulse-glow' : ''}`} />
+          Monitor
+        </button>
+        {monitor && (
+          <select
+            value={monitorEverySec}
+            onChange={(e) => setMonitorInterval(Number(e.target.value))}
+            title="Re-scan interval"
+            className="shrink-0 rounded-md border border-slate-700 bg-steel-900 px-1.5 py-2 font-mono text-xs text-slate-300 outline-none focus:border-matrix/60"
+          >
+            <option value={30}>every 30s</option>
+            <option value={120}>every 2m</option>
+            <option value={300}>every 5m</option>
+            <option value={900}>every 15m</option>
+          </select>
+        )}
       </div>
 
       {/* Global progress bar ---------------------------------------------- */}
@@ -886,8 +905,9 @@ function Sidebar() {
         <p className="uppercase tracking-widest text-slate-500">// operator note</p>
         <p className="mt-1">
           Live frames stream from <span className="text-amber">/api/scan/stream</span> (FastAPI +
-          nmap). If the backend is offline, the dashboard falls back to the mock engine
-          automatically.
+          nmap). Results are always real — if the backend is unreachable the scan fails with a
+          clear error (never simulated). The demo engine runs only with{' '}
+          <span className="text-slate-400">VITE_USE_MOCK=true</span>.
         </p>
       </div>
     </aside>
@@ -1039,8 +1059,18 @@ function SortHeader({ label, active, dir, onClick, className = '' }) {
 }
 
 function PortDetailTable({ host }) {
-  const { scanHostVulns } = useScan();
+  const { scanHostVulns, profiles, scanProfile, scanScripts, scanPorts } = useScan();
   const vulns = collectVulns(host);
+
+  // The real nmap command this per-host scan runs — mirrors the selected profile
+  // (so it's never a misleading hardcoded "-sV"), and makes clear it targets
+  // ONLY this host.
+  const profArgs = (profiles?.[scanProfile]?.args || '-sV -Pn -T4').trim();
+  const liveCmd =
+    `nmap ${profArgs}` +
+    (scanScripts ? ` --script ${scanScripts}` : '') +
+    (scanPorts ? ` -p ${scanPorts}` : '') +
+    ` ${host.ip}`;
 
   return (
     <div className="space-y-2 px-3 pb-3 pt-1 sm:px-12">
@@ -1107,6 +1137,18 @@ function PortDetailTable({ host }) {
         </button>
       </div>
 
+      {/* Unprivileged auto-adaptation note — honest about any downgrade applied
+          so the result is never silently misrepresented as a full SYN/UDP/OS scan. */}
+      {host.scan_note && (
+        <div className="flex items-start gap-2 rounded border border-amber/30 bg-amber/[0.07] px-3 py-1.5 text-[11px] text-amber/90">
+          <Icon.Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>
+            Ran unprivileged — auto-adapted: {host.scan_note}.{' '}
+            <span className="text-amber/70">Run <code>./start.sh --accurate-os</code> for full-fidelity SYN/UDP/OS scans.</span>
+          </span>
+        </div>
+      )}
+
       {/* IPv6 addresses correlated from the NDP neighbour cache (same MAC). */}
       {host.ipv6?.length > 0 && (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded border border-matrix/30 bg-matrix/[0.06] px-3 py-1.5 font-mono text-[10px] text-slate-300">
@@ -1120,9 +1162,12 @@ function PortDetailTable({ host }) {
       )}
 
       {host.vulnScanning ? (
-        <div className="flex items-center gap-2 px-3 py-4 font-mono text-xs text-amber">
-          <Spinner className="h-4 w-4" />
-          nmap -sV {host.ip} — enumerating services…
+        <div className="flex items-start gap-2 overflow-x-auto px-3 py-4 font-mono text-xs text-amber">
+          <Spinner className="mt-0.5 h-4 w-4 shrink-0" />
+          <span className="whitespace-nowrap">
+            <span className="text-slate-500">$</span> {liveCmd}{' '}
+            <span className="text-amber/70">— scanning this host…</span>
+          </span>
         </div>
       ) : host.ports.length ? (
         <>
@@ -1258,9 +1303,13 @@ function PortDetailTable({ host }) {
         </>
       ) : (
         <div className="px-3 py-4 font-mono text-xs text-slate-500">
-          {host.status === HostStatus.UP
-            ? '// no service scan yet — click "Nmap Scan" to enumerate ports & services'
-            : '// host unreachable'}
+          {host.status !== HostStatus.UP
+            ? '// host unreachable'
+            : host.scanError
+              ? '// last scan failed — check the backend is running, then click "Re-scan (nmap)"'
+              : host.scanned
+                ? '// scan complete — no open ports found in the scanned range'
+                : '// no service scan yet — click "Nmap Scan" to enumerate ports & services'}
         </div>
       )}
     </div>
@@ -1381,42 +1430,57 @@ function AssetRow({ host, expanded, onToggle }) {
 }
 
 function ScanStateBadge({ host }) {
+  const cls =
+    'inline-flex items-center gap-1.5 rounded border px-2 py-1 font-mono text-[10px] uppercase tracking-wider';
+  // 1) Actively scanning this host (per-host deep / vuln pass).
   if (host.vulnScanning) {
     return (
-      <span className="inline-flex items-center gap-1.5 rounded border border-crimson/40 bg-crimson/10 px-2 py-1 font-mono text-[10px] uppercase tracking-wider text-crimson">
-        <Spinner className="h-3 w-3" />
-        Vuln Scan
+      <span className={`${cls} border-crimson/40 bg-crimson/10 text-crimson`}>
+        <Spinner className="h-3 w-3" /> Vuln Scan
       </span>
     );
   }
+  // 2) Actively scanning this host (discovery/enumeration pipeline).
   if (host.scanning) {
     return (
-      <span className="inline-flex items-center gap-1.5 rounded border border-amber/40 bg-amber/10 px-2 py-1 font-mono text-[10px] uppercase tracking-wider text-amber">
-        <Spinner className="h-3 w-3" />
-        Scanning
+      <span className={`${cls} border-amber/40 bg-amber/10 text-amber`}>
+        <Spinner className="h-3 w-3" /> Scanning
       </span>
     );
   }
   if (host.status === HostStatus.DOWN) {
+    return <span className={`${cls} border-slate-700 bg-steel-900 text-slate-500`}>Skipped</span>;
+  }
+  // 3) Waiting in a "Scan All" batch — ONLY hosts truly queued in that run.
+  if (host.queued) {
     return (
-      <span className="inline-flex items-center gap-1.5 rounded border border-slate-700 bg-steel-900 px-2 py-1 font-mono text-[10px] uppercase tracking-wider text-slate-500">
-        Skipped
+      <span className={`${cls} border-amber/30 bg-amber/5 text-amber/80`}>
+        <Spinner className="h-3 w-3" /> Queued
       </span>
     );
   }
-  if (host.ports.length) {
+  // 4) The last per-host scan failed (real error, never a silent fake result).
+  if (host.scanError) {
     return (
-      <span className="inline-flex items-center gap-1.5 rounded border border-matrix/40 bg-matrix/10 px-2 py-1 font-mono text-[10px] uppercase tracking-wider text-matrix">
+      <span
+        title="The last nmap scan for this host failed — click its row, then Re-scan."
+        className={`${cls} border-crimson/40 bg-crimson/10 text-crimson`}
+      >
+        <Icon.Alert className="h-3 w-3" /> Failed
+      </span>
+    );
+  }
+  // 5) Scan completed — show Done even when the host had no open ports.
+  if (host.ports.length || host.scanned) {
+    return (
+      <span className={`${cls} border-matrix/40 bg-matrix/10 text-matrix`}>
         <Icon.Check className="h-3 w-3" />
-        Done
+        {host.ports.length ? 'Done' : 'No ports'}
       </span>
     );
   }
-  return (
-    <span className="inline-flex items-center gap-1.5 rounded border border-slate-700 bg-steel-900 px-2 py-1 font-mono text-[10px] uppercase tracking-wider text-slate-500">
-      Queued
-    </span>
-  );
+  // 6) Discovered, not yet port-scanned — this is the resting state (NOT "Queued").
+  return <span className={`${cls} border-slate-700 bg-steel-900 text-slate-500`}>Ready</span>;
 }
 
 function MatrixHeader({ sort, onSort, allExpanded, onToggleAll }) {
@@ -1785,11 +1849,153 @@ function DriftAlertBanner() {
   );
 }
 
+/**
+ * Honest error banner — shows WHY a scan failed (backend refusal reason, or the
+ * backend being unreachable). Critical for a security tool: we never silently
+ * substitute simulated data, so a failure is always visible, never hidden.
+ */
+function ScanErrorBanner() {
+  const { phase, statusMessage } = useScan();
+  if (phase !== ScanPhase.ERROR || !statusMessage) return null;
+  return (
+    <div className="flex items-start gap-3 border-b border-crimson/40 bg-crimson/10 px-4 py-2">
+      <Icon.Alert className="mt-0.5 h-4 w-4 shrink-0 text-crimson" />
+      <div className="min-w-0 flex-1">
+        <span className="text-sm font-semibold text-crimson">Scan error</span>
+        <span className="ml-2 text-xs text-slate-300">{statusMessage}</span>
+      </div>
+    </div>
+  );
+}
+
 // Common, non-intrusive NSE scripts offered as one-click chips in the nmap bar.
 const COMMON_SCRIPTS = [
   'http-title', 'http-headers', 'http-enum', 'ssl-cert', 'ssl-enum-ciphers',
   'ssh-hostkey', 'smb-os-discovery', 'banner', 'vulners',
 ];
+
+/**
+ * CVE / NVD API-key control. A free key from nvd.nist.gov raises the live-CVE
+ * rate limit (5 → 50 req/30s). This makes it dead-simple: see the current
+ * status, paste a key (applied immediately, in memory), or copy the one line
+ * that makes it permanent in `.env`. No file-hunting required.
+ */
+function NvdKeyButton() {
+  const [open, setOpen] = useState(false);
+  const [status, setStatus] = useState(null); // { key_active, rate_limit, cached_services, get_key_url, env_hint, live }
+  const [keyInput, setKeyInput] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState('');
+
+  const refresh = useCallback(() => {
+    fetch('/api/settings/nvd')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => d && setStatus(d))
+      .catch(() => {});
+  }, []);
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  const save = () => {
+    setSaving(true);
+    setMsg('');
+    fetch('/api/settings/nvd-key', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key: keyInput }),
+    })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.status === 401 ? 'admin token required' : `HTTP ${r.status}`))))
+      .then((d) => {
+        setMsg(d.key_active ? '✓ Key applied — higher rate limit active.' : 'Key cleared.');
+        setKeyInput('');
+        refresh();
+      })
+      .catch((e) => setMsg(`✗ ${e.message}`))
+      .finally(() => setSaving(false));
+  };
+
+  const active = status?.key_active;
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => { setOpen((o) => !o); refresh(); }}
+        title="CVE intelligence — set your free NVD API key for faster, higher-volume vulnerability lookups"
+        className={`inline-flex items-center gap-1 rounded-sm border px-1.5 py-0.5 text-[10px] font-semibold transition ${
+          active
+            ? 'border-matrix/40 bg-matrix/10 text-matrix'
+            : 'border-amber/40 bg-amber/10 text-amber hover:bg-amber/20'
+        }`}
+      >
+        <Icon.Key className="h-3 w-3" />
+        NVD key: {active ? 'active' : 'not set'}
+      </button>
+
+      {open && (
+        <>
+          {/* click-away backdrop */}
+          <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 z-40 mt-1 w-[320px] rounded-md border border-slate-700 bg-steel-850 p-3 text-[11px] shadow-glow-amber">
+            <div className="mb-2 flex items-center gap-1.5 font-semibold uppercase tracking-wider text-amber">
+              <Icon.Key className="h-3.5 w-3.5" /> NVD API key (CVE intelligence)
+            </div>
+            <p className="mb-2 leading-relaxed text-slate-400">
+              Optional, but recommended. A <b>free</b> key raises the live-CVE lookup
+              limit from <b>5</b> to <b>50</b> requests / 30s — faster, more complete
+              results. Current limit:{' '}
+              <span className="font-mono text-slate-200">{status?.rate_limit || '—'}</span>.
+            </p>
+
+            <ol className="mb-2 list-decimal space-y-1 pl-4 text-slate-400">
+              <li>
+                Get a free key:{' '}
+                <a
+                  href={status?.get_key_url || 'https://nvd.nist.gov/developers/request-an-api-key'}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="font-mono text-amber-300 underline decoration-dotted underline-offset-2 hover:text-amber-200"
+                >
+                  nvd.nist.gov ↗
+                </a>
+              </li>
+              <li>Paste it below and click Apply.</li>
+            </ol>
+
+            <div className="flex items-center gap-1.5">
+              <input
+                type="password"
+                value={keyInput}
+                onChange={(e) => setKeyInput(e.target.value)}
+                placeholder="paste NVD API key…"
+                spellCheck={false}
+                className="w-full rounded border border-slate-700 bg-steel-900 px-2 py-1 font-mono text-slate-200 outline-none focus:border-amber/60"
+              />
+              <button
+                onClick={save}
+                disabled={saving || !keyInput.trim()}
+                className="shrink-0 rounded border border-matrix/50 bg-matrix/10 px-2 py-1 font-semibold uppercase tracking-wider text-matrix transition hover:bg-matrix/20 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {saving ? '…' : 'Apply'}
+              </button>
+            </div>
+            {msg && <p className="mt-1.5 font-mono text-[10px] text-slate-300">{msg}</p>}
+
+            <div className="mt-2 border-t border-slate-700/70 pt-2 text-slate-500">
+              <p className="mb-1">To make it permanent (survives restart), add this line to your <span className="font-mono text-slate-300">.env</span> file:</p>
+              <code className="block select-all rounded bg-black/40 px-1.5 py-1 font-mono text-[10px] text-amber-200">
+                {status?.env_hint || 'ENUMGRID_NVD_API_KEY=<your-key>'}
+              </code>
+              <p className="mt-1.5 text-[10px]">
+                Key is kept <b>in memory only</b> — never written to disk or logged by the app.
+                {status && <> Cached CVE records: <span className="font-mono text-slate-300">{status.cached_services}</span>.</>}
+              </p>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
 
 /**
  * Nmap scan panel — pick a Zenmap-style profile, see the *exact* nmap command it
@@ -1800,13 +2006,15 @@ const COMMON_SCRIPTS = [
 function ScanConfigBar() {
   const {
     profiles, scanProfile, setScanProfile, scanScripts, setScanScripts,
-    scanPorts, setScanPorts, privileged, scanAll, hosts,
+    scanPorts, setScanPorts, privileged, capability, canRaw, scanAll, hosts,
   } = useScan();
   const entries = Object.entries(profiles || {});
   if (!entries.length) return null; // backend offline / profiles not loaded
 
   const sel = profiles[scanProfile] || {};
-  const needsRoot = sel.needs_root && !privileged;
+  // A root-only profile no longer *blocks* when unprivileged — it auto-adapts
+  // (SYN→connect, UDP→connect, OS detect skipped). We just explain what'll happen.
+  const willAdapt = sel.needs_root && !canRaw;
   const upCount = hosts.filter((h) => h.status === HostStatus.UP).length;
   const field =
     'rounded border border-slate-700 bg-steel-900 px-2 py-1 font-mono text-slate-200 outline-none transition focus:border-amber/60';
@@ -1850,19 +2058,31 @@ function ScanConfigBar() {
         >
           <Icon.Play className="h-3 w-3" /> Run Nmap Scan{upCount ? ` (${upCount})` : ''}
         </button>
-        {privileged ? (
+        {canRaw ? (
           <span
-            title="Backend is running as root — nmap -O OS detection + SYN/UDP scans are enabled."
+            title={
+              capability === 'sudo'
+                ? 'Passwordless sudo available — scans elevate automatically (real -O / SYN / UDP).'
+                : 'Backend is running as root — nmap -O OS detection + SYN/UDP scans are enabled.'
+            }
             className="inline-flex items-center gap-1 rounded-sm border border-matrix/40 bg-matrix/10 px-1.5 py-0.5 text-[10px] font-semibold text-matrix"
           >
-            <Icon.Shield className="h-3 w-3" /> root · full nmap
+            <Icon.Shield className="h-3 w-3" />
+            {capability === 'sudo' ? 'sudo · full nmap' : 'root · full nmap'}
           </span>
         ) : (
-          <span className="rounded-sm border border-slate-700 bg-steel-900 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">
-            unprivileged
+          <span
+            title="No root / passwordless sudo — root-only scans (SYN/UDP/OS) auto-adapt to unprivileged equivalents, so every scan still runs."
+            className="inline-flex items-center gap-1 rounded-sm border border-slate-700 bg-steel-900 px-1.5 py-0.5 text-[10px] font-semibold text-slate-400"
+          >
+            unprivileged · auto-adapts
           </span>
         )}
         <span className="hidden text-slate-500 lg:inline">{sel.desc}</span>
+        {/* CVE / NVD API key — pushed to the right; opens an easy settings panel. */}
+        <div className="ml-auto">
+          <NvdKeyButton />
+        </div>
       </div>
 
       {/* Row 2 — the exact nmap command (proof the scan really differs) */}
@@ -1874,7 +2094,7 @@ function ScanConfigBar() {
             <span className="text-amber"> --script {[...scriptSet].join(',')}</span>
           )}
           {scanPorts && <span className="text-amber"> -p {scanPorts}</span>}
-          {privileged && !/-A|-sS|-sU/.test(sel.args) && <span className="text-matrix"> -O</span>}
+          {canRaw && !/-A|-sS|-sU/.test(sel.args) && <span className="text-matrix"> -O</span>}
           <span className="text-slate-600"> &lt;host&gt;</span>
         </div>
       )}
@@ -1922,12 +2142,14 @@ function ScanConfigBar() {
         })}
       </div>
 
-      {/* Sudo guidance when a privileged profile is picked without root */}
-      {needsRoot && (
-        <div className="flex flex-wrap items-center gap-2 rounded border border-amber/40 bg-amber/10 px-2 py-1 text-[11px] text-amber">
-          <Icon.Alert className="h-3.5 w-3.5 shrink-0" />
+      {/* Auto-adapt notice: a root-only profile still runs unprivileged, downgraded. */}
+      {willAdapt && (
+        <div className="flex flex-wrap items-center gap-2 rounded border border-amber/30 bg-amber/[0.07] px-2 py-1 text-[11px] text-amber/90">
+          <Icon.Info className="h-3.5 w-3.5 shrink-0" />
           <span>
-            <b>{sel.label}</b> needs root (OS <code>-O</code> / SYN / UDP). Restart privileged:
+            <b>{sel.label}</b> uses root-only features (OS <code>-O</code> / SYN / UDP). No root or
+            passwordless sudo detected — it’ll <b>auto-adapt</b> (SYN→connect, UDP→connect, OS
+            detect skipped) so the scan still runs. For full fidelity:
           </span>
           <code className="rounded bg-black/40 px-1.5 py-0.5 font-mono text-amber-200">./start.sh --accurate-os</code>
         </div>
@@ -2051,6 +2273,7 @@ export default function IndustrialDashboard() {
       {booting && <BootSplash onDone={finishBoot} />}
       <ControlBar />
       <DriftAlertBanner />
+      <ScanErrorBanner />
       <ScanConfigBar />
       <div className="flex min-h-0 flex-1">
         <Sidebar />
