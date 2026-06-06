@@ -31,6 +31,13 @@ make setup     # one-time: venv + python deps + npm install
 make dev       # start backend (:8011) + frontend (:5173) together
 ```
 
+Or run the backend + CLI in a container with nmap baked in (Linux; LAN scanning
+needs the host network):
+
+```bash
+PURPLERECON_API_TOKEN=changeme docker compose up --build
+```
+
 Open <http://localhost:5173>. The target **auto-fills to your network** — or just
 press **Start Scan with the field empty** and it auto-detects and sweeps your whole
 `/24`. Then:
@@ -145,12 +152,21 @@ make test      # ruff lint + CLI pytest + backend pytest + frontend Vitest
 
 | Suite | Count | Scope |
 |---|---|---|
-| `test_purple_recon.py` | 79 | guardrails (incl. IPv6 scope), NDP/ARP/OUI parsing, discovery policy, reports, export, renderers |
-| `backend/test_*.py` | 104 | scope enforcement, token gate, NSE/CVSS parsing, OS/TTL + device + mDNS fingerprinting, SQLite history + drift, PDF report |
+| `test_purple_recon.py` | 84 | guardrails (incl. IPv6 scope), NDP/ARP/OUI parsing, discovery policy, reports, export, renderers, **fuzzing** |
+| `backend/test_*.py` | 126 | scope/token, NSE/CVSS, OS-TTL + device + mDNS fingerprinting, history + drift, PDF, **FastAPI integration**, **hypothesis fuzzing** |
 | `frontend/src/**/*.test.js` | 11 | schema coercion / null-safety, derived counters |
+| `evaluation/test_benchmark.py` | 7 | benchmark metric math (precision/recall/Jaccard) |
 
-CI (`.github/workflows/ci.yml`) runs lint + all three suites on every push
-across Python 3.10–3.13.
+**228 tests.** CI (`.github/workflows/ci.yml`) runs **5 jobs** — lint (ruff),
+**security** (bandit SAST + pip-audit + npm audit), CLI (Python 3.10–3.13 matrix),
+backend, and frontend — with coverage gates (CLI ≥50%, backend ≥60%) on every push.
+
+### Project docs
+
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — design + rationale
+- [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) — assets, trust boundaries, controls
+- [`docs/EVALUATION.md`](docs/EVALUATION.md) — measured accuracy vs `nmap -sn`
+- [`CHANGELOG.md`](CHANGELOG.md)
 
 ---
 
@@ -168,6 +184,10 @@ backend/               # FastAPI SSE service (reuses the CLI engine)
   ├─ security.py       #   ScopeValidator reuse (dual-stack) + auth + concurrency cap
   ├─ history.py        #   SQLite scan history + drift  ·  report.py  PDF
 frontend/              # Vite + React + Tailwind cockpit
+evaluation/            # benchmark harness + docker testbed (vs nmap)
+docs/                  # ARCHITECTURE · THREAT_MODEL · EVALUATION
+Dockerfile             # backend + CLI image (nmap baked in)
+docker-compose.yml     # one-command deployment  ·  requirements.lock  pinned env
 scripts/dev.sh         # runs both servers together (make dev)
 Makefile               # setup / dev / test / lint / clean
 ```
