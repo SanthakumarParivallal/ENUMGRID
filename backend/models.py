@@ -70,6 +70,9 @@ class Vuln(BaseModel):
     output: str = ""  # trimmed raw script output
     url: str = ""  # authoritative reference (NVD CVE page) — clickable in the UI
     confidence: str = ""  # "confirmed" | "version"  (basis of the finding)
+    # Real-world prioritization signals (so "which of 40 CVEs matters first?"):
+    kev: bool = False           # in CISA's Known Exploited Vulnerabilities catalog
+    epss: float | None = None   # FIRST EPSS exploit-in-the-wild probability (0..1)
 
 
 class Port(BaseModel):

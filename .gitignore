@@ -40,9 +40,11 @@ oui.txt
 # ---- secrets / local config (keep .env.example tracked) ----
 .env
 
-# ---- start.sh runtime logs ----
+# ---- runtime logs + local intel caches (operator data) ----
+*.log
 .backend.log
 .frontend.log
+enumgrid_kev.json
 
 # ---- Editor / OS noise ----
 .DS_Store

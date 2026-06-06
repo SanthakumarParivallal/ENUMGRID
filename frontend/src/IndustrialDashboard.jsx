@@ -1205,6 +1205,26 @@ function PortDetailTable({ host }) {
                         CVSS {v.cvss.toFixed(1)}
                       </span>
                     )}
+                    {v.kev && (
+                      <span
+                        title="In CISA's Known Exploited Vulnerabilities catalog — confirmed exploited in the wild. Patch first."
+                        className="shrink-0 animate-pulse rounded border border-crimson bg-crimson/20 px-1 font-mono text-[9px] font-bold uppercase tracking-wider text-crimson"
+                      >
+                        ⚠ KEV · exploited
+                      </span>
+                    )}
+                    {v.epss != null && v.epss >= 0.01 && (
+                      <span
+                        title="FIRST EPSS — probability this CVE is exploited in the next 30 days."
+                        className={`shrink-0 rounded border px-1 font-mono text-[9px] font-semibold ${
+                          v.epss >= 0.5
+                            ? 'border-amber/60 bg-amber/10 text-amber'
+                            : 'border-slate-600/50 bg-slate-800/40 text-slate-400'
+                        }`}
+                      >
+                        EPSS {(v.epss * 100).toFixed(v.epss >= 0.1 ? 0 : 1)}%
+                      </span>
+                    )}
                     {v.confidence === 'confirmed' && (
                       <span
                         title="An NSE script actively tested this host and confirmed it vulnerable."

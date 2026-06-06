@@ -178,7 +178,7 @@ if [[ ! -x "$PYTHON" ]]; then
 fi
 
 # Install/refresh deps only when something is actually missing — keeps restarts fast.
-if ! "$PYTHON" -c "import fastapi, uvicorn, nmap, reportlab, pydantic" >/dev/null 2>&1; then
+if ! "$PYTHON" -c "import fastapi, uvicorn, nmap, reportlab, pydantic, paramiko" >/dev/null 2>&1; then
   say "Installing backend dependencies (first run only)…"
   "$PYTHON" -m pip install --upgrade pip >/dev/null
   "$PYTHON" -m pip install -r backend/requirements.txt >/dev/null || die "pip install failed."

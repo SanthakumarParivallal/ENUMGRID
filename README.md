@@ -162,6 +162,22 @@ Phase 2  Vertical deep-dive nmap -sV (+ NSE)   service / version / vuln detectio
   match — verify). Set `ENUMGRID_NVD_API_KEY` to raise the NVD rate limit;
   `ENUMGRID_NVD_DISABLE=1` turns live lookups off. (Verified live: an OpenSSH
   `7.2p2` CPE returned 12 current CVEs in ~2.6 s, then instant from cache.)
+- **Risk prioritization (KEV + EPSS).** Findings are enriched with **CISA KEV**
+  (confirmed exploited-in-the-wild — a red `⚠ KEV` badge) and **FIRST EPSS**
+  (exploit-probability %), then **risk-ranked** so "which of 40 CVEs matters
+  first?" is answered for you: actively-exploited → high EPSS → high CVSS.
+  (Live: 1612 KEV CVEs loaded in 0.3 s; Log4Shell/Heartbleed scored ~94 %.)
+- **Credentialed scanning (authenticated truth).** `POST /api/host/credscan`
+  logs in over **SSH** and reads the *exact* distro (`/etc/os-release`), kernel
+  and installed-package inventory — eliminating version-banner false positives.
+  Host-key-verified by default (`ENUMGRID_SSH_AUTOADD=1` to trust new keys);
+  credentials are used in memory only, never logged.
+- **SNMP device naming** — switches/APs/printers with no DNS/mDNS are named from
+  SNMP `sysName`/`sysDescr` (default community), filling more of the grid.
+- **Outbound alerting** — on scan-complete / drift, push to a **webhook**, **Slack**
+  (`ENUMGRID_SLACK_WEBHOOK`) or **syslog** (`ENUMGRID_SYSLOG`) — KEV hits are
+  called out. **Audit trail**: every scan/refusal/credscan is appended to a JSONL
+  log (`/api/audit`) for accountability.
 - **Filtered-state confirmation** — ports left ambiguous (`filtered`) by the first
   pass are automatically re-probed with a *different* technique (patient TCP
   connect, or SYN from a DNS source port when root) to resolve false "filtered".
@@ -201,11 +217,11 @@ make test      # ruff lint + CLI pytest + backend pytest + frontend Vitest
 | Suite | Count | Scope |
 |---|---|---|
 | `test_purple_recon.py` | 84 | guardrails (incl. IPv6 scope), NDP/ARP/OUI parsing, discovery policy, reports, export, renderers, **fuzzing** |
-| `backend/test_*.py` | 226 | scope/token, **11 scan profiles** + injection safety, **live NVD lookup + cache + offline CVE DB + NVD links + false-positive confidence**, NSE/CVSS, **multi-signal OS fingerprinting** (TTL+vendor+host+mDNS model+osxvers), device + mDNS + **NBNS**, history + drift, PDF, **FastAPI integration**, **hypothesis fuzzing** |
-| `frontend/src/**/*.test.js` | 15 | schema coercion / null-safety, CVE link + confidence mapping, derived counters |
+| `backend/test_*.py` | 253 | scope/token, **11 scan profiles** + injection safety, **live NVD + cache + offline CVE DB + NVD links + confidence**, **KEV+EPSS prioritization**, **credentialed SSH parsers**, **SNMP BER codec**, **outbound alerting + audit**, NSE/CVSS, **multi-signal OS fingerprinting**, device + mDNS + **NBNS**, history + drift, PDF, **FastAPI integration**, **hypothesis fuzzing** |
+| `frontend/src/**/*.test.js` | 17 | schema coercion / null-safety, CVE link + confidence + **KEV/EPSS risk-rank**, derived counters |
 | `evaluation/test_benchmark.py` | 7 | benchmark metric math (precision/recall/Jaccard) |
 
-**332 tests, all green.** Static analysis is clean: **ruff** 0 findings, **bandit**
+**361 tests, all green.** Static analysis is clean: **ruff** 0 findings, **bandit**
 SAST 0 high/medium, **pip-audit** 0 known CVEs. CI (`.github/workflows/ci.yml`)
 runs **5 jobs** — lint (ruff), **security** (bandit + pip-audit + npm audit), CLI
 (Python 3.10–3.13 matrix), backend, and frontend — with coverage gates on every push.

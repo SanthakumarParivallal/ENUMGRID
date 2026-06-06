@@ -43,9 +43,24 @@ identity, automatic CVE intelligence, measured accuracy and a security self-audi
   in-scan CVE source), plus a **curated offline reference** (`backend/vulndb.py`)
   as a last-resort fallback. All three sources are merged + deduped.
 - **Clickable NVD links** on every finding (dashboard + PDF).
+- **Risk prioritization (CISA KEV + FIRST EPSS)** (`backend/threatintel.py`) —
+  findings are tagged with exploited-in-the-wild status + exploit probability and
+  **risk-ranked** (KEV → EPSS → CVSS), so the few that matter surface first.
 - **False-positive transparency** — each finding is tagged `confirmed` (an NSE
   script actively tested the host) or `version` (version/CPE match — "verify");
   non-finding output is filtered, and duplicates merge keeping the best confidence.
+- **Credentialed scanning** (`backend/credscan.py`, `POST /api/host/credscan`) —
+  authenticated SSH read of exact distro/kernel/package inventory (host-key
+  verified by default; credentials never logged).
+
+### Operations
+- **SNMP device naming** (`backend/snmp.py`) — names switches/APs/printers with
+  no DNS/mDNS from SNMP sysName/sysDescr.
+- **Outbound alerting** (`backend/notify.py`) — webhook / Slack / syslog on
+  scan-complete (KEV hits highlighted).
+- **Audit trail** (`backend/audit.py`, `GET /api/audit`) — append-only JSONL of
+  every scan, refusal and credentialed check.
+- **`.env` auto-loading** in `start.sh` for secrets like `ENUMGRID_NVD_API_KEY`.
 
 ### Web cockpit
 - FastAPI SSE backend + React/Tailwind dashboard; live device grid.
@@ -66,7 +81,7 @@ identity, automatic CVE intelligence, measured accuracy and a security self-audi
 - [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md).
 
 ### Quality & reproducibility
-- **332 tests** (CLI 84 · backend 226 · evaluation 7 · frontend 15): unit,
+- **361 tests** (CLI 84 · backend 253 · evaluation 7 · frontend 17): unit,
   **FastAPI TestClient integration**, **hypothesis fuzzing**. ruff 0,
   **bandit 0 high/medium**, pip-audit 0 CVEs.
 - **Measured evaluation** vs `nmap -sn` ([`docs/EVALUATION.md`](docs/EVALUATION.md)):

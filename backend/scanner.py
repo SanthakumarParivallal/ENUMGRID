@@ -26,6 +26,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import cve as cvedb
 import nmap
+import threatintel
 from fingerprint import guess_device_type
 from models import (
     Host,
@@ -400,6 +401,14 @@ def _service_scan(
                 if any(v.severity in (Severity.HIGH, Severity.CRITICAL) for v in p.vulns):
                     p.critical = True
 
+    host_vulns = _parse_hostscript(node.get("hostscript", []))
+
+    # Prioritize: annotate every CVE with CISA KEV (actively exploited) + FIRST
+    # EPSS (exploit probability), then risk-rank — so the worst, real-world-
+    # exploited issues float to the top instead of just sorting by CVSS.
+    if auto_cve:
+        _apply_threatintel(ports, host_vulns)
+
     hostname = node.hostname() or None
     open_ports = [p.port for p in ports if p.state in (PortState.OPEN, PortState.OPEN_FILTERED)]
     services = [p.service for p in ports]
@@ -407,9 +416,35 @@ def _service_scan(
         "os": _detect_os(node, ports),
         "hostname": hostname,
         "ports": ports,
-        "vulns": _parse_hostscript(node.get("hostscript", [])),
+        "vulns": host_vulns,
         "device_type": guess_device_type(hostname=hostname, ports=open_ports, services=services),
     }
+
+
+def _apply_threatintel(ports: list[Port], host_vulns: list[Vuln]) -> None:
+    """Batch-annotate all CVE findings with KEV + EPSS and risk-rank them.
+
+    One KEV-set check + one EPSS batch call covers the whole host. Best-effort:
+    any feed failure leaves the findings untouched.
+    """
+    all_vulns = [v for p in ports for v in p.vulns] + list(host_vulns)
+    cve_ids = [v.id for v in all_vulns if v.id.upper().startswith("CVE-")]
+    if not cve_ids:
+        return
+    try:
+        kev = threatintel.kev_set()
+        scores = threatintel.epss_for(cve_ids)
+    except Exception:  # noqa: BLE001 - enrichment must never break a scan
+        return
+    for v in all_vulns:
+        cid = v.id.upper()
+        if cid in kev:
+            v.kev = True
+        if cid in scores:
+            v.epss = round(scores[cid], 4)
+    for p in ports:
+        p.vulns = sorted(p.vulns, key=threatintel.risk_key)
+    host_vulns.sort(key=threatintel.risk_key)
 
 
 # ----------------------------------------------------- NSE script parsing -- #

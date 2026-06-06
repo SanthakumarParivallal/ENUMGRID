@@ -26,6 +26,7 @@ from concurrent.futures import ThreadPoolExecutor
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
+import snmp  # noqa: E402
 from fingerprint import guess_device_type  # noqa: E402
 from mdns import discover_mdns  # noqa: E402
 from models import Host, HostStatus, ScanPhase, ScanState  # noqa: E402
@@ -169,6 +170,22 @@ async def run_discovery(target: str, scan_id: str | None):
         for ip, name in nb.items():
             if name and not hosts[ip].hostname:
                 hosts[ip].hostname = name
+
+    # --- 3a2) SNMP names for still-unnamed hosts (switches/APs/printers) ---- #
+    # Network gear with no DNS/mDNS often answers SNMP (default community
+    # "public") with its sysName/sysDescr. Parallel + short timeout, so devices
+    # that don't speak SNMP cost ~1s total, not per-host.
+    unnamed = [ip for ip, h in hosts.items() if not h.hostname]
+    if unnamed:
+        try:
+            with ThreadPoolExecutor(max_workers=32, thread_name_prefix="snmp") as snmp_pool:
+                for ip, info in zip(unnamed, snmp_pool.map(lambda i: snmp.sysinfo(i, timeout=1.0), unnamed)):
+                    if info.get("name") and not hosts[ip].hostname:
+                        hosts[ip].hostname = info["name"]
+                    if info.get("descr") and hosts[ip].os in ("", "Unknown"):
+                        hosts[ip].os = info["descr"][:60]
+        except Exception:
+            pass
 
     # --- 3b) OS-family hint from ping-reply TTL (unprivileged, parallel) ---- #
     # Real `nmap -O` needs root; this gives an honest OS family without it. A
