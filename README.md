@@ -145,10 +145,23 @@ Phase 2  Vertical deep-dive nmap -sV (+ NSE)   service / version / vuln detectio
   custom **NSE scripts** and a **port range** — all validated server-side so no
   argument can ever be injected (intrusive `brute`/`exploit`/`dos`/`malware`
   categories are refused by default).
-- **Automatic CVE intelligence** — when version detection identifies a service,
-  the deep/vuln scan correlates it to CVEs (NSE `vulners`, real CVSS scores) and
-  renders each finding as a **clickable link to its NVD page**. (Live example: a
-  router's `dnsmasq 2.87` + `lighttpd 1.4.63` auto-surfaced 6 CVEs with links.)
+- **Automatic CVE intelligence (live, comprehensive, future-proof).** When
+  version detection identifies a service, EnumGrid correlates it to CVEs from
+  **three layered sources** so real-world coverage isn't limited to a hardcoded
+  list:
+  1. **Live NVD API** — queried by the exact **CPE** nmap emits, so *any*
+     fingerprinted service is matched against the full, authoritative US-government
+     CVE corpus, and **newly-published CVEs appear automatically** (no code
+     change). Results are cached in a local SQLite DB, so repeat scans are instant
+     and it keeps working **offline** once a service has been seen.
+  2. **NSE `vulners`** — a second in-scan CVE source with CVSS scores.
+  3. **Curated offline reference** (`backend/vulndb.py`) — the best-known cases as
+     a last-resort fallback.
+  Every finding is a **clickable link to its NVD page** and tagged with its
+  **confidence** (`confirmed` = NSE actively tested · `version` = version/CPE
+  match — verify). Set `ENUMGRID_NVD_API_KEY` to raise the NVD rate limit;
+  `ENUMGRID_NVD_DISABLE=1` turns live lookups off. (Verified live: an OpenSSH
+  `7.2p2` CPE returned 12 current CVEs in ~2.6 s, then instant from cache.)
 - **Filtered-state confirmation** — ports left ambiguous (`filtered`) by the first
   pass are automatically re-probed with a *different* technique (patient TCP
   connect, or SYN from a DNS source port when root) to resolve false "filtered".
@@ -188,11 +201,11 @@ make test      # ruff lint + CLI pytest + backend pytest + frontend Vitest
 | Suite | Count | Scope |
 |---|---|---|
 | `test_purple_recon.py` | 84 | guardrails (incl. IPv6 scope), NDP/ARP/OUI parsing, discovery policy, reports, export, renderers, **fuzzing** |
-| `backend/test_*.py` | 210 | scope/token, **11 scan profiles** + injection safety, **auto CVE + offline CVE DB + NVD links + false-positive confidence**, NSE/CVSS, **multi-signal OS fingerprinting** (TTL+vendor+host+mDNS model+osxvers), device + mDNS + **NBNS**, history + drift, PDF, **FastAPI integration**, **hypothesis fuzzing** |
+| `backend/test_*.py` | 226 | scope/token, **11 scan profiles** + injection safety, **live NVD lookup + cache + offline CVE DB + NVD links + false-positive confidence**, NSE/CVSS, **multi-signal OS fingerprinting** (TTL+vendor+host+mDNS model+osxvers), device + mDNS + **NBNS**, history + drift, PDF, **FastAPI integration**, **hypothesis fuzzing** |
 | `frontend/src/**/*.test.js` | 15 | schema coercion / null-safety, CVE link + confidence mapping, derived counters |
 | `evaluation/test_benchmark.py` | 7 | benchmark metric math (precision/recall/Jaccard) |
 
-**316 tests, all green.** Static analysis is clean: **ruff** 0 findings, **bandit**
+**332 tests, all green.** Static analysis is clean: **ruff** 0 findings, **bandit**
 SAST 0 high/medium, **pip-audit** 0 known CVEs. CI (`.github/workflows/ci.yml`)
 runs **5 jobs** — lint (ruff), **security** (bandit + pip-audit + npm audit), CLI
 (Python 3.10–3.13 matrix), backend, and frontend — with coverage gates on every push.

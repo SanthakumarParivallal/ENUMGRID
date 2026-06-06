@@ -24,6 +24,7 @@ import re
 import time
 from concurrent.futures import ThreadPoolExecutor
 
+import cve as cvedb
 import nmap
 from fingerprint import guess_device_type
 from models import (
@@ -310,6 +311,20 @@ def _ping_sweep(target: str) -> list[dict]:
     return discovered
 
 
+def _app_cpe(info: dict) -> str:
+    """The application CPE (`cpe:/a:...`) nmap reported for a port, or "".
+
+    This is what drives the live NVD lookup — an exact product/version key, so
+    the CVE match is version-scoped rather than a fuzzy keyword search.
+    """
+    cpe = info.get("cpe", "")
+    candidates = cpe if isinstance(cpe, list) else [cpe]
+    for candidate in candidates:
+        if isinstance(candidate, str) and candidate.startswith("cpe:/a:"):
+            return candidate
+    return ""
+
+
 def _service_scan(
     ip: str,
     privileged: bool,
@@ -338,6 +353,7 @@ def _service_scan(
 
     node = scanner[ip]
     ports: list[Port] = []
+    cpe_by_port: dict[int, str] = {}
     for proto in node.all_protocols():  # 'tcp', 'udp'
         proto_enum = Protocol.UDP if proto == "udp" else Protocol.TCP
         for port_num in sorted(node[proto]):
@@ -351,6 +367,7 @@ def _service_scan(
             ).strip()
             # CVEs from NSE scripts (online) + the curated offline version map.
             vulns = _dedupe(_parse_scripts(info.get("script", {})) + lookup_offline_cves(version))
+            cpe_by_port[port_num] = _app_cpe(info)
             critical = (
                 state == PortState.OPEN
                 and (port_num in CRITICAL_PORTS or name.lower() in CRITICAL_SERVICES)
@@ -366,6 +383,22 @@ def _service_scan(
                     vulns=vulns,
                 )
             )
+
+    # Live NVD enrichment (on-demand per-host path only): match each service's
+    # CPE against the authoritative, always-current NVD feed (cached locally), so
+    # coverage isn't limited to the curated table — and new CVEs appear by
+    # themselves. Best-effort: any failure leaves the vulners/offline results.
+    if auto_cve:
+        try:
+            extra = cvedb.enrich(cpe_by_port)
+        except Exception:  # noqa: BLE001 - enrichment must never break a scan
+            extra = {}
+        for p in ports:
+            add = extra.get(p.port)
+            if add:
+                p.vulns = _dedupe(list(p.vulns) + add)
+                if any(v.severity in (Severity.HIGH, Severity.CRITICAL) for v in p.vulns):
+                    p.critical = True
 
     hostname = node.hostname() or None
     open_ports = [p.port for p in ports if p.state in (PortState.OPEN, PortState.OPEN_FILTERED)]
