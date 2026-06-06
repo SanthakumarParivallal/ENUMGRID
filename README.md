@@ -188,11 +188,11 @@ make test      # ruff lint + CLI pytest + backend pytest + frontend Vitest
 | Suite | Count | Scope |
 |---|---|---|
 | `test_purple_recon.py` | 84 | guardrails (incl. IPv6 scope), NDP/ARP/OUI parsing, discovery policy, reports, export, renderers, **fuzzing** |
-| `backend/test_*.py` | 201 | scope/token, **11 scan profiles** + injection safety, **auto CVE + offline CVE DB + NVD links**, NSE/CVSS, **multi-signal OS fingerprinting** (TTL+vendor+host+mDNS model+osxvers), device + mDNS + **NBNS**, history + drift, PDF, **FastAPI integration**, **hypothesis fuzzing** |
-| `frontend/src/**/*.test.js` | 11 | schema coercion / null-safety, derived counters |
+| `backend/test_*.py` | 210 | scope/token, **11 scan profiles** + injection safety, **auto CVE + offline CVE DB + NVD links + false-positive confidence**, NSE/CVSS, **multi-signal OS fingerprinting** (TTL+vendor+host+mDNS model+osxvers), device + mDNS + **NBNS**, history + drift, PDF, **FastAPI integration**, **hypothesis fuzzing** |
+| `frontend/src/**/*.test.js` | 15 | schema coercion / null-safety, CVE link + confidence mapping, derived counters |
 | `evaluation/test_benchmark.py` | 7 | benchmark metric math (precision/recall/Jaccard) |
 
-**303 tests, all green.** Static analysis is clean: **ruff** 0 findings, **bandit**
+**316 tests, all green.** Static analysis is clean: **ruff** 0 findings, **bandit**
 SAST 0 high/medium, **pip-audit** 0 known CVEs. CI (`.github/workflows/ci.yml`)
 runs **5 jobs** — lint (ruff), **security** (bandit + pip-audit + npm audit), CLI
 (Python 3.10–3.13 matrix), backend, and frontend — with coverage gates on every push.

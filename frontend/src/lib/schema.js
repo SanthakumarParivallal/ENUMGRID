@@ -187,6 +187,7 @@ export function VulnModel(data = {}) {
     cvss: data.cvss != null && Number.isFinite(score) ? score : null,
     output: data.output != null ? String(data.output) : '',
     url: url || (isCve ? `https://nvd.nist.gov/vuln/detail/${String(data.id).toUpperCase()}` : ''),
+    confidence: oneOf(data.confidence, ['confirmed', 'version'], ''),
   };
 }
 

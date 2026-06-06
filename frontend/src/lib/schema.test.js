@@ -43,6 +43,30 @@ describe('VulnModel', () => {
     expect(VulnModel({ cvss: 9.1 }).cvss).toBe(9.1);
     expect(VulnModel({ cvss: 'NaN' }).cvss).toBeNull();
   });
+
+  it('carries the backend url + confidence through', () => {
+    const v = VulnModel({
+      id: 'CVE-2023-50387',
+      severity: 'high',
+      url: 'https://nvd.nist.gov/vuln/detail/CVE-2023-50387',
+      confidence: 'version',
+    });
+    expect(v.url).toBe('https://nvd.nist.gov/vuln/detail/CVE-2023-50387');
+    expect(v.confidence).toBe('version');
+  });
+
+  it('synthesizes an NVD link for a CVE id when the backend omits one', () => {
+    const v = VulnModel({ id: 'CVE-2021-44228' });
+    expect(v.url).toBe('https://nvd.nist.gov/vuln/detail/CVE-2021-44228');
+  });
+
+  it('rejects an invalid confidence value (no false labelling)', () => {
+    expect(VulnModel({ id: 'x', confidence: 'totally-sure' }).confidence).toBe('');
+  });
+
+  it('does not invent a link for a non-CVE script finding', () => {
+    expect(VulnModel({ id: 'ssl-heartbleed' }).url).toBe('');
+  });
 });
 
 describe('HostModel', () => {

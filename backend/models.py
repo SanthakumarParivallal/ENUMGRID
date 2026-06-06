@@ -51,7 +51,17 @@ class Severity(str, Enum):
 
 
 class Vuln(BaseModel):
-    """A finding from an NSE vuln script (or the offline mock)."""
+    """A finding from an NSE vuln script (or the offline mock).
+
+    `confidence` records *how* the finding was established, so the UI can be
+    honest about false-positive risk:
+      * "confirmed" — an NSE script actively tested the host and reported it
+        VULNERABLE (high confidence);
+      * "version"   — inferred from the detected product/version or CPE
+        (vulners / offline reference / a referenced CVE). Accurate in general
+        but can be a false positive when a vendor backported the fix without
+        bumping the version — so it's flagged "verify".
+    """
 
     id: str  # CVE id when available, else the script name
     title: str = ""
@@ -59,6 +69,7 @@ class Vuln(BaseModel):
     cvss: float | None = None  # CVSS base score (from the `vulners` script)
     output: str = ""  # trimmed raw script output
     url: str = ""  # authoritative reference (NVD CVE page) — clickable in the UI
+    confidence: str = ""  # "confirmed" | "version"  (basis of the finding)
 
 
 class Port(BaseModel):

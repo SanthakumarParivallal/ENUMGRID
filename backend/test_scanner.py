@@ -109,6 +109,49 @@ def test_script_no_finding_is_skipped():
     assert scanner._script_to_vuln("banner", "just a banner, nothing here") is None
 
 
+# --- confidence + false-positive guards ------------------------------------ #
+def test_confirmed_state_marks_confidence_confirmed():
+    v = scanner._script_to_vuln("smb-vuln", "State: VULNERABLE\nRemote code execution")
+    assert v is not None and v.confidence == "confirmed"
+
+
+def test_cve_mention_without_state_is_version_confidence():
+    v = scanner._script_to_vuln("some-check", "references CVE-2019-1234 in changelog")
+    assert v is not None and v.confidence == "version"
+
+
+@pytest.mark.parametrize(
+    "output",
+    [
+        "No vulnerabilities found",
+        "Couldn't determine if the target is vulnerable",
+        "ERROR: script execution failed",
+        "could not connect; no reply",
+        "Server is NOT VULNERABLE to this check",
+    ],
+)
+def test_non_finding_phrases_never_false_positive(output):
+    assert scanner._script_to_vuln("http-check", output) is None
+
+
+def test_vulners_findings_are_version_confidence():
+    out = "CVE-2020-9999 9.8 https://vulners.com/x\n"
+    vulns = scanner._parse_vulners(out)
+    assert vulns and all(v.confidence == "version" for v in vulns)
+
+
+def test_dedupe_prefers_confirmed_over_version():
+    from models import Severity, Vuln
+
+    merged = scanner._dedupe([
+        Vuln(id="CVE-1", severity=Severity.HIGH, confidence="version", cvss=7.5),
+        Vuln(id="CVE-1", severity=Severity.HIGH, confidence="confirmed"),
+    ])
+    assert len(merged) == 1
+    assert merged[0].confidence == "confirmed"
+    assert merged[0].cvss == 7.5  # the score carries over from the version match
+
+
 def test_script_cve_without_state_is_medium():
     v = scanner._script_to_vuln("some-check", "references CVE-2019-1234 in changelog")
     assert v is not None
