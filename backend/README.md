@@ -77,9 +77,22 @@ packet is sent. Refused (returns an `Error` frame / `400` carrying a `message`):
 | `ENUMGRID_MAX_SCANS` | `4` | cap on concurrent scans (excess → `429` / "server busy") |
 | `ENUMGRID_MAX_HOSTS` | `4096` | per-request host cap |
 | `ENUMGRID_API_TOKEN` | _(unset)_ | when set, require `?token=` or `Authorization: Bearer …` |
+| `ENUMGRID_NVD_API_KEY` | _(unset)_ | NVD API key — raises the live-CVE rate limit (5→50 req/30s) |
+| `ENUMGRID_NVD_DISABLE` | `0` | set `1` to disable live NVD lookups (cache + offline still used) |
+| `ENUMGRID_CVE_TTL_DAYS` | `30` | freshness window for the local CVE cache |
+| `ENUMGRID_NVD_BUDGET` | `20` | max seconds of live NVD lookups per host scan |
 
 Auth is **off by default** (the server binds to localhost), so the local dev flow
 needs no configuration. Set a token before exposing the API beyond localhost.
+
+### CVE intelligence
+
+Service versions are matched to CVEs from three layered sources — **live NVD API**
+(by CPE, authoritative + always current, locally cached), in-scan **NSE `vulners`**,
+and a **curated offline reference**. Findings carry CVSS, an NVD link, and a
+`confirmed`/`version` confidence tag. `GET /api/health` reports `cve.cached_services`
+(the local cache size, which grows as you scan). No API key is required, but
+`ENUMGRID_NVD_API_KEY` is recommended for heavy use.
 
 ## Notes
 

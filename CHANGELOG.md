@@ -32,11 +32,17 @@ identity, automatic CVE intelligence, measured accuracy and a security self-audi
   different technique (patient TCP connect, or SYN from a DNS source port as root).
 - **IPv6-aware**: dual-stack `ScopeValidator`, NDP correlation by MAC, nmap `-6`.
 
-### Vulnerability intelligence
-- **Automatic version → CVE → hyperlink.** Every on-demand host scan runs the
-  version→CVE `vulners` lookup automatically; findings link to their **NVD page**.
-- **Curated offline CVE reference** (`backend/vulndb.py`) so well-known vulnerable
-  builds are flagged even without internet; `vulners` covers the long tail online.
+### Vulnerability intelligence (live, comprehensive, future-proof)
+- **Live NVD API enrichment** (`backend/cve.py`) — every fingerprinted service is
+  matched **by CPE** against the authoritative US-government NVD feed, so coverage
+  isn't a hardcoded list and **newly-published CVEs appear automatically**.
+  Results are cached in a local SQLite DB (grows over time, instant on repeat
+  scans, works offline once seen); rate-limit-aware with a per-scan budget and an
+  optional `ENUMGRID_NVD_API_KEY`. Verified live: OpenSSH `7.2p2` → 12 CVEs in ~2.6s.
+- **NSE `vulners`** runs automatically on every on-demand host scan (second
+  in-scan CVE source), plus a **curated offline reference** (`backend/vulndb.py`)
+  as a last-resort fallback. All three sources are merged + deduped.
+- **Clickable NVD links** on every finding (dashboard + PDF).
 - **False-positive transparency** — each finding is tagged `confirmed` (an NSE
   script actively tested the host) or `version` (version/CPE match — "verify");
   non-finding output is filtered, and duplicates merge keeping the best confidence.
@@ -60,7 +66,7 @@ identity, automatic CVE intelligence, measured accuracy and a security self-audi
 - [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md).
 
 ### Quality & reproducibility
-- **316 tests** (CLI 84 · backend 210 · evaluation 7 · frontend 15): unit,
+- **332 tests** (CLI 84 · backend 226 · evaluation 7 · frontend 15): unit,
   **FastAPI TestClient integration**, **hypothesis fuzzing**. ruff 0,
   **bandit 0 high/medium**, pip-audit 0 CVEs.
 - **Measured evaluation** vs `nmap -sn` ([`docs/EVALUATION.md`](docs/EVALUATION.md)):

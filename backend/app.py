@@ -20,6 +20,7 @@ import asyncio
 import json
 from datetime import datetime
 
+import cve
 import history
 from discovery import run_discovery
 from fastapi import Body, FastAPI, Header, HTTPException, Query
@@ -74,6 +75,12 @@ def health() -> dict:
         "privileged": is_privileged(),
         "max_concurrent_scans": MAX_CONCURRENT_SCANS,
         "allow_public": ALLOW_PUBLIC,
+        # Live CVE intelligence status (NVD feed + growing local cache).
+        "cve": {
+            "nvd_live": not cve.DISABLED,
+            "nvd_api_key": bool(cve.API_KEY),
+            "cached_services": cve.cache_count(),
+        },
     }
 
 
