@@ -1,28 +1,28 @@
-# PurpleRecon — one-command deployment of the API + CLI image.
+# EnumGrid — one-command deployment of the API + CLI image.
 #
-#   PURPLERECON_API_TOKEN=changeme docker compose up --build
+#   ENUMGRID_API_TOKEN=changeme docker compose up --build
 #
 # The frontend is a static SPA: build it once (`cd frontend && npm ci && npm run
 # build`) and serve `frontend/dist/`, or use `make dev` for the live dev servers.
 # The container below provides the part that needs nmap + the OS network tools.
 
 services:
-  purplerecon:
+  enumgrid:
     build: .
-    image: purplerecon
+    image: enumgrid
     # LAN device discovery needs the HOST network namespace (Linux): a bridged
     # container only sees its own subnet, not your real devices. On macOS/Windows
     # Docker Desktop, host networking is limited — prefer `make dev` there.
     network_mode: host
     environment:
       # With host networking the API is reachable on the LAN — protect it.
-      PURPLERECON_API_TOKEN: ${PURPLERECON_API_TOKEN:-}
-      PURPLERECON_ALLOW_PUBLIC: ${PURPLERECON_ALLOW_PUBLIC:-}
-      PURPLERECON_MAX_SCANS: ${PURPLERECON_MAX_SCANS:-4}
+      ENUMGRID_API_TOKEN: ${ENUMGRID_API_TOKEN:-}
+      ENUMGRID_ALLOW_PUBLIC: ${ENUMGRID_ALLOW_PUBLIC:-}
+      ENUMGRID_MAX_SCANS: ${ENUMGRID_MAX_SCANS:-4}
     volumes:
       # Persist scan history across runs.
-      - purplerecon-data:/data
+      - enumgrid-data:/data
     restart: unless-stopped
 
 volumes:
-  purplerecon-data:
+  enumgrid-data:

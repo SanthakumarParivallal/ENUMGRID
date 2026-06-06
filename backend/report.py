@@ -61,23 +61,39 @@ def _styles():
     return ss
 
 
+def _all_vulns(host: dict) -> list[dict]:
+    """Every vuln on a host (host-level + per-port), tagged with its port."""
+    out = [{**v, "port": None} for v in (host.get("vulns") or [])]
+    for p in host.get("ports") or []:
+        for v in p.get("vulns") or []:
+            out.append({**v, "port": p.get("port")})
+    return out
+
+
 def _summary(hosts: list[dict]) -> dict:
+    from collections import Counter
+
     up = sum(1 for h in hosts if h.get("status") == "up")
     open_ports = 0
-    services: set[str] = set()
+    services: Counter = Counter()
+    devices: Counter = Counter()
+    severities: Counter = Counter()
     vulns = 0
     critical = 0
     for h in hosts:
-        vulns += len(h.get("vulns") or [])
+        if h.get("device_type"):
+            devices[h["device_type"]] += 1
         for p in h.get("ports") or []:
             if p.get("state") in ("open", "open|filtered"):
                 open_ports += 1
                 svc = p.get("service")
                 if svc and svc != "unknown":
-                    services.add(svc)
+                    services[svc] += 1
             if p.get("critical"):
                 critical += 1
-            vulns += len(p.get("vulns") or [])
+        for v in _all_vulns(h):
+            vulns += 1
+            severities[(v.get("severity") or "info").lower()] += 1
     return {
         "total": len(hosts),
         "up": up,
@@ -85,6 +101,9 @@ def _summary(hosts: list[dict]) -> dict:
         "services": len(services),
         "vulns": vulns,
         "critical": critical,
+        "top_services": services.most_common(8),
+        "device_mix": devices.most_common(),
+        "severities": severities,
     }
 
 
@@ -100,7 +119,7 @@ def _header_footer(canvas, doc):
     w, h = A4
     canvas.setFillColor(_MUTED)
     canvas.setFont("Helvetica", 7.5)
-    canvas.drawString(18 * mm, 10 * mm, "PurpleRecon — Authorized use only. Scan assets you own or are permitted to test.")
+    canvas.drawString(18 * mm, 10 * mm, "EnumGrid — Authorized use only. Scan assets you own or are permitted to test.")
     canvas.drawRightString(w - 18 * mm, 10 * mm, f"Page {doc.page}")
     canvas.setStrokeColor(_LINE)
     canvas.line(18 * mm, 12 * mm, w - 18 * mm, 12 * mm)
@@ -173,6 +192,33 @@ def _ports_table(ports, styles):
     return t
 
 
+def _severity_table(severities, styles):
+    """A coloured Critical→Info findings breakdown."""
+    order = ["critical", "high", "medium", "low", "info"]
+    rows = [[Paragraph(f"<b>{s.upper()}</b>", styles["PRMutedBody"]),
+             Paragraph(str(severities.get(s, 0)), styles["PRMono"])]
+            for s in order if severities.get(s)]
+    if not rows:
+        return None
+    t = Table(rows, colWidths=[40 * mm, 18 * mm])
+    style = [("GRID", (0, 0), (-1, -1), 0.3, _LINE),
+             ("TOPPADDING", (0, 0), (-1, -1), 3), ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+             ("LEFTPADDING", (0, 0), (-1, -1), 5)]
+    present = [s for s in order if severities.get(s)]
+    for i, s in enumerate(present):
+        style.append(("TEXTCOLOR", (0, i), (0, i), _SEV_COLOR.get(s, _MUTED)))
+    t.setStyle(TableStyle(style))
+    return t
+
+
+def _chips(label, pairs, styles):
+    """A 'label: a (n) · b (n)' one-liner for device-mix / top-services."""
+    if not pairs:
+        return None
+    body = " · ".join(f"{name} ({count})" for name, count in pairs)
+    return Paragraph(f"<b>{label}:</b> {body}", styles["PRMutedBody"])
+
+
 def build_pdf(payload: dict) -> bytes:
     """Render a ScanState-shaped dict into a PDF and return its bytes."""
     hosts = sorted(payload.get("hosts") or [], key=lambda h: _ip_key(h.get("ip", "")))
@@ -183,7 +229,8 @@ def build_pdf(payload: dict) -> bytes:
     styles = _styles()
     story = []
 
-    story.append(Paragraph("PurpleRecon — Network Enumeration Report", styles["PRTitle"]))
+    profile = payload.get("profile") or payload.get("scanProfile")
+    story.append(Paragraph("EnumGrid — Network Enumeration Report", styles["PRTitle"]))
     story.append(Paragraph(f"Generated {generated}", styles["PRSub"]))
     story.append(_kv_table(
         [
@@ -193,10 +240,25 @@ def build_pdf(payload: dict) -> bytes:
             ("Distinct services", summary["services"]),
             ("Vulnerability findings", summary["vulns"]),
             ("Critical flags", summary["critical"]),
-        ],
+        ] + ([("Scan profile", profile)] if profile else []),
         styles,
     ))
 
+    # Risk + exposure breakdown (advanced summary).
+    sev_table = _severity_table(summary["severities"], styles)
+    if sev_table is not None:
+        story.append(Spacer(1, 8))
+        story.append(Paragraph("Findings by severity", styles["PRH2"]))
+        story.append(sev_table)
+    for line in (
+        _chips("Device mix", summary["device_mix"], styles),
+        _chips("Top services", summary["top_services"], styles),
+    ):
+        if line is not None:
+            story.append(Spacer(1, 4))
+            story.append(line)
+
+    story.append(Spacer(1, 8))
     story.append(Paragraph("Device Inventory", styles["PRH2"]))
     if hosts:
         story.append(_inventory_table(hosts, styles))
@@ -241,7 +303,7 @@ def build_pdf(payload: dict) -> bytes:
     doc = SimpleDocTemplate(
         buf, pagesize=A4,
         leftMargin=18 * mm, rightMargin=18 * mm, topMargin=16 * mm, bottomMargin=18 * mm,
-        title="PurpleRecon Report", author="PurpleRecon",
+        title="EnumGrid Report", author="EnumGrid",
     )
     doc.build(story, onFirstPage=_header_footer, onLaterPages=_header_footer)
     return buf.getvalue()

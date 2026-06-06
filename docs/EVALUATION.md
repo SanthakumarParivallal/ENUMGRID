@@ -1,16 +1,16 @@
-# PurpleRecon — Evaluation
+# EnumGrid — Evaluation
 
 This document backs the project's "honest accuracy" claim with measured results.
-The harness (`evaluation/benchmark.py`) runs PurpleRecon's discovery and
+The harness (`evaluation/benchmark.py`) runs EnumGrid's discovery and
 `nmap -sn` against the *same* target and compares them on **accuracy** and
 **speed**. It is fully reproducible — re-run it yourself with one command.
 
 ## Methodology
 
-- **Tools:** PurpleRecon `--discover` (ICMP + TCP + ARP + NDP + mDNS + TTL) vs
+- **Tools:** EnumGrid `--discover` (ICMP + TCP + ARP + NDP + mDNS + TTL) vs
   `nmap -sn -T4` (nmap's own host-discovery / "ping scan").
 - **Privilege:** both run **unprivileged** (no `sudo`). This is the fair, realistic
-  comparison and PurpleRecon's design target. *(With root, `nmap -sn` switches to
+  comparison and EnumGrid's design target. *(With root, `nmap -sn` switches to
   ARP ping on a local subnet and finds far more — see Caveats.)*
 - **Reference for precision/recall:**
   - On the **docker testbed** the live set is known exactly → *true* precision/recall.
@@ -25,22 +25,22 @@ Representative trial (full detail):
 
 | Tool | Hosts found | Precision | Recall | F1 | Time (s) |
 |---|---:|---:|---:|---:|---:|
-| **PurpleRecon** | 11 | 1.00 | **1.00** | **1.00** | **17.8** |
+| **EnumGrid** | 11 | 1.00 | **1.00** | **1.00** | **17.8** |
 | `nmap -sn` | 3 | 1.00 | 0.27 | 0.43 | 22.9 |
 
 3-trial summary:
 
-| Trial | PurpleRecon | `nmap -sn` | Jaccard | PurpleRecon-only |
+| Trial | EnumGrid | `nmap -sn` | Jaccard | EnumGrid-only |
 |---|---:|---:|---:|---:|
 | 1 | 11 | 3 | 0.27 | 8 |
 | 2 | 11 | 3 | 0.27 | 8 |
 | 3 | 12 | 3 | 0.25 | 9 |
 
-**PurpleRecon found ~3.7× more devices than unprivileged `nmap -sn`, in less time,
-with zero false positives** (every PurpleRecon host is corroborated by a real MAC
+**EnumGrid found ~3.7× more devices than unprivileged `nmap -sn`, in less time,
+with zero false positives** (every EnumGrid host is corroborated by a real MAC
 in the ARP/NDP cache or an mDNS/TCP response). The devices `nmap -sn` missed are
-**ICMP-silent** (phones in Wi-Fi power-save, IoT) — caught by PurpleRecon's ARP /
-NDP / mDNS passes. `nmap -sn` found **no** host PurpleRecon missed (PurpleRecon is
+**ICMP-silent** (phones in Wi-Fi power-save, IoT) — caught by EnumGrid's ARP /
+NDP / mDNS passes. `nmap -sn` found **no** host EnumGrid missed (EnumGrid is
 a strict superset here).
 
 This is the core design thesis, measured: **multi-method, confidence-graded
@@ -68,7 +68,7 @@ service/version detection is correct.
 
 - **Privilege:** `sudo nmap -sn` uses ARP ping on a local subnet and would find the
   ICMP-silent devices too. The gap above is specifically the **unprivileged** case —
-  which is PurpleRecon's whole point: get ARP-grade LAN coverage without root.
+  which is EnumGrid's whole point: get ARP-grade LAN coverage without root.
 - **mDNS** coverage depends on what devices advertise; it is additive, never relied on.
 - **Union-as-proxy** can under-count truly silent hosts that *neither* tool sees; the
   docker testbed exists precisely to remove that ambiguity.

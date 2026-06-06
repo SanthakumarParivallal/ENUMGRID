@@ -17,10 +17,10 @@ frontend/.vite
 *.db
 *.sqlite*
 *.rdb
-purplerecon_*.json
-purplerecon_*.html
-purplerecon_*.csv
-purplerecon_*.pdf
+enumgrid_*.json
+enumgrid_*.html
+enumgrid_*.csv
+enumgrid_*.pdf
 .DS_Store
 docs
 evaluation

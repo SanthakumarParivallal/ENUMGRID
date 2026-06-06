@@ -48,7 +48,7 @@ the two-tiered nmap pipeline. `deep=1` adds an NSE **vuln-script** pass (`nmap -
 populating each port's `vulns[]` with real findings (CVE id, CVSS, severity). It's
 much slower, so it's opt-in.
 
-Each completed scan is persisted to SQLite (`PURPLERECON_DB`, default beside the
+Each completed scan is persisted to SQLite (`ENUMGRID_DB`, default beside the
 backend) so `/api/history*` and the dashboard's **"What Changed"** panel can show
 drift over time. The PDF report is **stateless** — it renders exactly the snapshot
 you POST, so the document always matches the screen.
@@ -73,10 +73,10 @@ packet is sent. Refused (returns an `Error` frame / `400` carrying a `message`):
 
 | Env var | Default | Effect |
 | ------- | ------- | ------ |
-| `PURPLERECON_ALLOW_PUBLIC` | `0` | set `1` to permit public targets (authorized use only) |
-| `PURPLERECON_MAX_SCANS` | `4` | cap on concurrent scans (excess → `429` / "server busy") |
-| `PURPLERECON_MAX_HOSTS` | `4096` | per-request host cap |
-| `PURPLERECON_API_TOKEN` | _(unset)_ | when set, require `?token=` or `Authorization: Bearer …` |
+| `ENUMGRID_ALLOW_PUBLIC` | `0` | set `1` to permit public targets (authorized use only) |
+| `ENUMGRID_MAX_SCANS` | `4` | cap on concurrent scans (excess → `429` / "server busy") |
+| `ENUMGRID_MAX_HOSTS` | `4096` | per-request host cap |
+| `ENUMGRID_API_TOKEN` | _(unset)_ | when set, require `?token=` or `Authorization: Bearer …` |
 
 Auth is **off by default** (the server binds to localhost), so the local dev flow
 needs no configuration. Set a token before exposing the API beyond localhost.

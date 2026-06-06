@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to PurpleRecon. Format based on
+All notable changes to EnumGrid. Format based on
 [Keep a Changelog](https://keepachangelog.com/); this project uses
 [Semantic Versioning](https://semver.org/).
 
@@ -41,9 +41,9 @@ CLI and web, sharing one engine — with measured accuracy and a security self-a
 - **Measured evaluation** vs `nmap -sn` ([`docs/EVALUATION.md`](docs/EVALUATION.md)):
   recall 1.00 vs 0.27 unprivileged, faster, zero false positives. Reproducible
   docker testbed + benchmark harness.
-- `pip install`-able (`purplerecon` console command); `Dockerfile` + `docker-compose`
+- `pip install`-able (`enumgrid` console command); `Dockerfile` + `docker-compose`
   (nmap baked in); pinned `requirements.lock` + `package-lock.json`.
 - 4-job CI (lint · security · CLI matrix · backend · frontend); ruff-clean.
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
-[1.0.0]: https://example.com/purplerecon/releases/tag/v1.0.0
+[1.0.0]: https://example.com/enumgrid/releases/tag/v1.0.0

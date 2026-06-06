@@ -3,7 +3,7 @@ requires = ["setuptools>=61"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "purplerecon"
+name = "enumgrid"
 version = "1.0.0"
 description = "Two-tiered purple-team network enumeration cockpit — Angry-IP-style device discovery plus nmap service/vuln depth, in one terminal UI."
 readme = "README.md"
@@ -35,10 +35,10 @@ web = [
 dev = ["pytest>=8.0", "ruff>=0.6"]
 
 [project.urls]
-Homepage = "https://example.com/purplerecon"
+Homepage = "https://example.com/enumgrid"
 
 [project.scripts]
-purplerecon = "purple_recon:cli"
+enumgrid = "purple_recon:cli"
 
 # Single-file module (not a package directory).
 [tool.setuptools]

@@ -51,11 +51,11 @@ def test_compare_union_proxy_and_uniques():
     assert c["reference"] == "union (proxy)"
     assert c["reference_count"] == 3
     assert c["agreement_count"] == 1
-    assert c["purplerecon_only"] == ["b", "c"]
+    assert c["enumgrid_only"] == ["b", "c"]
     assert c["nmap_only"] == []
     assert round(c["jaccard"], 3) == round(1 / 3, 3)
-    # Against the union proxy PurpleRecon has full recall, nmap 1/3.
-    assert c["purplerecon_metrics"]["recall"] == 1.0
+    # Against the union proxy EnumGrid has full recall, nmap 1/3.
+    assert c["enumgrid_metrics"]["recall"] == 1.0
     assert round(c["nmap_metrics"]["recall"], 3) == round(1 / 3, 3)
 
 
@@ -63,14 +63,14 @@ def test_compare_with_explicit_ground_truth():
     c = bm.compare({"a", "b"}, {"a"}, truth={"a", "b", "c"})
     assert c["reference"] == "explicit ground-truth"
     assert c["reference_count"] == 3
-    assert round(c["purplerecon_metrics"]["recall"], 3) == round(2 / 3, 3)
+    assert round(c["enumgrid_metrics"]["recall"], 3) == round(2 / 3, 3)
 
 
 def test_render_md_is_a_table():
     c = bm.compare({"a", "b"}, {"a"}, truth=None)
     md = bm.render_md({
         "target": "10.0.0.0/24", "timestamp": "now",
-        "purplerecon_seconds": 1.0, "nmap_seconds": 2.0, "comparison": c,
+        "enumgrid_seconds": 1.0, "nmap_seconds": 2.0, "comparison": c,
     })
-    assert "| **PurpleRecon** |" in md
+    assert "| **EnumGrid** |" in md
     assert "`nmap -sn`" in md

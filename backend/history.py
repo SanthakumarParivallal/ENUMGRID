@@ -12,7 +12,7 @@ stored snapshot shape (`hosts[].ip / os / ports[].port/service/version`) is a
 superset of what `diff_reports` needs, so it feeds straight in.
 
 The store is intentionally tiny and dependency-free (stdlib `sqlite3`); the DB
-path is `PURPLERECON_DB` (defaults next to this file). Best-effort throughout:
+path is `ENUMGRID_DB` (defaults next to this file). Best-effort throughout:
 persistence never breaks a scan.
 """
 
@@ -30,7 +30,7 @@ if _ROOT not in sys.path:
 import purple_recon as pr  # noqa: E402
 
 DB_PATH = os.environ.get(
-    "PURPLERECON_DB", os.path.join(os.path.dirname(os.path.abspath(__file__)), "purplerecon_history.db")
+    "ENUMGRID_DB", os.path.join(os.path.dirname(os.path.abspath(__file__)), "enumgrid_history.db")
 )
 
 _SCHEMA = """

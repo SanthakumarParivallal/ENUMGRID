@@ -1,6 +1,6 @@
 # Evaluation harness
 
-Reproducible accuracy + speed comparison of **PurpleRecon** vs **`nmap -sn`**.
+Reproducible accuracy + speed comparison of **EnumGrid** vs **`nmap -sn`**.
 
 | File | Purpose |
 |---|---|
@@ -22,5 +22,5 @@ docker compose down
 ```
 
 See **[`../docs/EVALUATION.md`](../docs/EVALUATION.md)** for methodology, measured
-results (PurpleRecon ~11–12 vs `nmap -sn` 3 on a real `/24`, recall 1.00 vs 0.27),
+results (EnumGrid ~11–12 vs `nmap -sn` 3 on a real `/24`, recall 1.00 vs 0.27),
 and the honest caveats (unprivileged comparison; `sudo nmap -sn` uses ARP).

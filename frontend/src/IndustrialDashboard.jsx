@@ -381,7 +381,7 @@ function ControlBar() {
         </div>
 
         {/* Target + actions ---------------------------------------------- */}
-        <div className="flex min-w-[320px] flex-1 items-center gap-2">
+        <div className="flex min-w-[240px] flex-1 flex-wrap items-center gap-2">
           <label className="relative flex flex-1 items-center">
             <span className="pointer-events-none absolute left-3 text-[10px] font-semibold uppercase tracking-widest text-slate-500">
               Target
@@ -845,7 +845,7 @@ function DriftPanel() {
 
 function Sidebar() {
   return (
-    <aside className="flex w-[320px] shrink-0 flex-col gap-3 overflow-y-auto border-r border-slate-800 bg-steel-950/60 p-3">
+    <aside className="hidden w-[320px] shrink-0 flex-col gap-3 overflow-y-auto border-r border-slate-800 bg-steel-950/60 p-3 lg:flex">
       <PipelineStepper />
       <StatGrid />
       <DriftPanel />
@@ -1619,6 +1619,69 @@ function DriftAlertBanner() {
   );
 }
 
+/**
+ * Nmap scan-config bar — pick a scan profile (Zenmap-style), plus optional NSE
+ * scripts and a port range. Applies to per-host "Nmap Scan" and "Scan All".
+ */
+function ScanConfigBar() {
+  const {
+    profiles, scanProfile, setScanProfile, scanScripts, setScanScripts,
+    scanPorts, setScanPorts, privileged,
+  } = useScan();
+  const entries = Object.entries(profiles || {});
+  if (!entries.length) return null; // backend offline / profiles not loaded
+
+  const sel = profiles[scanProfile] || {};
+  const needsRoot = sel.needs_root && !privileged;
+  const field =
+    'rounded border border-slate-700 bg-steel-900 px-2 py-1 font-mono text-slate-200 outline-none transition focus:border-amber/60';
+
+  return (
+    <div className="flex flex-wrap items-center gap-2 border-b border-slate-800 bg-steel-900/50 px-3 py-2 text-xs">
+      <span className="flex items-center gap-1.5 font-semibold uppercase tracking-widest text-amber">
+        <Icon.Cpu className="h-3.5 w-3.5" /> Nmap
+      </span>
+      <select
+        value={scanProfile}
+        onChange={(e) => setScanProfile(e.target.value)}
+        title="Scan profile (applies to per-host Nmap Scan + Scan All)"
+        className={field}
+      >
+        {entries.map(([key, p]) => (
+          <option key={key} value={key}>
+            {p.label}
+          </option>
+        ))}
+      </select>
+      <input
+        value={scanScripts}
+        onChange={(e) => setScanScripts(e.target.value)}
+        placeholder="extra NSE scripts — e.g. http-title,ssl-cert"
+        spellCheck={false}
+        title="Comma-separated NSE script names/categories (intrusive ones are blocked)"
+        className={`${field} min-w-[170px] flex-1`}
+      />
+      <input
+        value={scanPorts}
+        onChange={(e) => setScanPorts(e.target.value)}
+        placeholder="ports — e.g. 1-1024,3389"
+        spellCheck={false}
+        title="Explicit port spec"
+        className={`${field} w-40`}
+      />
+      <span className="hidden text-slate-500 lg:inline">{sel.desc}</span>
+      {needsRoot && (
+        <span
+          title="Run the backend with sudo to enable nmap -O OS detection"
+          className="rounded-sm border border-amber/40 bg-amber/10 px-1.5 py-0.5 text-[10px] font-semibold text-amber"
+        >
+          needs sudo for OS (-O)
+        </span>
+      )}
+    </div>
+  );
+}
+
 export default function IndustrialDashboard() {
   const { hosts, phase } = useScan();
 
@@ -1634,6 +1697,7 @@ export default function IndustrialDashboard() {
     <div className="flex h-screen flex-col overflow-hidden bg-steel-950 text-slate-200">
       <ControlBar />
       <DriftAlertBanner />
+      <ScanConfigBar />
       <div className="flex min-h-0 flex-1">
         <Sidebar />
         <main className="flex min-h-0 min-w-0 flex-1 flex-col">
