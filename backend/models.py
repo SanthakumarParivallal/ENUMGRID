@@ -58,6 +58,7 @@ class Vuln(BaseModel):
     severity: Severity = Severity.INFO
     cvss: float | None = None  # CVSS base score (from the `vulners` script)
     output: str = ""  # trimmed raw script output
+    url: str = ""  # authoritative reference (NVD CVE page) — clickable in the UI
 
 
 class Port(BaseModel):

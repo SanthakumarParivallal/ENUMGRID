@@ -177,12 +177,16 @@ function asObject(value) {
 export function VulnModel(data = {}) {
   data = asObject(data);
   const score = Number(data.cvss);
+  const url = data.url != null ? String(data.url) : '';
+  // Always have a reference for a real CVE, even if the backend didn't supply one.
+  const isCve = /^CVE-\d{4}-\d{3,7}$/i.test(String(data.id ?? ''));
   return {
     id: data.id != null ? String(data.id) : 'unknown',
     title: data.title != null ? String(data.title) : '',
     severity: oneOf(data.severity, Object.values(Severity), Severity.INFO),
     cvss: data.cvss != null && Number.isFinite(score) ? score : null,
     output: data.output != null ? String(data.output) : '',
+    url: url || (isCve ? `https://nvd.nist.gov/vuln/detail/${String(data.id).toUpperCase()}` : ''),
   };
 }
 

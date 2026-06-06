@@ -77,3 +77,40 @@ input[type='number']::-webkit-inner-spin-button {
   -webkit-appearance: none;
   margin: 0;
 }
+
+/* ---- Boot splash animation (startup sequence) ------------------------------ */
+@keyframes eg-line-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+.eg-boot-line {
+  animation: eg-line-in 0.35s ease both;
+}
+@keyframes eg-scan {
+  0% { transform: translateY(-130%); opacity: 0; }
+  20% { opacity: 1; }
+  100% { transform: translateY(130%); opacity: 0; }
+}
+.eg-scanline {
+  animation: eg-scan 1.6s ease-in-out infinite;
+}
+@keyframes eg-ring-pulse {
+  0% { transform: scale(0.6); opacity: 0.9; }
+  100% { transform: scale(1.8); opacity: 0; }
+}
+.eg-ring {
+  animation: eg-ring-pulse 1.8s ease-out infinite;
+}
+@keyframes eg-blink {
+  50% { opacity: 0.25; }
+}
+.eg-cursor {
+  animation: eg-blink 1s step-end infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .eg-scanline,
+  .eg-ring,
+  .eg-cursor {
+    animation: none;
+  }
+}

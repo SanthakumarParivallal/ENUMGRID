@@ -82,6 +82,18 @@ const Icon = {
       <path d="M9 6 L15 12 L9 18" />
     </I>
   ),
+  External: ({ className }) => (
+    <I className={className}>
+      <path d="M14 4 H20 V10" />
+      <path d="M20 4 L11 13" />
+      <path d="M18 13 V19 A1 1 0 0 1 17 20 H5 A1 1 0 0 1 4 19 V7 A1 1 0 0 1 5 6 H11" />
+    </I>
+  ),
+  Filter: ({ className }) => (
+    <I className={className}>
+      <path d="M3 5 H21 L14 13 V19 L10 21 V13 Z" />
+    </I>
+  ),
   Check: ({ className }) => (
     <I className={className}>
       <path d="M4 12.5 L9 17.5 L20 6.5" />
@@ -212,8 +224,24 @@ const QUICK_FILTERS = [
   { key: 'web', label: 'Web · 80/443', Icon: Icon.Globe },
   { key: 'ssh', label: 'SSH · 22', Icon: Icon.Terminal },
   { key: 'database', label: 'Database', Icon: Icon.Database },
-  { key: 'critical', label: 'Critical Findings', Icon: Icon.Alert, danger: true },
+  { key: 'ports', label: 'Open Ports', Icon: Icon.Server },
+  { key: 'vulnerable', label: 'Vulnerable (CVE)', Icon: Icon.Bug, danger: true },
+  { key: 'critical', label: 'Critical', Icon: Icon.Alert, danger: true },
+  { key: 'named', label: 'Has Name', Icon: Icon.Terminal },
 ];
+
+// Coarse OS family for the OS dropdown filter (derived from the host's OS label).
+function osFamily(host) {
+  const s = (host?.os || '').toLowerCase();
+  if (!s || s === 'unknown' || s === 'fingerprinting…') return '';
+  if (/(apple|macos|ios|ipados|watchos|tvos)/.test(s)) return 'Apple';
+  if (s.includes('android')) return 'Android';
+  if (s.includes('windows')) return 'Windows';
+  if (/(router|routeros|openwrt)/.test(s)) return 'Router';
+  if (/(embedded|rtos|iot|smart tv)/.test(s)) return 'IoT / Embedded';
+  if (/(linux|unix|nas|raspberry|ubuntu|debian)/.test(s)) return 'Linux / Unix';
+  return 'Other';
+}
 
 /* ========================================================================== *
  * Small helpers
@@ -240,6 +268,9 @@ function hostMatchesQuery(host, q) {
 
 function hostMatchesFilter(host, key) {
   if (key === 'critical') return isCriticalHost(host);
+  if (key === 'vulnerable') return collectVulns(host).length > 0;
+  if (key === 'ports') return countOpenPorts(host) > 0;
+  if (key === 'named') return Boolean(host.hostname);
   return hostMatchesCategory(host, key);
 }
 
@@ -866,7 +897,14 @@ function Sidebar() {
  * C · Search & advanced filtering toolbar
  * ========================================================================== */
 
-function FilterToolbar({ query, setQuery, filters, toggleFilter, upOnly, setUpOnly, shown, total }) {
+function FilterToolbar({
+  query, setQuery, filters, toggleFilter, upOnly, setUpOnly,
+  deviceFilter, setDeviceFilter, deviceOptions,
+  osFilter, setOsFilter, osOptions,
+  activeFilterCount, clearFilters, shown, total,
+}) {
+  const selectCls =
+    'rounded border border-slate-700 bg-steel-900 py-1.5 pl-2 pr-6 text-xs text-slate-300 outline-none transition hover:border-slate-500 focus:border-amber/60';
   return (
     <div className="sticky top-0 z-20 flex flex-wrap items-center gap-3 border-b border-slate-800 bg-steel-950/95 px-4 py-3 backdrop-blur">
       {/* Search */}
@@ -931,6 +969,47 @@ function FilterToolbar({ query, setQuery, filters, toggleFilter, upOnly, setUpOn
           <span className="h-2 w-2 rounded-full bg-current" />
           Up Only
         </button>
+
+        {/* Device-type dropdown (only when there's something to choose) */}
+        {deviceOptions.length > 0 && (
+          <select
+            value={deviceFilter}
+            onChange={(e) => setDeviceFilter(e.target.value)}
+            aria-label="Filter by device type"
+            className={`${selectCls} ${deviceFilter ? 'border-amber text-amber' : ''}`}
+          >
+            <option value="">All devices</option>
+            {deviceOptions.map((d) => (
+              <option key={d} value={d}>{d}</option>
+            ))}
+          </select>
+        )}
+
+        {/* OS-family dropdown */}
+        {osOptions.length > 0 && (
+          <select
+            value={osFilter}
+            onChange={(e) => setOsFilter(e.target.value)}
+            aria-label="Filter by operating system"
+            className={`${selectCls} ${osFilter ? 'border-amber text-amber' : ''}`}
+          >
+            <option value="">All OS</option>
+            {osOptions.map((o) => (
+              <option key={o} value={o}>{o}</option>
+            ))}
+          </select>
+        )}
+
+        {/* Clear-all (appears once any filter is active) */}
+        {activeFilterCount > 0 && (
+          <button
+            onClick={clearFilters}
+            className="inline-flex items-center gap-1.5 rounded border border-slate-700 bg-steel-900 px-2.5 py-1.5 text-xs font-medium text-slate-400 transition hover:border-crimson/60 hover:text-crimson"
+          >
+            <Icon.X className="h-3.5 w-3.5" />
+            Clear ({activeFilterCount})
+          </button>
+        )}
       </div>
 
       <div className="ml-auto font-mono text-xs text-slate-500">
@@ -1104,7 +1183,20 @@ function PortDetailTable({ host }) {
                 </span>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <span className="font-mono text-xs font-semibold text-slate-100">{v.id}</span>
+                    {v.url ? (
+                      <a
+                        href={v.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        title={`Open ${v.id} on NVD (vulnerability database)`}
+                        className="inline-flex items-center gap-1 font-mono text-xs font-semibold text-amber-300 underline decoration-dotted underline-offset-2 hover:text-amber-200"
+                      >
+                        {v.id}
+                        <Icon.External className="h-3 w-3 opacity-70" />
+                      </a>
+                    ) : (
+                      <span className="font-mono text-xs font-semibold text-slate-100">{v.id}</span>
+                    )}
                     {v.port != null && (
                       <span className="font-mono text-[10px] text-slate-500">:{v.port}</span>
                     )}
@@ -1462,8 +1554,35 @@ function AssetMatrix({ hosts }) {
   const [query, setQuery] = useState('');
   const [filters, setFilters] = useState(() => new Set());
   const [upOnly, setUpOnly] = useState(false);
+  const [deviceFilter, setDeviceFilter] = useState('');
+  const [osFilter, setOsFilter] = useState('');
   const [expanded, setExpanded] = useState(() => new Set());
   const [sort, setSort] = useState({ key: 'ip', dir: 'asc' });
+
+  // Distinct device types / OS families present, for the dropdown filters.
+  const deviceOptions = useMemo(() => {
+    const set = new Set();
+    for (const h of hosts) if (h.device_type) set.add(h.device_type);
+    return [...set].sort();
+  }, [hosts]);
+  const osOptions = useMemo(() => {
+    const set = new Set();
+    for (const h of hosts) {
+      const f = osFamily(h);
+      if (f) set.add(f);
+    }
+    return [...set].sort();
+  }, [hosts]);
+
+  const clearFilters = () => {
+    setFilters(new Set());
+    setUpOnly(false);
+    setDeviceFilter('');
+    setOsFilter('');
+    setQuery('');
+  };
+  const activeFilterCount =
+    filters.size + (upOnly ? 1 : 0) + (deviceFilter ? 1 : 0) + (osFilter ? 1 : 0) + (query.trim() ? 1 : 0);
 
   const toggleFilter = (key) =>
     setFilters((prev) => {
@@ -1491,6 +1610,8 @@ function AssetMatrix({ hosts }) {
     if (filters.size) {
       rows = rows.filter((h) => [...filters].every((k) => hostMatchesFilter(h, k)));
     }
+    if (deviceFilter) rows = rows.filter((h) => h.device_type === deviceFilter);
+    if (osFilter) rows = rows.filter((h) => osFamily(h) === osFilter);
     if (query.trim()) rows = rows.filter((h) => hostMatchesQuery(h, query.trim()));
 
     const dir = sort.dir === 'asc' ? 1 : -1;
@@ -1502,7 +1623,7 @@ function AssetMatrix({ hosts }) {
       return cmp * dir;
     });
     return sorted;
-  }, [hosts, upOnly, filters, query, sort]);
+  }, [hosts, upOnly, filters, deviceFilter, osFilter, query, sort]);
 
   const allExpanded = visible.length > 0 && visible.every((h) => expanded.has(h.ip));
   const toggleAll = () =>
@@ -1517,6 +1638,14 @@ function AssetMatrix({ hosts }) {
         toggleFilter={toggleFilter}
         upOnly={upOnly}
         setUpOnly={setUpOnly}
+        deviceFilter={deviceFilter}
+        setDeviceFilter={setDeviceFilter}
+        deviceOptions={deviceOptions}
+        osFilter={osFilter}
+        setOsFilter={setOsFilter}
+        osOptions={osOptions}
+        activeFilterCount={activeFilterCount}
+        clearFilters={clearFilters}
         shown={visible.length}
         total={hosts.length}
       />
@@ -1682,8 +1811,107 @@ function ScanConfigBar() {
   );
 }
 
+/* ========================================================================== *
+ * Boot splash — a short startup animation the first time the cockpit loads.
+ * ========================================================================== */
+
+const BOOT_LINES = [
+  'initializing scan engine',
+  'loading nmap profiles · 11 ready',
+  'arming discovery · ICMP · ARP · NDP · mDNS · NBNS',
+  'OS fingerprint fusion online',
+  'CVE correlation linked to NVD',
+  'EnumGrid ready',
+];
+
+function BootSplash({ onDone }) {
+  const [shown, setShown] = useState(0);
+  const [leaving, setLeaving] = useState(false);
+
+  useEffect(() => {
+    const step = 260;
+    const timers = BOOT_LINES.map((_, i) =>
+      setTimeout(() => setShown(i + 1), step * i + 250),
+    );
+    const out = setTimeout(() => setLeaving(true), step * BOOT_LINES.length + 650);
+    const done = setTimeout(onDone, step * BOOT_LINES.length + 1200);
+    return () => {
+      timers.forEach(clearTimeout);
+      clearTimeout(out);
+      clearTimeout(done);
+    };
+  }, [onDone]);
+
+  return (
+    <div
+      onClick={onDone}
+      role="status"
+      aria-label="EnumGrid starting"
+      className={`fixed inset-0 z-[60] flex cursor-pointer flex-col items-center justify-center bg-steel-950 transition-opacity duration-500 ${
+        leaving ? 'opacity-0' : 'opacity-100'
+      }`}
+    >
+      {/* Pulsing radar logo */}
+      <div className="relative mb-6 h-28 w-28">
+        <span className="eg-ring absolute inset-0 rounded-full border border-matrix/40" />
+        <span
+          className="eg-ring absolute inset-0 rounded-full border border-matrix/30"
+          style={{ animationDelay: '0.6s' }}
+        />
+        <div className="absolute inset-0 flex items-center justify-center rounded-full border border-slate-700 bg-steel-900/80 shadow-glow-matrix">
+          <Icon.Radar className="h-12 w-12 text-matrix" />
+        </div>
+      </div>
+
+      <h1 className="font-mono text-3xl font-bold tracking-[0.3em] text-slate-100">
+        ENUM<span className="text-amber">GRID</span>
+      </h1>
+      <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.4em] text-slate-500">
+        Network Enumeration Platform
+      </p>
+
+      {/* Scan-line + boot log */}
+      <div className="relative mt-8 h-40 w-[min(90vw,420px)] overflow-hidden rounded border border-slate-800 bg-black/40 p-4">
+        <span className="eg-scanline pointer-events-none absolute inset-x-0 top-0 h-12 bg-gradient-to-b from-matrix/15 to-transparent" />
+        <ul className="space-y-1.5 font-mono text-[11px]">
+          {BOOT_LINES.slice(0, shown).map((line, i) => (
+            <li key={line} className="eg-boot-line flex items-center gap-2 text-slate-400">
+              <span className="text-matrix">▸</span>
+              <span>{line}</span>
+              {i === shown - 1 && shown < BOOT_LINES.length && (
+                <span className="text-slate-600">…</span>
+              )}
+              {i < shown - 1 && <Icon.Check className="ml-auto h-3 w-3 text-matrix" />}
+            </li>
+          ))}
+          {shown >= BOOT_LINES.length && (
+            <li className="mt-1 font-mono text-[11px] text-matrix">
+              $ <span className="eg-cursor">█</span>
+            </li>
+          )}
+        </ul>
+      </div>
+      <p className="mt-4 font-mono text-[9px] uppercase tracking-widest text-slate-600">
+        click to skip
+      </p>
+    </div>
+  );
+}
+
 export default function IndustrialDashboard() {
   const { hosts, phase } = useScan();
+  // Show the boot splash once per browser session (not on every HMR reload).
+  const [booting, setBooting] = useState(
+    () => typeof sessionStorage === 'undefined' || !sessionStorage.getItem('eg_booted'),
+  );
+  const finishBoot = React.useCallback(() => {
+    try {
+      sessionStorage.setItem('eg_booted', '1');
+    } catch {
+      /* sessionStorage may be unavailable (private mode) — non-fatal */
+    }
+    setBooting(false);
+  }, []);
 
   // Reflect the live phase in the document title — a small cockpit touch.
   useEffect(() => {
@@ -1695,6 +1923,7 @@ export default function IndustrialDashboard() {
 
   return (
     <div className="flex h-screen flex-col overflow-hidden bg-steel-950 text-slate-200">
+      {booting && <BootSplash onDone={finishBoot} />}
       <ControlBar />
       <DriftAlertBanner />
       <ScanConfigBar />

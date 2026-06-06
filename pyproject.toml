@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "enumgrid"
-version = "1.0.0"
+version = "1.2.0"
 description = "Two-tiered purple-team network enumeration cockpit — Angry-IP-style device discovery plus nmap service/vuln depth, in one terminal UI."
 readme = "README.md"
 requires-python = ">=3.10"

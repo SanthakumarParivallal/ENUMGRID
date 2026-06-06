@@ -51,6 +51,7 @@ def test_service_hint():
         ("Samsung Electronics", "Phone / Tablet"),
         ("Hive", "Smart-home"),
         ("Espressif Inc.", "IoT / Embedded"),
+        ("AltoBeam Inc.", "IoT / Embedded"),
     ],
 )
 def test_vendor_hints(vendor, expected):

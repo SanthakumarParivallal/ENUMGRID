@@ -58,6 +58,86 @@ def device_type_from_mdns(services: set[str]) -> str:
     return ""
 
 
+# Apple `model=` prefix → (specific product, OS). Deterministic and exact for
+# the device class — the prefix *is* the product line, so this is observed fact,
+# never a guess. Order matters: check longer prefixes first.
+_APPLE_MODEL_MAP: tuple[tuple[str, str, str], ...] = (
+    ("macbookpro", "MacBook Pro", "macOS (Apple)"),
+    ("macbookair", "MacBook Air", "macOS (Apple)"),
+    ("macbook", "MacBook", "macOS (Apple)"),
+    ("imacpro", "iMac Pro", "macOS (Apple)"),
+    ("imac", "iMac", "macOS (Apple)"),
+    ("macmini", "Mac mini", "macOS (Apple)"),
+    ("macstudio", "Mac Studio", "macOS (Apple)"),
+    ("macpro", "Mac Pro", "macOS (Apple)"),
+    ("mac", "Mac", "macOS (Apple)"),  # Mac14,x (Apple-silicon generic)
+    ("iphone", "iPhone", "iOS (Apple)"),
+    ("ipad", "iPad", "iPadOS (Apple)"),
+    ("ipod", "iPod touch", "iOS (Apple)"),
+    ("watch", "Apple Watch", "watchOS (Apple)"),
+    ("appletv", "Apple TV", "tvOS (Apple)"),
+    ("audioaccessory", "HomePod", "audioOS (HomePod)"),
+)
+
+# Darwin major (from `osxvers` TXT) → macOS marketing version. Exact mapping.
+_OSXVERS_MAP = {
+    "25": "macOS 26 (Tahoe)", "24": "macOS 15 (Sequoia)", "23": "macOS 14 (Sonoma)",
+    "22": "macOS 13 (Ventura)", "21": "macOS 12 (Monterey)", "20": "macOS 11 (Big Sur)",
+    "19": "macOS 10.15 (Catalina)", "18": "macOS 10.14 (Mojave)",
+}
+
+
+def product_from_model(model: str | None) -> str:
+    """Specific Apple product line from a `model=` code ("" if not Apple/known).
+
+    e.g. ``MacBookPro18,3`` → "MacBook Pro", ``iPhone14,5`` → "iPhone",
+    ``iPad13,4`` → "iPad". The prefix is the product line, so this is exact.
+    """
+    low = (model or "").strip().lower()
+    for prefix, product, _os in _APPLE_MODEL_MAP:
+        if low.startswith(prefix):
+            return product
+    return ""
+
+
+def os_from_model(model: str | None, osxvers: str | None = None) -> str:
+    """Map an Apple `_device-info` model code to its OS (authoritative, observed).
+
+    Apple devices advertise a `model=` TXT record (e.g. ``MacBookPro18,3``,
+    ``iPhone14,5``, ``iPad13,4``). The product prefix maps deterministically to
+    the OS. When a Mac also advertises `osxvers=NN` we resolve the exact macOS
+    version (e.g. ``osxvers=23`` → "macOS 14 (Sonoma)"). Unknown/board codes
+    (e.g. ``J413AP``) return "" and we fall back to softer signals.
+    """
+    low = (model or "").strip().lower()
+    if not low:
+        return ""
+    for prefix, _product, os_label in _APPLE_MODEL_MAP:
+        if low.startswith(prefix):
+            # Sharpen Macs to the exact macOS version when osxvers is present.
+            if os_label.startswith("macOS") and osxvers and str(osxvers).strip() in _OSXVERS_MAP:
+                return f"{_OSXVERS_MAP[str(osxvers).strip()]} (Apple)"
+            return os_label
+    return ""
+
+
+def _txt_get(properties: dict | None, key: str) -> str | None:
+    """Read one TXT-record value from zeroconf `info.properties` (bytes keys)."""
+    if not properties:
+        return None
+    for raw_key, raw_val in properties.items():
+        try:
+            k = raw_key.decode() if isinstance(raw_key, bytes) else str(raw_key)
+        except Exception:  # pragma: no cover - exotic encodings
+            continue
+        if k.lower() == key.lower() and raw_val is not None:
+            try:
+                return raw_val.decode() if isinstance(raw_val, bytes) else str(raw_val)
+            except Exception:  # pragma: no cover
+                return None
+    return None
+
+
 def _clean_hostname(server: str | None) -> str | None:
     if not server:
         return None
@@ -88,6 +168,11 @@ def discover_mdns(timeout: float = 4.0) -> dict[str, dict]:
                 return
             token = type_.split(".")[0]
             host = _clean_hostname(info.server)
+            # `_device-info` carries `model=` (+ sometimes `osxvers=`) TXT — an
+            # authoritative product + OS signal the device announces about itself.
+            props = getattr(info, "properties", None)
+            model = _txt_get(props, "model")
+            osxvers = _txt_get(props, "osxvers")
             try:
                 addrs = info.parsed_addresses()
             except Exception:  # pragma: no cover
@@ -95,10 +180,16 @@ def discover_mdns(timeout: float = 4.0) -> dict[str, dict]:
             for addr in addrs:
                 if ":" in addr:  # IPv4 only for now
                     continue
-                rec = raw.setdefault(addr, {"hostname": None, "services": set()})
+                rec = raw.setdefault(
+                    addr, {"hostname": None, "services": set(), "model": None, "osxvers": None}
+                )
                 rec["services"].add(token)
                 if host and not rec["hostname"]:
                     rec["hostname"] = host
+                if model and not rec.get("model"):
+                    rec["model"] = model
+                if osxvers and not rec.get("osxvers"):
+                    rec["osxvers"] = osxvers
 
         def update_service(self, *a):  # noqa: D401 - required by interface
             pass
@@ -118,11 +209,15 @@ def discover_mdns(timeout: float = 4.0) -> dict[str, dict]:
         except Exception:  # pragma: no cover
             pass
 
-    return {
-        ip: {
+    out: dict[str, dict] = {}
+    for ip, rec in raw.items():
+        # A specific Apple product from the announced model wins over the
+        # generic service-derived type ("Apple device").
+        product = product_from_model(rec.get("model"))
+        out[ip] = {
             "hostname": rec["hostname"],
             "services": sorted(rec["services"]),
-            "device_type": device_type_from_mdns(rec["services"]),
+            "device_type": product or device_type_from_mdns(rec["services"]),
+            "os": os_from_model(rec.get("model"), rec.get("osxvers")),
         }
-        for ip, rec in raw.items()
-    }
+    return out

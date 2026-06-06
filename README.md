@@ -24,19 +24,32 @@ version and port detection on demand), and **network monitoring** (scan history 
 
 ---
 
-## Quickstart
+## Quickstart — one command
 
 ```bash
-make setup     # one-time: venv + python deps + npm install
-make dev       # start backend (:8011) + frontend (:5173) together
+./start.sh
 ```
 
-Or run the backend + CLI in a container with nmap baked in (Linux; LAN scanning
-needs the host network):
+That's it. The launcher checks your prerequisites (and offers to install nmap),
+creates the Python virtualenv, installs **all** backend + frontend dependencies,
+frees the ports if something is stuck, starts **both** servers, waits until
+they're healthy, and **opens your browser**. Press **Ctrl-C** once to stop
+everything cleanly. First run does the setup; later runs start in seconds.
 
 ```bash
+./start.sh --accurate-os   # asks for your password once → real nmap -O
+                           # OS + version detection on per-host scans
+./start.sh --help          # all options (ports, no-browser, …)
+```
+
+<details><summary>Other ways to run (make / Docker / manual)</summary>
+
+```bash
+make setup && make dev     # equivalent: venv + deps, then both servers
+# Container (Linux; LAN scanning needs the host network):
 ENUMGRID_API_TOKEN=changeme docker compose up --build
 ```
+</details>
 
 Open <http://localhost:5173>. The target **auto-fills to your network** — or just
 press **Start Scan with the field empty** and it auto-detects and sweeps your whole
@@ -56,11 +69,16 @@ A green **LIVE STREAM** badge means the real backend is connected; amber
 **DEMO STREAM** means only the frontend is running (offline mock data). `make dev`
 runs both, so you always get live data.
 
-> **OS detection:** even **unprivileged**, every responsive host gets an OS
-> **family** from its ping-reply TTL (64 → Linux/macOS/Unix, 128 → Windows, 255 →
-> network device/IoT) plus service-banner/CPE inference — shown in the *Device /
-> OS* column. Run the backend with `sudo` to add nmap's authoritative `-O`
-> fingerprint on top. The OS is never fabricated: ambiguous TTLs stay "Unknown".
+> **OS detection (specific, not a vague lump):** even **unprivileged**, EnumGrid
+> fuses **four real signals** — ping-reply **TTL** (Linux/macOS/Unix · Windows ·
+> network/IoT), the **OUI vendor**, the **hostname**, and the **mDNS `model=`**
+> a device announces about itself — into a *specific* label: `macOS (Apple)`,
+> `iPadOS (Apple)`, `Android`, `Windows`, `Router firmware (Linux)`,
+> `Embedded / RTOS`, `Smart TV OS`, … (On a real `/24` this resolves **12 of 14**
+> hosts to a specific OS instead of the generic family.) Run
+> `./start.sh --accurate-os` (or the backend with `sudo`) to add nmap's
+> authoritative `-O` fingerprint with the exact build on top. The OS is never
+> fabricated: when no signal supports a claim it stays "Unknown".
 
 ### Or just the CLI
 
@@ -119,6 +137,23 @@ Phase 2  Vertical deep-dive nmap -sV (+ NSE)   service / version / vuln detectio
   not just a one-shot scan.
 - **Service / version detection** — Phase 2 runs real `nmap -sV`; ports, service
   names and product versions stream into each device's expandable detail table.
+- **11 Zenmap-style scan profiles** — pick per scan from the toolbar dropdown:
+  *Quick · Default · Intense · **Recon** (rich safe enum: titles, certs, host
+  keys, SMB/DNS) · Aggressive (`-A` +OS) · **Stealth SYN** (`-sS -T2`, low-noise)
+  · Vulnerability (CVE+CVSS) · **Safe scripts** · All 65 535 ports ·
+  **Comprehensive** (`-A -p-` + default & vuln — the works) · UDP*. Plus optional
+  custom **NSE scripts** and a **port range** — all validated server-side so no
+  argument can ever be injected (intrusive `brute`/`exploit`/`dos`/`malware`
+  categories are refused by default).
+- **Automatic CVE intelligence** — when version detection identifies a service,
+  the deep/vuln scan correlates it to CVEs (NSE `vulners`, real CVSS scores) and
+  renders each finding as a **clickable link to its NVD page**. (Live example: a
+  router's `dnsmasq 2.87` + `lighttpd 1.4.63` auto-surfaced 6 CVEs with links.)
+- **Filtered-state confirmation** — ports left ambiguous (`filtered`) by the first
+  pass are automatically re-probed with a *different* technique (patient TCP
+  connect, or SYN from a DNS source port when root) to resolve false "filtered".
+- **NetBIOS (NBNS) names** — resolves hostnames for Windows PCs, printers, NAS and
+  IoT with no reverse-DNS record, on top of reverse-DNS + mDNS.
 - **History + drift** — every completed scan is saved to SQLite; the **"What
   Changed"** panel and `/api/history/diff` surface new/gone devices and
   opened/closed ports vs the previous scan of the same target.
@@ -153,13 +188,14 @@ make test      # ruff lint + CLI pytest + backend pytest + frontend Vitest
 | Suite | Count | Scope |
 |---|---|---|
 | `test_purple_recon.py` | 84 | guardrails (incl. IPv6 scope), NDP/ARP/OUI parsing, discovery policy, reports, export, renderers, **fuzzing** |
-| `backend/test_*.py` | 126 | scope/token, NSE/CVSS, OS-TTL + device + mDNS fingerprinting, history + drift, PDF, **FastAPI integration**, **hypothesis fuzzing** |
+| `backend/test_*.py` | 201 | scope/token, **11 scan profiles** + injection safety, **auto CVE + offline CVE DB + NVD links**, NSE/CVSS, **multi-signal OS fingerprinting** (TTL+vendor+host+mDNS model+osxvers), device + mDNS + **NBNS**, history + drift, PDF, **FastAPI integration**, **hypothesis fuzzing** |
 | `frontend/src/**/*.test.js` | 11 | schema coercion / null-safety, derived counters |
 | `evaluation/test_benchmark.py` | 7 | benchmark metric math (precision/recall/Jaccard) |
 
-**228 tests.** CI (`.github/workflows/ci.yml`) runs **5 jobs** — lint (ruff),
-**security** (bandit SAST + pip-audit + npm audit), CLI (Python 3.10–3.13 matrix),
-backend, and frontend — with coverage gates (CLI ≥50%, backend ≥60%) on every push.
+**303 tests, all green.** Static analysis is clean: **ruff** 0 findings, **bandit**
+SAST 0 high/medium, **pip-audit** 0 known CVEs. CI (`.github/workflows/ci.yml`)
+runs **5 jobs** — lint (ruff), **security** (bandit + pip-audit + npm audit), CLI
+(Python 3.10–3.13 matrix), backend, and frontend — with coverage gates on every push.
 
 ### Project docs
 
@@ -180,7 +216,7 @@ backend/               # FastAPI SSE service (reuses the CLI engine)
   ├─ scanner.py        #   two-tiered nmap pipeline (+ nmap -6) + NSE/CVSS parsing
   ├─ discovery.py      #   fast device discovery (ICMP/ARP/NDP/mDNS/TTL, no nmap)
   ├─ fingerprint.py    #   device-type heuristics  ·  mdns.py  Bonjour names
-  ├─ osfp.py           #   OS family from ping TTL (unprivileged)
+  ├─ osfp.py           #   specific OS from TTL + vendor + hostname + mDNS model
   ├─ security.py       #   ScopeValidator reuse (dual-stack) + auth + concurrency cap
   ├─ history.py        #   SQLite scan history + drift  ·  report.py  PDF
 frontend/              # Vite + React + Tailwind cockpit
@@ -188,6 +224,7 @@ evaluation/            # benchmark harness + docker testbed (vs nmap)
 docs/                  # ARCHITECTURE · THREAT_MODEL · EVALUATION
 Dockerfile             # backend + CLI image (nmap baked in)
 docker-compose.yml     # one-command deployment  ·  requirements.lock  pinned env
+start.sh               # ⭐ ONE command: setup + run both servers + open browser
 scripts/dev.sh         # runs both servers together (make dev)
 Makefile               # setup / dev / test / lint / clean
 ```

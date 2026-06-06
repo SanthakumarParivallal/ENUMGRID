@@ -56,6 +56,24 @@ def test_parse_vulners_extracts_scored_cves():
     assert by_id["CVE-2018-15473"].severity == Severity.MEDIUM
     # Highest score sorts first.
     assert vulns[0].id == "CVE-2020-9999"
+    # Every CVE carries a clickable NVD reference link (the headline feature).
+    assert by_id["CVE-2020-9999"].url == "https://nvd.nist.gov/vuln/detail/CVE-2020-9999"
+
+
+# --- CVE reference links (auto "is this version vulnerable?" hyperlinks) ----- #
+def test_cve_url_for_real_cve():
+    assert scanner._cve_url("CVE-2021-44228") == "https://nvd.nist.gov/vuln/detail/CVE-2021-44228"
+    assert scanner._cve_url("cve-2021-44228") == "https://nvd.nist.gov/vuln/detail/CVE-2021-44228"
+
+
+def test_cve_url_blank_for_non_cve():
+    assert scanner._cve_url("ssl-heartbleed") == ""
+    assert scanner._cve_url("") == ""
+
+
+def test_script_vuln_with_cve_gets_url():
+    v = scanner._script_to_vuln("smb-check", "State: VULNERABLE references CVE-2017-0144")
+    assert v is not None and v.url == "https://nvd.nist.gov/vuln/detail/CVE-2017-0144"
 
 
 def test_parse_vulners_keeps_worst_score_per_cve():
@@ -176,6 +194,35 @@ def test_profile_vuln_adds_scripts():
     assert "--script" in a and "vuln" in a and "vulners" in a
 
 
+def test_profile_recon_uses_safe_enum_scripts():
+    a = scanner.build_host_scan_args("recon", None, None, False, False)
+    assert "--script" in a and "ssl-cert" in a and "smb-os-discovery" in a
+    # recon must never pull in intrusive categories
+    for bad in ("brute", "exploit", "dos", "malware"):
+        assert bad not in a
+
+
+def test_profile_stealth_is_syn_scan():
+    a = scanner.build_host_scan_args("stealth", None, None, False, False)
+    assert "-sS" in a.split()
+
+
+def test_profile_comprehensive_full_range():
+    a = scanner.build_host_scan_args("comprehensive", None, None, False, False)
+    assert "-A" in a.split() and "-p-" in a.split()
+    assert "--script" in a and "vuln" in a
+
+
+def test_every_profile_builds_without_error():
+    # Every advertised profile must produce a valid arg string (no KeyError, and
+    # always a real scan type) — guards against a profile/meta drift.
+    for name in scanner.SCAN_PROFILES:
+        args = scanner.build_host_scan_args(name, None, None, False, False)
+        assert args and "--host-timeout" in args
+    # PROFILE_META and SCAN_PROFILES must stay in lockstep.
+    assert set(scanner.PROFILE_META) == set(scanner.SCAN_PROFILES)
+
+
 def test_deep_forces_vuln_scripts_on_any_profile():
     a = scanner.build_host_scan_args("quick", None, None, False, deep=True)
     assert "--script" in a and "vuln" in a
@@ -184,6 +231,19 @@ def test_deep_forces_vuln_scripts_on_any_profile():
 def test_privileged_adds_os_detection():
     a = scanner.build_host_scan_args("default", None, None, privileged=True, deep=False)
     assert "-O" in a.split() and "--osscan-guess" in a
+
+
+def test_auto_cve_adds_vulners_without_deep():
+    # A per-host scan checks versions for CVEs automatically (vulners), even when
+    # the heavier deep 'vuln' pass is off.
+    a = scanner.build_host_scan_args("default", None, None, False, deep=False, auto_cve=True)
+    assert "--script" in a and "vulners" in a
+    assert "vuln," not in a and a.count("vulners") == 1  # no duplicate / no active 'vuln'
+
+
+def test_auto_cve_no_duplicate_when_deep():
+    a = scanner.build_host_scan_args("default", None, None, False, deep=True, auto_cve=True)
+    assert a.count("vulners") == 1
 
 
 def test_ports_override_is_validated():
