@@ -411,9 +411,10 @@ function ControlBar() {
           </div>
         </div>
 
-        {/* Target + actions ---------------------------------------------- */}
-        <div className="flex min-w-[240px] flex-1 flex-wrap items-center gap-2">
-          <label className="relative flex flex-1 items-center">
+        {/* Target + actions — full row on mobile (wraps below the brand), then
+            shares the header row on larger screens. ----------------------- */}
+        <div className="flex w-full flex-wrap items-center gap-2 sm:min-w-0 sm:flex-1">
+          <label className="relative flex min-w-[200px] flex-1 items-center">
             <span className="pointer-events-none absolute left-3 text-[10px] font-semibold uppercase tracking-widest text-slate-500">
               Target
             </span>
@@ -1886,7 +1887,7 @@ function ScanConfigBar() {
           placeholder="extra NSE scripts — e.g. http-title,ssl-cert"
           spellCheck={false}
           title="Comma-separated NSE script names/categories (intrusive ones are blocked server-side)"
-          className={`${field} min-w-[170px] flex-1`}
+          className={`${field} w-full sm:min-w-[170px] sm:flex-1`}
         />
         <input
           value={scanPorts}
@@ -1894,7 +1895,7 @@ function ScanConfigBar() {
           placeholder="ports — e.g. 1-1024,3389"
           spellCheck={false}
           title="Explicit port spec"
-          className={`${field} w-40`}
+          className={`${field} w-full sm:w-40`}
         />
       </div>
 

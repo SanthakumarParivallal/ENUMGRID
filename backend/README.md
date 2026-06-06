@@ -94,6 +94,43 @@ and a **curated offline reference**. Findings carry CVSS, an NVD link, and a
 (the local cache size, which grows as you scan). No API key is required, but
 `ENUMGRID_NVD_API_KEY` is recommended for heavy use.
 
+### More attack surface, scale & deployment
+
+- **Authenticated (credentialed) scan** — `POST /api/host/credscan` (SSH) reads
+  exact distro/kernel/packages; the package list is checked against **OSV.dev**
+  for **backport-aware** CVEs (a distro-patched version is not flagged).
+- **Web audit** — `GET /api/host/webscan` (security headers / cookies / TLS cert).
+- **SNMP** — switches/APs/printers named from sysName/sysDescr during discovery.
+- **Cloud** — `GET /api/cloud/aws` (EC2 + world-open SGs + public S3) via `boto3`
+  + your AWS credential chain. **AD** — `POST /api/ad/enum` (computers/users over
+  LDAP) via `ldap3`. Both optional deps; both read-only; credentials never logged.
+- **Job queue (scale)** — `POST /api/jobs/submit` queues a scan; poll
+  `GET /api/jobs/{id}`. A bounded worker pool drains it; jobs persist across
+  restarts. The SQLite queue is swappable for Redis to scale horizontally.
+
+### Access control, TLS & SSO
+
+- **RBAC** — set `ENUMGRID_ADMIN_TOKEN` (launch scans) and optionally
+  `ENUMGRID_VIEWER_TOKEN` (read-only). With none set, localhost access is open.
+  Pass `?token=` or `Authorization: Bearer …`.
+- **TLS** — `./start.sh --tls` serves the API over HTTPS (self-signed). For
+  production use a real cert via a reverse proxy.
+- **SSO (OIDC/SAML)** — front EnumGrid with an authenticating reverse proxy and
+  bind it to your IdP. Example (Caddy + oauth2-proxy):
+
+  ```
+  # Caddy: terminate TLS, require SSO, then proxy to EnumGrid
+  enumgrid.example.com {
+      forward_auth oauth2-proxy:4180 {
+          uri /oauth2/auth
+          copy_headers X-Auth-Request-Email X-Auth-Request-User
+      }
+      reverse_proxy 127.0.0.1:5173    # the UI (which proxies /api to :8011)
+  }
+  ```
+  oauth2-proxy handles the OIDC/SAML dance with Google/Okta/Entra/etc.; EnumGrid's
+  own token RBAC then layers per-action authorization on top.
+
 ## Notes
 
 - **Run as root for richer data.** Unprivileged scans use TCP connect discovery
