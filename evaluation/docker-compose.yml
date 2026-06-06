@@ -1,0 +1,51 @@
+# Deterministic evaluation testbed for PurpleRecon.
+#
+# Brings up four service containers at FIXED IPs on an isolated bridge network,
+# so the set of live hosts (and their open ports/services) is known exactly —
+# the ground truth for measuring precision/recall and confirming there are no
+# false positives.
+#
+#   docker compose up -d
+#   python benchmark.py 172.28.0.0/24 \
+#       --ground-truth 172.28.0.10,172.28.0.11,172.28.0.12,172.28.0.13
+#   docker compose down
+#
+# Expected: PurpleRecon finds all four (precision 1.00, recall 1.00) and its
+# on-demand nmap scan identifies nginx/apache (http), OpenSSH (22) and redis
+# (6379). Authorized by construction — you own these containers.
+
+services:
+  web-nginx:          # 172.28.0.10 — http (80)
+    image: nginx:alpine
+    networks:
+      testbed:
+        ipv4_address: 172.28.0.10
+
+  web-apache:         # 172.28.0.11 — http (80)
+    image: httpd:alpine
+    networks:
+      testbed:
+        ipv4_address: 172.28.0.11
+
+  ssh-server:         # 172.28.0.12 — ssh (2222 -> sshd)
+    image: linuxserver/openssh-server:latest
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - USER_NAME=test
+    networks:
+      testbed:
+        ipv4_address: 172.28.0.12
+
+  redis:              # 172.28.0.13 — redis (6379)
+    image: redis:alpine
+    networks:
+      testbed:
+        ipv4_address: 172.28.0.13
+
+networks:
+  testbed:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/24
