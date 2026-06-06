@@ -13,10 +13,13 @@ import io
 import json
 import os
 import stat
+import string
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
 import pytest
+from hypothesis import given
+from hypothesis import strategies as st
 from rich.console import Console
 
 import purple_recon as pr
@@ -549,3 +552,39 @@ def test_read_ndp_table_linux(monkeypatch):
     table = pr._read_ndp_table()
     assert table.get("aa:bb:cc:dd:ee:ff") == ["2001:db8::5"]
     assert "11:22:33:44:55:66" not in table  # awdl0 filtered
+
+
+# --------------------------------------------------------------------------- #
+# Property-based fuzzing — the CLI primitives must never crash on hostile input
+# (MACs/vendors come straight off the wire; targets come from the operator).
+# --------------------------------------------------------------------------- #
+@given(st.text(alphabet=string.printable, max_size=40))
+def test_fuzz_normalise_mac(s):
+    assert isinstance(pr._normalise_mac(s), str)
+
+
+@given(st.text(max_size=40))
+def test_fuzz_is_host_mac(s):
+    assert isinstance(pr._is_host_mac(s), bool)
+
+
+@given(st.text(max_size=40))
+def test_fuzz_mac_vendor(s):
+    out = pr._mac_vendor(s, {})
+    assert out is None or isinstance(out, str)
+
+
+@given(st.text(alphabet=string.printable, max_size=48))
+def test_fuzz_scope_validate_only_scopeerror(s):
+    # validate() either returns a vetted namespace or raises *ScopeError* —
+    # never any other exception, regardless of the input string.
+    try:
+        pr.ScopeValidator(max_hosts=4096).validate(s)
+    except pr.ScopeError:
+        pass
+
+
+@given(st.lists(st.text(max_size=20), max_size=6))
+def test_fuzz_proxy_macs(values):
+    ip_to_mac = {f"10.0.0.{i}": v for i, v in enumerate(values)}
+    assert isinstance(pr._proxy_macs(ip_to_mac, 2), set)

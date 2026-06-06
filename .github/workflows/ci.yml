@@ -64,8 +64,8 @@ jobs:
           code=$?
           set -e
           test "$code" -eq 2 || { echo "expected exit 2, got $code"; exit 1; }
-      - name: Run CLI test suite
-        run: python -m pytest -v
+      - name: Run CLI test suite (with coverage gate)
+        run: python -m pytest -v --cov=purple_recon --cov-report=term-missing --cov-fail-under=50
 
   backend:
     name: Backend pytest (FastAPI / scope guard / NSE parsing)
@@ -81,9 +81,15 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install -r requirements-dev.txt
-      - name: Run backend test suite
+      - name: Run backend test suite (with coverage gate)
         working-directory: backend
-        run: python -m pytest test_scanner.py test_security.py test_history.py test_fingerprint.py test_report.py test_mdns.py test_osfp.py -v
+        run: >
+          python -m pytest -v
+          test_scanner.py test_security.py test_history.py test_fingerprint.py
+          test_report.py test_mdns.py test_osfp.py test_api.py test_fuzz.py
+          --cov=app --cov=scanner --cov=discovery --cov=security --cov=history
+          --cov=report --cov=fingerprint --cov=mdns --cov=osfp --cov=models
+          --cov-report=term --cov-fail-under=60
 
   frontend:
     name: Frontend (Vitest + build)
