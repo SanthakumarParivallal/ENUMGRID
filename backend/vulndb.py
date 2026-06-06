@@ -42,28 +42,48 @@ def _sev(cvss: float) -> Severity:
 
 
 # Each row: (product keywords [match ANY on the banner], predicate(version)->bool,
-#            CVE id, CVSS, short title). All facts verifiable on NVD.
+#            CVE id, CVSS, short title). All facts verifiable on NVD. The live
+# `vulners` scan is the authoritative, always-current source for ANY service/
+# version online; this hand-checked table is the offline fallback for the
+# best-known "this exact build is vulnerable" cases.
 _DB: list[tuple[tuple[str, ...], object, str, float, str]] = [
+    # --- FTP ---------------------------------------------------------------- #
     (("vsftpd",), lambda v: v == (2, 3, 4), "CVE-2011-2523", 9.8,
      "vsftpd 2.3.4 backdoor command execution"),
+    (("proftpd",), lambda v: v == (1, 3, 5), "CVE-2015-3306", 9.8,
+     "ProFTPD 1.3.5 mod_copy remote command execution"),
+    # --- SSH ---------------------------------------------------------------- #
     (("openssh", "opensshd"), lambda v: (1, 0) <= v < (7, 7), "CVE-2018-15473", 5.3,
      "OpenSSH < 7.7 username enumeration"),
+    (("openssh", "opensshd"), lambda v: (8, 5) <= v < (9, 8), "CVE-2024-6387", 8.1,
+     "OpenSSH 8.5p1–9.7p1 regreSSHion signal-handler RCE"),
+    # --- Web servers -------------------------------------------------------- #
     (("apache", "httpd"), lambda v: v == (2, 4, 49), "CVE-2021-41773", 7.5,
      "Apache httpd 2.4.49 path traversal / RCE"),
     (("apache", "httpd"), lambda v: v == (2, 4, 50), "CVE-2021-42013", 9.8,
      "Apache httpd 2.4.50 path traversal / RCE"),
-    (("proftpd",), lambda v: v == (1, 3, 5), "CVE-2015-3306", 9.8,
-     "ProFTPD 1.3.5 mod_copy remote command execution"),
+    (("nginx",), lambda v: (0, 5, 6) <= v <= (1, 3, 9), "CVE-2013-2028", 7.5,
+     "nginx 0.5.6–1.3.9 chunked-encoding stack overflow"),
+    (("lighttpd",), lambda v: (1, 4, 46) <= v <= (1, 4, 66), "CVE-2022-41556", 7.5,
+     "lighttpd 1.4.46–1.4.66 mod_wstunnel use-after-free"),
+    (("microsoft-iis", "iis"), lambda v: v == (6, 0), "CVE-2017-7269", 7.5,
+     "Microsoft IIS 6.0 WebDAV ScStoragePathFromUrl buffer overflow"),
+    # --- App / management servers ------------------------------------------ #
+    (("tomcat", "coyote"),
+     lambda v: (9, 0) <= v < (9, 0, 31) or (8, 5) <= v < (8, 5, 51)
+     or (7, 0) <= v < (7, 0, 100) or (6, 0) <= v < (7, 0),
+     "CVE-2020-1938", 9.8, "Apache Tomcat AJP 'Ghostcat' file read / RCE"),
+    (("webmin",), lambda v: (1, 890) <= v <= (1, 920), "CVE-2019-15107", 9.8,
+     "Webmin 1.890–1.920 unauthenticated RCE (password_change.cgi)"),
+    # --- Mail / DNS / file sharing / IRC ------------------------------------ #
     (("exim",), lambda v: (4, 87) <= v <= (4, 91), "CVE-2019-10149", 9.8,
      "Exim 4.87–4.91 remote command execution"),
-    (("unrealircd",), lambda v: v == (3, 2, 8, 1), "CVE-2010-2075", 10.0,
-     "UnrealIRCd 3.2.8.1 backdoor"),
     (("samba", "smbd"), lambda v: (3, 5, 0) <= v < (4, 6, 4), "CVE-2017-7494", 9.8,
      "Samba 3.5.0–4.6.x is_known_pipename() RCE (SambaCry)"),
     (("dnsmasq",), lambda v: (1, 0) <= v < (2, 90), "CVE-2023-50387", 7.5,
      "dnsmasq < 2.90 DNSSEC validation CPU exhaustion (KeyTrap)"),
-    (("nginx",), lambda v: (0, 5, 6) <= v <= (1, 3, 9), "CVE-2013-2028", 7.5,
-     "nginx 0.5.6–1.3.9 chunked-encoding stack overflow"),
+    (("unrealircd",), lambda v: v == (3, 2, 8, 1), "CVE-2010-2075", 10.0,
+     "UnrealIRCd 3.2.8.1 backdoor"),
 ]
 
 
@@ -88,8 +108,12 @@ def lookup_offline_cves(banner: str | None) -> list[Vuln]:
                     title=title,
                     severity=_sev(cvss),
                     cvss=cvss,
-                    output=f"{title} — CVSS {cvss:.1f} (offline reference)",
+                    output=(
+                        f"{title} — CVSS {cvss:.1f} (offline reference, version-matched; "
+                        "verify — distros may backport the fix)"
+                    ),
                     url=f"https://nvd.nist.gov/vuln/detail/{cve}",
+                    confidence="version",  # version-matched, not actively confirmed
                 )
             )
     return out

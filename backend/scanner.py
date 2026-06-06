@@ -419,27 +419,51 @@ def _parse_vulners(output: str) -> list[Vuln]:
             title="",  # the CVE id + CVSS badge speak for themselves in the UI
             severity=_severity_from_cvss(score),
             cvss=score,
-            output=f"{cve} — CVSS {score:.1f} (vulners)",
+            output=f"{cve} — CVSS {score:.1f} (vulners, version-matched)",
             url=_cve_url(cve),
+            confidence="version",  # matched by version/CPE — verify against vendor
         )
         for cve, score in ranked
     ]
 
 
+# Phrases that mean "the script ran but found nothing" — guard against the
+# heuristic turning an informational/!error result into a false finding.
+_NON_FINDING_MARKERS = (
+    "not vulnerable",
+    "no vulnerabilit",        # "no vulnerabilities found"
+    "couldn't",
+    "could not",
+    "unable to",
+    "false positive",
+    "error:",
+    "no reply",
+)
+
+
 def _script_to_vuln(name: str, output: str) -> Vuln | None:
-    """Turn one (non-vulners) NSE script result into a Vuln, or None."""
+    """Turn one (non-vulners) NSE script result into a Vuln, or None.
+
+    Confidence is "confirmed" only when the script's own state machine reported
+    VULNERABLE (it actively tested the host); a bare CVE reference with no state
+    is downgraded to "version" confidence (lower — could be a mention/backport).
+    """
     text = (output or "").strip()
     low = text.lower()
     blob = f"{name} {text}".lower()  # name often carries the CVE/bug id
     cves = _CVE_RE.findall(text)
-    vulnerable = "vulnerable" in low and "not vulnerable" not in low
 
-    # Skip non-findings (scripts that ran but reported nothing actionable).
+    # A real "VULNERABLE" verdict, not negated by a non-finding phrase.
+    vulnerable = "vulnerable" in low and not any(m in low for m in _NON_FINDING_MARKERS)
+
+    # Skip non-findings: nothing actionable, or an explicit "not vulnerable"/error.
+    if any(m in low for m in _NON_FINDING_MARKERS) and not vulnerable:
+        return None
     if not vulnerable and not cves:
         return None
 
     if "likely vulnerable" in low:
-        severity = Severity.MEDIUM
+        severity, confidence = Severity.MEDIUM, "confirmed"
     elif vulnerable:
         # A couple of well-known wormable bugs get bumped to critical.
         severity = (
@@ -447,8 +471,9 @@ def _script_to_vuln(name: str, output: str) -> Vuln | None:
             if any(k in blob for k in ("ms17-010", "eternalblue", "bluekeep", "heartbleed"))
             else Severity.HIGH
         )
-    else:  # CVE referenced but no explicit VULNERABLE state
-        severity = Severity.MEDIUM
+        confidence = "confirmed"
+    else:  # CVE referenced but no explicit VULNERABLE state — weaker evidence.
+        severity, confidence = Severity.MEDIUM, "version"
 
     vuln_id = cves[0].upper() if cves else name
     return Vuln(
@@ -457,6 +482,7 @@ def _script_to_vuln(name: str, output: str) -> Vuln | None:
         severity=severity,
         output=text[:600],
         url=_cve_url(vuln_id),
+        confidence=confidence,
     )
 
 
@@ -468,12 +494,30 @@ def _parse_one_script(name: str, output: str) -> list[Vuln]:
 
 
 def _dedupe(vulns: list[Vuln]) -> list[Vuln]:
-    """Collapse duplicate ids (keep worst severity) and sort critical → info."""
+    """Collapse duplicate ids and sort critical → info.
+
+    When the same id appears more than once (e.g. a `vulners` version match *and*
+    an NSE script that actively confirmed it), keep the worst severity and the
+    strongest confidence ("confirmed" beats "version"), so a finding is never
+    silently downgraded to a lower-confidence duplicate.
+    """
     by_id: dict[str, Vuln] = {}
     for v in vulns:
         cur = by_id.get(v.id)
-        if cur is None or _SEV_RANK[v.severity] < _SEV_RANK[cur.severity]:
+        if cur is None:
             by_id[v.id] = v
+            continue
+        # Merge: take the worse severity and the better confidence/score.
+        worse = v if _SEV_RANK[v.severity] < _SEV_RANK[cur.severity] else cur
+        confirmed = v.confidence == "confirmed" or cur.confidence == "confirmed"
+        merged = worse.model_copy()
+        if confirmed:
+            merged.confidence = "confirmed"
+        if merged.cvss is None:
+            merged.cvss = cur.cvss if cur.cvss is not None else v.cvss
+        if not merged.url:
+            merged.url = cur.url or v.url
+        by_id[v.id] = merged
     return sorted(by_id.values(), key=lambda v: _SEV_RANK[v.severity])
 
 

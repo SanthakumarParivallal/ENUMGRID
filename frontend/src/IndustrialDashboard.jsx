@@ -402,7 +402,7 @@ function ControlBar() {
                 ENUM<span className="text-amber">GRID</span>
               </span>
               <span className="rounded-sm border border-slate-600 px-1 py-px font-mono text-[9px] uppercase tracking-wider text-slate-500">
-                v0.1
+                v1
               </span>
             </div>
             <div className="text-[10px] uppercase tracking-[0.18em] text-slate-500">
@@ -1203,6 +1203,22 @@ function PortDetailTable({ host }) {
                     {v.cvss != null && (
                       <span className="shrink-0 rounded border border-slate-600/50 bg-slate-800/60 px-1 font-mono text-[9px] font-semibold text-slate-300">
                         CVSS {v.cvss.toFixed(1)}
+                      </span>
+                    )}
+                    {v.confidence === 'confirmed' && (
+                      <span
+                        title="An NSE script actively tested this host and confirmed it vulnerable."
+                        className="shrink-0 rounded border border-crimson/50 bg-crimson/10 px-1 font-mono text-[9px] font-semibold uppercase text-crimson"
+                      >
+                        confirmed
+                      </span>
+                    )}
+                    {v.confidence === 'version' && (
+                      <span
+                        title="Matched by detected version/CPE. Verify against vendor advisories — a backported fix can make this a false positive."
+                        className="shrink-0 rounded border border-slate-600/50 bg-slate-800/40 px-1 font-mono text-[9px] font-semibold uppercase text-slate-400"
+                      >
+                        version · verify
                       </span>
                     )}
                     {v.title && <span className="truncate text-xs text-slate-400">{v.title}</span>}

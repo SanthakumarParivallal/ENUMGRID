@@ -295,7 +295,18 @@ def build_pdf(payload: dict) -> bytes:
                     cvss = f" · CVSS {v['cvss']:.1f}" if v.get("cvss") is not None else ""
                     port = f" :{v['port']}" if v.get("port") else ""
                     sev_hex = _SEV_COLOR.get(sev, _MUTED).hexval()[2:]
-                    line = f"<font color='#{sev_hex}'><b>[{sev.upper()}]</b></font> {v.get('id', '')}{port}{cvss} — {v.get('title') or v.get('output', '')[:90]}"
+                    # CVE id is a live link to NVD; confidence flags verify-needed.
+                    vid = v.get("id", "")
+                    url = v.get("url", "")
+                    id_html = f"<a href='{url}'><u>{vid}</u></a>" if url else vid
+                    conf = v.get("confidence")
+                    conf_html = " <i>(confirmed)</i>" if conf == "confirmed" else (
+                        " <i>(version — verify)</i>" if conf == "version" else "")
+                    line = (
+                        f"<font color='#{sev_hex}'><b>[{sev.upper()}]</b></font> "
+                        f"{id_html}{port}{cvss}{conf_html} — "
+                        f"{v.get('title') or v.get('output', '')[:90]}"
+                    )
                     story.append(Paragraph(line, styles["PRMutedBody"]))
             story.append(Spacer(1, 4))
 

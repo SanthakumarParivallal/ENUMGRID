@@ -43,7 +43,7 @@ from security import (
     vet_target,
 )
 
-app = FastAPI(title="Enumeration Platform API", version="0.1.0")
+app = FastAPI(title="Enumeration Platform API", version="1.0.0")
 
 # The Vite proxy makes calls same-origin in dev, but allow direct localhost
 # access too (e.g. hitting :8000 from a browser or curl).
