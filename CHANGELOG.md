@@ -53,6 +53,16 @@ identity, automatic CVE intelligence, measured accuracy and a security self-audi
   authenticated SSH read of exact distro/kernel/package inventory (host-key
   verified by default; credentials never logged).
 
+### Accuracy & access
+- **Backport-aware vulnerability matching** (`backend/osv.py`) — credentialed
+  package lists are checked against OSV.dev's distro feeds (Ubuntu/Debian/Alpine),
+  so a fix backported by the distro is *not* flagged. Verified live: 62
+  distro-accurate findings for an old Ubuntu openssl.
+- **Web-posture audit / DAST-lite** (`backend/webscan.py`, `GET /api/host/webscan`)
+  — safe passive check of security headers, insecure cookies, and the TLS cert.
+- **RBAC** (`security.py`) — admin (scan) vs viewer (read-only) tokens; open in
+  localhost dev. **TLS**: `./start.sh --tls` serves the backend over HTTPS.
+
 ### Operations
 - **SNMP device naming** (`backend/snmp.py`) — names switches/APs/printers with
   no DNS/mDNS from SNMP sysName/sysDescr.
@@ -81,7 +91,7 @@ identity, automatic CVE intelligence, measured accuracy and a security self-audi
 - [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md).
 
 ### Quality & reproducibility
-- **361 tests** (CLI 84 · backend 253 · evaluation 7 · frontend 17): unit,
+- **386 tests** (CLI 84 · backend 278 · evaluation 7 · frontend 17): unit,
   **FastAPI TestClient integration**, **hypothesis fuzzing**. ruff 0,
   **bandit 0 high/medium**, pip-audit 0 CVEs.
 - **Measured evaluation** vs `nmap -sn` ([`docs/EVALUATION.md`](docs/EVALUATION.md)):

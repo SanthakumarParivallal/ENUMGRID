@@ -39,6 +39,7 @@ oui.txt
 
 # ---- secrets / local config (keep .env.example tracked) ----
 .env
+.certs/
 
 # ---- runtime logs + local intel caches (operator data) ----
 *.log

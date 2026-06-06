@@ -63,6 +63,23 @@ def count_packages(text: str) -> int:
     return sum(1 for ln in lines if ln and not ln.startswith(("Desired=", "|", "+++", "||")))
 
 
+def parse_packages(text: str) -> list[tuple[str, str]]:
+    """Parse `name version` lines (dpkg-query / rpm -qa) → [(name, version)].
+
+    Feeds OSV.dev for backport-aware vulnerability matching against the exact
+    installed distro versions.
+    """
+    out: list[tuple[str, str]] = []
+    for line in (text or "").splitlines():
+        line = line.strip()
+        if not line or line.startswith(("Desired=", "|", "+++", "||")):
+            continue
+        parts = line.split()
+        if len(parts) >= 2 and parts[0]:
+            out.append((parts[0], parts[1]))
+    return out
+
+
 def available() -> bool:
     """True if SSH (paramiko) is installed and credentialed scans are possible."""
     return _HAVE_PARAMIKO
@@ -114,16 +131,22 @@ def ssh_facts(
     try:
         os_release = _run("cat /etc/os-release 2>/dev/null")
         uname = _run("uname -srm 2>/dev/null")
-        pkgs = _run("dpkg -l 2>/dev/null || rpm -qa 2>/dev/null")
+        # name+version per line → exact installed versions for OSV matching.
+        pkgs = _run(
+            "dpkg-query -W -f='${Package} ${Version}\\n' 2>/dev/null "
+            "|| rpm -qa --qf '%{NAME} %{VERSION}\\n' 2>/dev/null"
+        )
     finally:
         client.close()
 
     info = parse_uname(uname)
+    pkg_list = parse_packages(pkgs)
     return {
         "ok": True,
         "os": parse_os_release(os_release) or "Unknown",
         "kernel": f"{info['kernel_name']} {info['kernel_release']}".strip(),
         "arch": info["arch"],
-        "packages": count_packages(pkgs),
+        "packages": len(pkg_list),
+        "package_list": pkg_list,
         "method": "ssh-credentialed",
     }
