@@ -462,9 +462,9 @@ function ControlBar() {
             Deep
           </button>
 
-          {/* Scan All — nmap every discovered host (services/OS/ports) at once. */}
+          {/* Scan All — nmap every not-yet-scanned host (services/OS/ports). */}
           <button
-            onClick={scanAll}
+            onClick={() => scanAll(false)}
             disabled={!unscanned}
             title="Run an nmap service scan on every discovered host (ports, services, versions, OS). Deep toggle adds CVE checks."
             className="inline-flex shrink-0 items-center gap-1.5 rounded border border-amber/50 bg-amber/10 px-3 py-2 text-sm font-semibold text-amber transition hover:bg-amber hover:text-steel-950 disabled:cursor-not-allowed disabled:border-slate-700 disabled:bg-steel-900 disabled:text-slate-600"
@@ -1784,64 +1784,152 @@ function DriftAlertBanner() {
   );
 }
 
+// Common, non-intrusive NSE scripts offered as one-click chips in the nmap bar.
+const COMMON_SCRIPTS = [
+  'http-title', 'http-headers', 'http-enum', 'ssl-cert', 'ssl-enum-ciphers',
+  'ssh-hostkey', 'smb-os-discovery', 'banner', 'vulners',
+];
+
 /**
- * Nmap scan-config bar — pick a scan profile (Zenmap-style), plus optional NSE
- * scripts and a port range. Applies to per-host "Nmap Scan" and "Scan All".
+ * Nmap scan panel — pick a Zenmap-style profile, see the *exact* nmap command it
+ * runs, add NSE scripts from a menu, set a port range, and run it. The "Run
+ * Nmap Scan" button re-scans every live host with the chosen profile, so
+ * switching scan type actually re-runs (real results, never simulated).
  */
 function ScanConfigBar() {
   const {
     profiles, scanProfile, setScanProfile, scanScripts, setScanScripts,
-    scanPorts, setScanPorts, privileged,
+    scanPorts, setScanPorts, privileged, scanAll, hosts,
   } = useScan();
   const entries = Object.entries(profiles || {});
   if (!entries.length) return null; // backend offline / profiles not loaded
 
   const sel = profiles[scanProfile] || {};
   const needsRoot = sel.needs_root && !privileged;
+  const upCount = hosts.filter((h) => h.status === HostStatus.UP).length;
   const field =
     'rounded border border-slate-700 bg-steel-900 px-2 py-1 font-mono text-slate-200 outline-none transition focus:border-amber/60';
 
+  const scriptSet = new Set(
+    (scanScripts || '').split(',').map((s) => s.trim()).filter(Boolean),
+  );
+  const toggleScript = (name) => {
+    const next = new Set(scriptSet);
+    if (next.has(name)) next.delete(name);
+    else next.add(name);
+    setScanScripts([...next].join(','));
+  };
+
   return (
-    <div className="flex flex-wrap items-center gap-2 border-b border-slate-800 bg-steel-900/50 px-3 py-2 text-xs">
-      <span className="flex items-center gap-1.5 font-semibold uppercase tracking-widest text-amber">
-        <Icon.Cpu className="h-3.5 w-3.5" /> Nmap
-      </span>
-      <select
-        value={scanProfile}
-        onChange={(e) => setScanProfile(e.target.value)}
-        title="Scan profile (applies to per-host Nmap Scan + Scan All)"
-        className={field}
-      >
-        {entries.map(([key, p]) => (
-          <option key={key} value={key}>
-            {p.label}
-          </option>
-        ))}
-      </select>
-      <input
-        value={scanScripts}
-        onChange={(e) => setScanScripts(e.target.value)}
-        placeholder="extra NSE scripts — e.g. http-title,ssl-cert"
-        spellCheck={false}
-        title="Comma-separated NSE script names/categories (intrusive ones are blocked)"
-        className={`${field} min-w-[170px] flex-1`}
-      />
-      <input
-        value={scanPorts}
-        onChange={(e) => setScanPorts(e.target.value)}
-        placeholder="ports — e.g. 1-1024,3389"
-        spellCheck={false}
-        title="Explicit port spec"
-        className={`${field} w-40`}
-      />
-      <span className="hidden text-slate-500 lg:inline">{sel.desc}</span>
-      {needsRoot && (
-        <span
-          title="Run the backend with sudo to enable nmap -O OS detection"
-          className="rounded-sm border border-amber/40 bg-amber/10 px-1.5 py-0.5 text-[10px] font-semibold text-amber"
-        >
-          needs sudo for OS (-O)
+    <div className="space-y-2 border-b border-slate-800 bg-steel-900/50 px-3 py-2 text-xs">
+      {/* Row 1 — profile + run + privilege state */}
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="flex items-center gap-1.5 font-semibold uppercase tracking-widest text-amber">
+          <Icon.Cpu className="h-3.5 w-3.5" /> Nmap
         </span>
+        <select
+          value={scanProfile}
+          onChange={(e) => setScanProfile(e.target.value)}
+          title="Scan profile — changes the actual nmap command (shown below)"
+          className={field}
+        >
+          {entries.map(([key, p]) => (
+            <option key={key} value={key}>{p.label}</option>
+          ))}
+        </select>
+        <button
+          onClick={() => scanAll(true)}
+          disabled={!upCount}
+          title="Run this nmap profile against every live host (re-scans even already-scanned hosts)"
+          className={`inline-flex items-center gap-1.5 rounded border px-2.5 py-1 font-semibold transition ${
+            upCount
+              ? 'border-matrix bg-matrix/15 text-matrix hover:bg-matrix/25'
+              : 'cursor-not-allowed border-slate-700 bg-steel-900 text-slate-600'
+          }`}
+        >
+          <Icon.Play className="h-3 w-3" /> Run Nmap Scan{upCount ? ` (${upCount})` : ''}
+        </button>
+        {privileged ? (
+          <span
+            title="Backend is running as root — nmap -O OS detection + SYN/UDP scans are enabled."
+            className="inline-flex items-center gap-1 rounded-sm border border-matrix/40 bg-matrix/10 px-1.5 py-0.5 text-[10px] font-semibold text-matrix"
+          >
+            <Icon.Shield className="h-3 w-3" /> root · full nmap
+          </span>
+        ) : (
+          <span className="rounded-sm border border-slate-700 bg-steel-900 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">
+            unprivileged
+          </span>
+        )}
+        <span className="hidden text-slate-500 lg:inline">{sel.desc}</span>
+      </div>
+
+      {/* Row 2 — the exact nmap command (proof the scan really differs) */}
+      {sel.args && (
+        <div className="overflow-x-auto whitespace-nowrap font-mono text-[10px] text-slate-500">
+          <span className="text-slate-600">$</span> nmap{' '}
+          <span className="text-slate-300">{sel.args}</span>
+          {scriptSet.size > 0 && (
+            <span className="text-amber"> --script {[...scriptSet].join(',')}</span>
+          )}
+          {scanPorts && <span className="text-amber"> -p {scanPorts}</span>}
+          {privileged && !/-A|-sS|-sU/.test(sel.args) && <span className="text-matrix"> -O</span>}
+          <span className="text-slate-600"> &lt;host&gt;</span>
+        </div>
+      )}
+
+      {/* Row 3 — scripts + ports */}
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          value={scanScripts}
+          onChange={(e) => setScanScripts(e.target.value)}
+          placeholder="extra NSE scripts — e.g. http-title,ssl-cert"
+          spellCheck={false}
+          title="Comma-separated NSE script names/categories (intrusive ones are blocked server-side)"
+          className={`${field} min-w-[170px] flex-1`}
+        />
+        <input
+          value={scanPorts}
+          onChange={(e) => setScanPorts(e.target.value)}
+          placeholder="ports — e.g. 1-1024,3389"
+          spellCheck={false}
+          title="Explicit port spec"
+          className={`${field} w-40`}
+        />
+      </div>
+
+      {/* Row 4 — one-click NSE script menu */}
+      <div className="flex flex-wrap items-center gap-1">
+        <span className="mr-1 text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+          add NSE
+        </span>
+        {COMMON_SCRIPTS.map((s) => {
+          const on = scriptSet.has(s);
+          return (
+            <button
+              key={s}
+              onClick={() => toggleScript(s)}
+              className={`rounded border px-1.5 py-0.5 font-mono text-[10px] transition ${
+                on
+                  ? 'border-amber bg-amber/15 text-amber'
+                  : 'border-slate-700 bg-steel-900 text-slate-400 hover:border-slate-500 hover:text-slate-200'
+              }`}
+            >
+              {on ? '✓ ' : '+ '}{s}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Sudo guidance when a privileged profile is picked without root */}
+      {needsRoot && (
+        <div className="flex flex-wrap items-center gap-2 rounded border border-amber/40 bg-amber/10 px-2 py-1 text-[11px] text-amber">
+          <Icon.Alert className="h-3.5 w-3.5 shrink-0" />
+          <span>
+            <b>{sel.label}</b> needs root (OS <code>-O</code> / SYN / UDP). Restart privileged:
+          </span>
+          <code className="rounded bg-black/40 px-1.5 py-0.5 font-mono text-amber-200">./start.sh --accurate-os</code>
+        </div>
       )}
     </div>
   );

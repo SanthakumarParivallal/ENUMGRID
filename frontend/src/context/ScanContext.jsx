@@ -513,9 +513,11 @@ export function ScanProvider({ children }) {
         if (host && host.ip) dispatch({ type: 'HOST_MERGE', host });
         else dispatch({ type: 'HOST_VULN_ERROR', ip });
       })
-      .catch((e) => {
-        if (e && e.name === 'AbortError') dispatch({ type: 'HOST_VULN_ERROR', ip });
-        else return mockMerge();
+      .catch(() => {
+        // We only reach here in LIVE mode (mock mode returned above). A real
+        // backend error must surface as an error — never silently swapped for
+        // simulated data, so what you see is always a real scan result.
+        dispatch({ type: 'HOST_VULN_ERROR', ip });
       });
   }, []);
 
@@ -527,13 +529,14 @@ export function ScanProvider({ children }) {
     [runHostScan],
   );
 
-  // "Scan All" — nmap every live, not-yet-scanned host (a few at a time; the
-  // backend also caps concurrency). One click fills OS/ports/services for the
-  // whole network.
-  const scanAll = useCallback(() => {
+  // "Scan All" — nmap live hosts (a few at a time; the backend also caps
+  // concurrency). By default it fills in not-yet-scanned hosts; pass force=true
+  // to RE-scan every live host with the currently-selected profile (so changing
+  // the scan type actually re-runs against hosts that were already scanned).
+  const scanAll = useCallback((force = false) => {
     const deep = stateRef.current.deepScan;
     const queue = stateRef.current.hosts
-      .filter((h) => h.status === HostStatus.UP && !h.ports.length && !h.vulnScanning)
+      .filter((h) => h.status === HostStatus.UP && (force || !h.ports.length) && !h.vulnScanning)
       .map((h) => h.ip);
     if (!queue.length) return;
     let i = 0;

@@ -33,6 +33,7 @@ from models import ScanPhase, ScanState
 from report import build_pdf
 from scanner import (
     PROFILE_META,
+    SCAN_PROFILES,
     is_privileged,
     nmap_available,
     run_pipeline,
@@ -199,8 +200,20 @@ async def scan_stream(
 
 @app.get("/api/profiles")
 def profiles() -> dict:
-    """The available nmap scan profiles (Zenmap-style) + whether we have root."""
-    return {"profiles": PROFILE_META, "privileged": is_privileged()}
+    """The available nmap scan profiles (Zenmap-style) + whether we have root.
+
+    Each profile includes the *real* nmap arguments it runs, so the UI can show
+    the exact command — proof the scan genuinely differs per profile (not faked).
+    """
+    merged = {}
+    for key, meta in PROFILE_META.items():
+        spec = SCAN_PROFILES.get(key, {})
+        scripts = spec.get("scripts", "")
+        args = spec.get("args", "")
+        if scripts:
+            args = f"{args} --script {scripts}"
+        merged[key] = {**meta, "args": args.strip()}
+    return {"profiles": merged, "privileged": is_privileged()}
 
 
 @app.get("/api/host/scan")
