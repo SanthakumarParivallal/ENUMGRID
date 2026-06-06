@@ -107,6 +107,36 @@ boot_banner() {
 boot_banner
 
 # --------------------------------------------------------------------------- #
+# 0) Load .env (optional) — picks up secrets like ENUMGRID_NVD_API_KEY and
+#    exports them so the backend (and sudo -E backend) inherit them. We parse
+#    KEY=VALUE lines ourselves rather than `source` the file, so a stray command
+#    in .env can never execute.
+# --------------------------------------------------------------------------- #
+load_dotenv() {
+  local f="$ROOT/.env" n=0 key val
+  if [[ ! -f "$f" ]]; then
+    [[ -f "$ROOT/.env.example" ]] && printf '   %s(tip: cp .env.example .env and add ENUMGRID_NVD_API_KEY for faster CVE lookups)%s\n' "$DIM" "$RST"
+    return 0
+  fi
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ "$line" =~ ^[[:space:]]*# ]] && continue
+    [[ "$line" =~ ^[[:space:]]*$ ]] && continue
+    if [[ "$line" =~ ^[[:space:]]*(export[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$ ]]; then
+      key="${BASH_REMATCH[2]}"
+      val="${BASH_REMATCH[3]}"
+      val="${val#\"}"; val="${val%\"}"   # strip surrounding double quotes
+      val="${val#\'}"; val="${val%\'}"   # strip surrounding single quotes
+      [[ -z "$val" ]] && continue        # skip empty placeholders
+      export "$key=$val"
+      n=$((n + 1))
+    fi
+  done < "$f"
+  ok ".env loaded ($n setting$([[ $n -ne 1 ]] && echo s))"
+  [[ -n "${ENUMGRID_NVD_API_KEY:-}" ]] && ok "NVD API key detected — faster, higher-rate CVE lookups"
+}
+load_dotenv
+
+# --------------------------------------------------------------------------- #
 # 1) Prerequisites
 # --------------------------------------------------------------------------- #
 say "Checking prerequisites…"
