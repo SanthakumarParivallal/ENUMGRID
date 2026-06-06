@@ -65,9 +65,11 @@ press **Start Scan with the field empty** and it auto-detects and sweeps your wh
    changes (new/gone devices, opened/closed ports). Switch **Matrix ⇄ Topology**
    for the map view.
 
-A green **LIVE STREAM** badge means the real backend is connected; amber
-**DEMO STREAM** means only the frontend is running (offline mock data). `make dev`
-runs both, so you always get live data.
+A green **LIVE STREAM** badge means the real backend is connected. Results are
+**always real**: if the backend is unreachable the dashboard shows a clear error
+(it never silently fakes a scan). The simulated **DEMO STREAM** engine runs only
+when you explicitly opt in with `VITE_USE_MOCK=true`. `./start.sh` runs both
+servers, so you always get live data.
 
 > **OS detection (specific, not a vague lump):** even **unprivileged**, EnumGrid
 > fuses **four real signals** — ping-reply **TTL** (Linux/macOS/Unix · Windows ·
@@ -145,6 +147,13 @@ Phase 2  Vertical deep-dive nmap -sV (+ NSE)   service / version / vuln detectio
   custom **NSE scripts** and a **port range** — all validated server-side so no
   argument can ever be injected (intrusive `brute`/`exploit`/`dos`/`malware`
   categories are refused by default).
+- **Privilege auto-adaptation — every profile just runs.** SYN/UDP/OS-detect
+  normally need root and *hard-fail* unprivileged. EnumGrid detects (without ever
+  prompting) whether it can scan as **root**, via passwordless **sudo**
+  (auto-elevated per scan), or **unprivileged** — and in the last case rewrites
+  root-only flags to safe equivalents (SYN/UDP→connect, drop `-O`, `-A`→`-sV -sC`)
+  so the scan completes with real results and an honest note. No more "requires
+  root privileges. QUITTING!". Run `./start.sh --accurate-os` for full fidelity.
 - **Automatic CVE intelligence (live, comprehensive, future-proof).** When
   version detection identifies a service, EnumGrid correlates it to CVEs from
   **three layered sources** so real-world coverage isn't limited to a hardcoded
@@ -217,11 +226,11 @@ make test      # ruff lint + CLI pytest + backend pytest + frontend Vitest
 | Suite | Count | Scope |
 |---|---|---|
 | `test_purple_recon.py` | 84 | guardrails (incl. IPv6 scope), NDP/ARP/OUI parsing, discovery policy, reports, export, renderers, **fuzzing** |
-| `backend/test_*.py` | 295 | scope/**RBAC**, **11 scan profiles** + injection safety, **live NVD + offline CVE DB + OSV backport-aware**, **KEV+EPSS prioritization**, **credentialed SSH + package parsers**, **web-DAST audit**, **SNMP BER codec**, **AWS/LDAP parsers**, **job-queue**, **outbound alerting + audit**, NSE/CVSS, **multi-signal OS fingerprinting**, device + mDNS + **NBNS**, history + drift, PDF, **FastAPI integration**, **hypothesis fuzzing** |
+| `backend/test_*.py` | 308 | scope/**RBAC**, **11 scan profiles** + injection safety, **privilege auto-adaptation** (root/sudo/unprivileged downgrade), **live NVD + offline CVE DB + OSV backport-aware**, **KEV+EPSS prioritization**, **credentialed SSH + package parsers**, **web-DAST audit**, **SNMP BER codec**, **AWS/LDAP parsers**, **job-queue**, **outbound alerting + audit**, NSE/CVSS, **multi-signal OS fingerprinting**, device + mDNS + **NBNS**, history + drift, PDF, **FastAPI integration**, **hypothesis fuzzing** |
 | `frontend/src/**/*.test.js` | 17 | schema coercion / null-safety, CVE link + confidence + **KEV/EPSS risk-rank**, derived counters |
 | `evaluation/test_benchmark.py` | 7 | benchmark metric math (precision/recall/Jaccard) |
 
-**403 tests, all green.** Static analysis is clean: **ruff** 0 findings, **bandit**
+**421 tests, all green.** Static analysis is clean: **ruff** 0 findings, **bandit**
 SAST 0 high/medium, **pip-audit** 0 known CVEs. CI (`.github/workflows/ci.yml`)
 runs **5 jobs** — lint (ruff), **security** (bandit + pip-audit + npm audit), CLI
 (Python 3.10–3.13 matrix), backend, and frontend — with coverage gates on every push.

@@ -91,6 +91,7 @@ const initialState = {
   finishedAt: null,
   running: false,
   source: null, // 'live' (FastAPI SSE) | 'mock' (offline demo)
+  statusMessage: null, // operator-readable note (refusal reason / backend unreachable)
   deepScan: false, // run NSE vuln scripts (--script vuln)
   sessions: seededSessions,
   drift: null, // 'what changed since last scan' for the current target (live only)
@@ -99,6 +100,8 @@ const initialState = {
   driftAlert: null, // { appeared, disappeared, changed, at } when monitoring sees a change
   profiles: {}, // available nmap scan profiles (from /api/profiles)
   privileged: false, // backend has root → real nmap -O OS detection
+  capability: 'unprivileged', // 'root' | 'sudo' | 'unprivileged' (scan privilege tier)
+  canRaw: false, // root OR passwordless sudo → real -sS/-sU/-O available
   scanProfile: 'default', // selected nmap profile for per-host + Scan All
   scanScripts: '', // optional extra NSE scripts (comma list)
   scanPorts: '', // optional explicit port spec
@@ -137,6 +140,7 @@ function reducer(state, action) {
         finishedAt: null,
         running: true,
         source,
+        statusMessage: null, // clear any prior error/refusal note
         drift: null, // clear last run's drift until this scan completes
         sessions: [session, ...state.sessions],
       };
@@ -149,7 +153,13 @@ function reducer(state, action) {
       return { ...state, drift: action.drift };
 
     case 'SET_PROFILES':
-      return { ...state, profiles: action.profiles, privileged: action.privileged };
+      return {
+        ...state,
+        profiles: action.profiles,
+        privileged: action.privileged,
+        capability: action.capability || (action.privileged ? 'root' : 'unprivileged'),
+        canRaw: action.canRaw != null ? action.canRaw : !!action.privileged,
+      };
 
     case 'SET_SCAN_PROFILE':
       return { ...state, scanProfile: action.profile };
@@ -181,6 +191,8 @@ function reducer(state, action) {
         phase: ScanPhase.ERROR,
         running: false,
         finishedAt: Date.now() / 1000,
+        // Surface WHY (backend refusal reason / unreachable) instead of dropping it.
+        statusMessage: action.message || state.statusMessage,
         sessions: patchSession(state.sessions, state.scanId, { status: ScanPhase.ERROR }),
       };
 
@@ -233,10 +245,24 @@ function reducer(state, action) {
       };
     }
 
+    case 'QUEUE_HOSTS': {
+      // Mark a batch of hosts as waiting in a "Scan All" queue (so the grid can
+      // honestly show "Queued" only for hosts that really are queued).
+      const q = new Set(action.ips || []);
+      return {
+        ...state,
+        hosts: state.hosts.map((h) => (q.has(h.ip) ? { ...h, queued: true } : h)),
+      };
+    }
+
     case 'HOST_VULN_START':
       return {
         ...state,
-        hosts: state.hosts.map((h) => (h.ip === action.ip ? { ...h, vulnScanning: true } : h)),
+        hosts: state.hosts.map((h) =>
+          h.ip === action.ip
+            ? { ...h, vulnScanning: true, queued: false, scanError: false }
+            : h,
+        ),
       };
 
     case 'HOST_MERGE': {
@@ -252,8 +278,12 @@ function reducer(state, action) {
                 hostname: m.hostname || h.hostname,
                 ports: m.ports.length ? m.ports : h.ports,
                 vulns: m.vulns,
+                scan_note: m.scan_note, // surface any unprivileged auto-adaptation
                 scanning: false,
                 vulnScanning: false,
+                queued: false,
+                scanned: true, // a per-host scan completed (even if 0 open ports)
+                scanError: false,
               }
             : h,
         ),
@@ -263,7 +293,11 @@ function reducer(state, action) {
     case 'HOST_VULN_ERROR':
       return {
         ...state,
-        hosts: state.hosts.map((h) => (h.ip === action.ip ? { ...h, vulnScanning: false } : h)),
+        hosts: state.hosts.map((h) =>
+          h.ip === action.ip
+            ? { ...h, vulnScanning: false, queued: false, scanError: true }
+            : h,
+        ),
       };
 
     case 'SET_TARGET':
@@ -366,15 +400,30 @@ export function ScanProvider({ children }) {
           fetchDrift(target); // pull 'what changed' now that this scan is saved
           es.close();
         } else if (snapshot.phase === ScanPhase.ERROR) {
-          dispatch({ type: 'ERROR' });
+          // Surface the backend's own reason (scope refusal, capacity, etc.).
+          dispatch({ type: 'ERROR', message: snapshot.message });
           es.close();
         }
       };
 
       es.onerror = () => {
         es.close();
-        if (!gotData) startMock(target, scanId, deep, true); // never connected → fallback
-        else dispatch({ type: 'STOP' }); // mid-stream drop after data
+        if (!gotData) {
+          // Live backend never answered. For a security tool we must NOT silently
+          // show simulated data — fail honestly so results are never mistaken for
+          // a real scan. (Set VITE_USE_MOCK=true to use the demo engine on purpose.)
+          if (USE_MOCK) {
+            startMock(target, scanId, deep, true);
+          } else {
+            dispatch({
+              type: 'ERROR',
+              message:
+                'Backend unreachable — the scan engine isn’t responding. Start it with ./start.sh (or check backend/.backend.log).',
+            });
+          }
+        } else {
+          dispatch({ type: 'STOP' }); // mid-stream drop after data
+        }
       };
 
       activeRef.current = { stop: () => es.close() };
@@ -430,7 +479,13 @@ export function ScanProvider({ children }) {
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
         if (d && d.profiles) {
-          dispatch({ type: 'SET_PROFILES', profiles: d.profiles, privileged: !!d.privileged });
+          dispatch({
+            type: 'SET_PROFILES',
+            profiles: d.profiles,
+            privileged: !!d.privileged,
+            capability: d.capability,
+            canRaw: !!d.can_raw,
+          });
         }
       })
       .catch(() => {});
@@ -536,9 +591,20 @@ export function ScanProvider({ children }) {
   const scanAll = useCallback((force = false) => {
     const deep = stateRef.current.deepScan;
     const queue = stateRef.current.hosts
-      .filter((h) => h.status === HostStatus.UP && (force || !h.ports.length) && !h.vulnScanning)
+      .filter(
+        (h) =>
+          h.status === HostStatus.UP &&
+          // re-scan everything when forced; otherwise only hosts not yet scanned
+          // (no ports AND never completed a scan) so the run is incremental.
+          (force || (!h.ports.length && !h.scanned)) &&
+          !h.vulnScanning,
+      )
       .map((h) => h.ip);
     if (!queue.length) return;
+    // Mark the whole batch as queued up-front so the grid shows a truthful
+    // "Queued" only for hosts actually waiting in THIS batch (not every
+    // unscanned host). Each host clears its queued flag when its turn starts.
+    dispatch({ type: 'QUEUE_HOSTS', ips: queue });
     let i = 0;
     const worker = () => {
       if (i >= queue.length) return Promise.resolve();

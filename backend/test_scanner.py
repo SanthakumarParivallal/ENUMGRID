@@ -309,3 +309,139 @@ def test_scripts_flow_into_args_safely():
     a = scanner.build_host_scan_args("default", "http-title,$(whoami)", None, False, False)
     assert "http-title" in a
     assert "whoami" not in a and "$" not in a
+
+
+# --- privilege auto-adaptation (the unprivileged/sudo fix) ----------------- #
+# Root-only scan types (-sS/-sU/-O) HARD-FAIL unprivileged ("requires root
+# privileges. QUITTING!"). _adapt_args rewrites them to unprivileged-safe
+# equivalents so every profile still runs. These tests pin that behaviour.
+
+
+def test_adapt_downgrades_syn_to_connect():
+    out, note = scanner._adapt_args("-sS -Pn -T2 --top-ports 200")
+    toks = out.split()
+    assert "-sT" in toks and "-sS" not in toks
+    assert "connect" in note.lower()
+
+
+def test_adapt_downgrades_udp_to_connect():
+    out, note = scanner._adapt_args("-sU -sV -Pn --top-ports 50")
+    toks = out.split()
+    assert "-sT" in toks and "-sU" not in toks and "-sV" in toks
+    assert "udp" in note.lower()
+
+
+def test_adapt_expands_aggressive_keeping_safe_parts():
+    out, note = scanner._adapt_args("-A -Pn -T4")
+    toks = out.split()
+    assert "-A" not in toks and "-sV" in toks and "-sC" in toks
+    assert "-A" in note  # explains the -A downgrade
+
+
+def test_adapt_strips_os_detection_and_source_port():
+    out, note = scanner._adapt_args(
+        "-sS -Pn --source-port 53 -O --osscan-guess --host-timeout 120s"
+    )
+    toks = out.split()
+    assert "-O" not in toks and "--osscan-guess" not in toks
+    assert "--source-port" not in toks and "53" not in toks
+    assert "-sT" in toks and "-sS" not in toks
+    assert "--host-timeout" in toks  # benign flags are preserved
+
+
+def test_adapt_guarantees_a_scan_type_remains():
+    # Even if every scan-type flag is dropped, a connect scan is forced in.
+    out, _ = scanner._adapt_args("-O --osscan-guess -Pn")
+    assert "-sT" in out.split()
+
+
+def test_adapt_is_noop_for_unprivileged_safe_profiles():
+    safe = "-sV -Pn -T4 --top-ports 200 --script vulners"
+    out, note = scanner._adapt_args(safe)
+    assert out == safe and note == ""
+
+
+def test_adapt_dedupes_repeated_scan_type():
+    # -sU -sV both touch scan flags; downgrading -sU must not yield two -sV/-sT.
+    out, _ = scanner._adapt_args("-sV -sU -Pn")
+    toks = out.split()
+    assert toks.count("-sV") == 1 and toks.count("-sT") == 1
+
+
+def test_every_profile_adapts_without_error_unprivileged():
+    # The core guarantee: no profile's adapted command can require root.
+    root_only = {"-sS", "-sA", "-sW", "-sM", "-sN", "-sF", "-sX", "-sU", "-sO",
+                 "-O", "--osscan-guess", "-A", "-PR"}
+    for name in scanner.SCAN_PROFILES:
+        args = scanner.build_host_scan_args(name, None, None, privileged=True, deep=True)
+        adapted, _ = scanner._adapt_args(args)
+        leftover = root_only.intersection(adapted.split())
+        assert not leftover, f"{name}: still root-only after adapt: {leftover}"
+        assert any(t in adapted.split() for t in ("-sT", "-sV", "-sn", "-sL"))
+
+
+def test_scan_capability_root(monkeypatch):
+    scanner._reset_capability_cache()
+    monkeypatch.setattr(scanner.os, "geteuid", lambda: 0, raising=False)
+    assert scanner.scan_capability() == "root"
+    assert scanner.can_raw_scan() is True
+    assert scanner.is_privileged() is True
+    scanner._reset_capability_cache()
+
+
+def test_scan_capability_sudo(monkeypatch):
+    scanner._reset_capability_cache()
+    monkeypatch.setattr(scanner.os, "geteuid", lambda: 1000, raising=False)
+    monkeypatch.setattr(scanner, "_probe_sudo", lambda: True)
+    assert scanner.scan_capability() == "sudo"
+    assert scanner.can_raw_scan() is True
+    assert scanner.is_privileged() is False  # not root itself, elevates per-scan
+    scanner._reset_capability_cache()
+
+
+def test_scan_capability_unprivileged(monkeypatch):
+    scanner._reset_capability_cache()
+    monkeypatch.setattr(scanner.os, "geteuid", lambda: 1000, raising=False)
+    monkeypatch.setattr(scanner, "_probe_sudo", lambda: False)
+    assert scanner.scan_capability() == "unprivileged"
+    assert scanner.can_raw_scan() is False
+    scanner._reset_capability_cache()
+
+
+def test_run_scan_unprivileged_adapts_and_returns_note(monkeypatch):
+    """_run_scan rewrites root-only args and reports the note (no nmap binary)."""
+    scanner._reset_capability_cache()
+    monkeypatch.setattr(scanner, "scan_capability", lambda: "unprivileged")
+
+    captured = {}
+
+    class _FakeScanner:
+        def scan(self, hosts, arguments):  # noqa: D401 - test double
+            captured["hosts"] = hosts
+            captured["args"] = arguments
+
+    monkeypatch.setattr(scanner.nmap, "PortScanner", _FakeScanner)
+    _, note = scanner._run_scan("192.168.0.1", "-sS -Pn --top-ports 10")
+    assert "-sT" in captured["args"].split() and "-sS" not in captured["args"].split()
+    assert "connect" in note.lower()
+    scanner._reset_capability_cache()
+
+
+def test_run_scan_sudo_falls_back_when_sudo_fails(monkeypatch):
+    """If a cached sudo credential expired mid-session, _run_scan degrades
+    gracefully to the unprivileged (adapted) path instead of erroring."""
+    scanner._reset_capability_cache()
+    monkeypatch.setattr(scanner, "scan_capability", lambda: "sudo")
+    monkeypatch.setattr(scanner, "_sudo_scan", lambda hosts, args: None)  # sudo failed
+
+    captured = {}
+
+    class _FakeScanner:
+        def scan(self, hosts, arguments):
+            captured["args"] = arguments
+
+    monkeypatch.setattr(scanner.nmap, "PortScanner", _FakeScanner)
+    _, note = scanner._run_scan("192.168.0.1", "-sU -sV -Pn")
+    assert "-sT" in captured["args"].split() and "-sU" not in captured["args"].split()
+    assert note  # the downgrade was reported
+    scanner._reset_capability_cache()

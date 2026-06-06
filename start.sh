@@ -260,8 +260,9 @@ if [[ "$ACCURATE_OS" == "1" ]]; then
   fi
   ok "nmap will run privileged — real OS (-O) + version detection on per-host scans"
 else
-  say "Fast mode: specific OS family without a password."
-  printf '   %s(tip: ./start.sh --accurate-os  → exact OS build numbers via sudo)%s\n' "$DIM" "$RST"
+  say "Fast mode: no password needed — every scan profile still runs."
+  printf '   %s(root-only scans auto-adapt: SYN→connect, UDP→connect, OS detect skipped — never errors.)%s\n' "$DIM" "$RST"
+  printf '   %s(tip: ./start.sh --accurate-os  → full-fidelity SYN/UDP + exact OS build numbers via sudo)%s\n' "$DIM" "$RST"
 fi
 
 # --------------------------------------------------------------------------- #
@@ -312,10 +313,14 @@ if [[ "$healthy" != "1" ]]; then
   die "Backend failed to start. See $ROOT/.backend.log"
 fi
 priv="$(curl -fksS "${BACKEND_SCHEME}://127.0.0.1:${BACKEND_PORT}/api/health" 2>/dev/null || true)"
-if echo "$priv" | grep -q '"privileged": *true'; then
+if echo "$priv" | grep -q '"capability": *"root"'; then
+  ok "Scan engine healthy — root (full nmap: real -O / SYN / UDP)"
+elif echo "$priv" | grep -q '"capability": *"sudo"'; then
+  ok "Scan engine healthy — passwordless sudo (scans auto-elevate: real -O / SYN / UDP)"
+elif echo "$priv" | grep -q '"privileged": *true'; then
   ok "Scan engine healthy — privileged (real nmap -O available)"
 else
-  ok "Scan engine healthy"
+  ok "Scan engine healthy — unprivileged (root-only scans auto-adapt; no scan errors)"
 fi
 
 say "Starting frontend → http://localhost:${FRONTEND_PORT}  ${DIM}(Vite + React)${RST}"

@@ -214,6 +214,7 @@ export function PortModel(data = {}) {
  * @property {'up'|'down'|'unknown'} status
  * @property {string} os
  * @property {boolean} scanning
+ * @property {string} scan_note
  * @property {Port[]} ports
  */
 
@@ -231,7 +232,13 @@ export function HostModel(data = {}) {
     device_type: data.device_type != null ? String(data.device_type) : '',
     discovered_via: data.discovered_via != null ? String(data.discovered_via) : '',
     scanning: Boolean(data.scanning),
+    // Non-empty when an unprivileged scan auto-adapted root-only flags (e.g.
+    // "UDP scan needs root — ran TCP connect instead"); surfaced in the UI.
+    scan_note: data.scan_note != null ? String(data.scan_note) : '',
     vulnScanning: Boolean(data.vulnScanning), // transient: per-host deep scan in flight
+    queued: Boolean(data.queued),     // transient: waiting in a "Scan All" batch
+    scanned: Boolean(data.scanned),   // transient: a per-host nmap scan has completed
+    scanError: Boolean(data.scanError), // transient: the last per-host scan failed
     ports: Array.isArray(data.ports) ? data.ports.map(PortModel) : [],
     vulns: Array.isArray(data.vulns) ? data.vulns.map(VulnModel) : [],
   };

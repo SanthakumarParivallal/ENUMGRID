@@ -96,6 +96,11 @@ class Host(BaseModel):
     device_type: str = ""           # heuristic type (Router/Phone/Printer/...) — not nmap -O
     discovered_via: str = ""        # "icmp" / "arp" / "tcp/<port>"
     scanning: bool = False
+    # When the backend lacks root (and no passwordless sudo), root-only scan flags
+    # (-sS/-sU/-O) are auto-rewritten to unprivileged equivalents so the scan still
+    # runs; this records what was adapted, e.g. "UDP scan needs root — ran TCP
+    # connect instead". Empty when the scan ran exactly as requested.
+    scan_note: str = ""
     ports: list[Port] = Field(default_factory=list)
     vulns: list[Vuln] = Field(default_factory=list)  # host-level NSE findings
 

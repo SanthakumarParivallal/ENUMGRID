@@ -74,6 +74,7 @@ packet is sent. Refused (returns an `Error` frame / `400` carrying a `message`):
 | Env var | Default | Effect |
 | ------- | ------- | ------ |
 | `ENUMGRID_ALLOW_PUBLIC` | `0` | set `1` to permit public targets (authorized use only) |
+| `ENUMGRID_AUTO_SUDO` | `1` | when not root, auto-elevate scans via passwordless `sudo` if available (`-n`, never prompts); set `0` to always run unprivileged |
 | `ENUMGRID_MAX_SCANS` | `4` | cap on concurrent scans (excess → `429` / "server busy") |
 | `ENUMGRID_MAX_HOSTS` | `4096` | per-request host cap |
 | `ENUMGRID_API_TOKEN` | _(unset)_ | when set, require `?token=` or `Authorization: Bearer …` |
@@ -133,11 +134,25 @@ and a **curated offline reference**. Findings carry CVSS, an NVD link, and a
 
 ## Notes
 
-- **Run as root for richer data.** Unprivileged scans use TCP connect discovery
-  and connect service scans (no `sudo` needed) — and still derive a *specific* OS
-  label by fusing TTL + OUI vendor + hostname + mDNS `model=`. Running with `sudo`
-  (easiest: `./start.sh --accurate-os` from the repo root) enables nmap OS
-  detection (`-O`, exact build) and raw-packet/SYN host discovery.
+- **Privilege auto-adaptation — every scan runs, no matter how you start it.**
+  Some nmap scan types need raw sockets (root): `-sS` (SYN), `-sU` (UDP), `-O` (OS
+  detection). Run unprivileged they *hard-fail* (`requires root privileges.
+  QUITTING!`). The backend resolves this automatically, detecting once (without
+  ever prompting for a password) how much privilege it can get:
+  - **root** — running as root (e.g. `./start.sh --accurate-os`): full nmap.
+  - **sudo** — not root but passwordless `sudo nmap` works (`-n`, NOPASSWD or a
+    cached credential): each scan is transparently elevated and its XML parsed.
+  - **unprivileged** — neither: root-only flags are *rewritten* to unprivileged
+    equivalents (`-sS`/`-sU` → `-sT` connect, `-O`/`--source-port` dropped, `-A`
+    → `-sV -sC`). The scan completes with real results and an honest `scan_note`
+    on the host (e.g. *"UDP scan needs root — ran TCP connect instead"*).
+
+  `GET /api/health` and `/api/profiles` report `capability` (`root`/`sudo`/
+  `unprivileged`) and `can_raw`. Net effect: picking Stealth/UDP/Aggressive in the
+  dashboard never errors. For full fidelity (real SYN/UDP/OS), run
+  `./start.sh --accurate-os` or arrange passwordless `sudo` for nmap.
+- **Unprivileged still derives a *specific* OS** by fusing TTL + OUI vendor +
+  hostname + mDNS `model=` (no `sudo` needed).
 - **Scan profiles** (`GET /api/profiles`): 11 Zenmap-style presets —
   `quick · default · intense · recon · aggressive · stealth · vuln · safe ·
   fullports · comprehensive · udp`. A request only sends a profile *name* plus an
