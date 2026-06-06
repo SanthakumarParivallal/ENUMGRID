@@ -45,3 +45,4 @@ oui.txt
 
 # ---- Machine-local Claude settings (keep launch.json, ignore local perms) ----
 .claude/settings.local.json
+.hypothesis/

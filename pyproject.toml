@@ -57,3 +57,14 @@ py-modules = ["purple_recon"]
 # justified `# nosec` markers, so medium/high issues elsewhere still fail CI.
 [tool.bandit]
 skips = ["B101", "B104", "B110", "B404", "B603", "B607"]
+
+[tool.coverage.run]
+# Measure source modules only (the test files are 100% by construction).
+omit = ["*/test_*.py", "test_*.py", "*/__pycache__/*"]
+
+[tool.coverage.report]
+exclude_also = [
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+]
