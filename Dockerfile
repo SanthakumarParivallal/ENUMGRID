@@ -1,14 +1,14 @@
-# PurpleRecon — reproducible backend + CLI image, with nmap baked in.
+# EnumGrid — reproducible backend + CLI image, with nmap baked in.
 #
-# Build:  docker build -t purplerecon .
+# Build:  docker build -t enumgrid .
 # Run the API (LAN scanning needs the host network — see docker-compose.yml):
-#         docker run --rm --network host -e PURPLERECON_API_TOKEN=changeme purplerecon
+#         docker run --rm --network host -e ENUMGRID_API_TOKEN=changeme enumgrid
 # Run the CLI:
-#         docker run --rm --network host purplerecon \
+#         docker run --rm --network host enumgrid \
 #             python /app/purple_recon.py 192.168.0.0/24 --discover --no-ui -y
 #
 # ⚠️ Authorized use only. With --network host the API listens on the host's
-#    interfaces; set PURPLERECON_API_TOKEN so it isn't open on your LAN.
+#    interfaces; set ENUMGRID_API_TOKEN so it isn't open on your LAN.
 
 FROM python:3.12-slim
 
@@ -31,7 +31,7 @@ COPY backend/ ./backend/
 RUN pip install --no-cache-dir -e .
 
 # Persisted scan history lives here (mount a volume to keep it across runs).
-ENV PURPLERECON_DB=/data/purplerecon_history.db
+ENV ENUMGRID_DB=/data/enumgrid_history.db
 RUN mkdir -p /data
 
 EXPOSE 8011

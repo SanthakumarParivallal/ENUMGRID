@@ -1,4 +1,4 @@
-# PurpleRecon — Industrial-Level Network Enumeration Platform
+# EnumGrid — Industrial-Level Network Enumeration Platform
 # One entry point for setup, running, and the full test suite.
 #
 #   make setup   # one-time: venv + python deps + npm install

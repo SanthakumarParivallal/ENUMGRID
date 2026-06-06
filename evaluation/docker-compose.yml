@@ -1,4 +1,4 @@
-# Deterministic evaluation testbed for PurpleRecon.
+# Deterministic evaluation testbed for EnumGrid.
 #
 # Brings up four service containers at FIXED IPs on an isolated bridge network,
 # so the set of live hosts (and their open ports/services) is known exactly —
@@ -10,7 +10,7 @@
 #       --ground-truth 172.28.0.10,172.28.0.11,172.28.0.12,172.28.0.13
 #   docker compose down
 #
-# Expected: PurpleRecon finds all four (precision 1.00, recall 1.00) and its
+# Expected: EnumGrid finds all four (precision 1.00, recall 1.00) and its
 # on-demand nmap scan identifies nginx/apache (http), OpenSSH (22) and redis
 # (6379). Authorized by construction — you own these containers.
 

@@ -22,6 +22,7 @@ import functools
 import os
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import nmap
 from fingerprint import guess_device_type
@@ -37,6 +38,18 @@ from models import (
     Vuln,
 )
 
+# A dedicated, bounded thread pool for the (blocking) nmap subprocess calls.
+# Crucial: keeping nmap off asyncio's default executor means a slow scan can
+# never starve the threads FastAPI uses to serve other requests (e.g. /health),
+# which is what made the server appear to "hang" during long scans.
+_SCAN_EXECUTOR = ThreadPoolExecutor(
+    max_workers=int(os.environ.get("ENUMGRID_MAX_SCANS", "4")) + 2,
+    thread_name_prefix="nmap-scan",
+)
+# A hard ceiling on any single host scan, so a pathological target can't pin a
+# worker forever even past nmap's own --host-timeout.
+HOST_SCAN_DEADLINE = int(os.environ.get("ENUMGRID_HOST_DEADLINE", "360"))
+
 # --- tunables (overridable via environment) -------------------------------- #
 DISCOVERY_ARGS = os.environ.get("NMAP_DISCOVERY_ARGS", "-sn -T4")
 TOP_PORTS = os.environ.get("NMAP_TOP_PORTS", "200")
@@ -47,6 +60,95 @@ SERVICE_ARGS = os.environ.get(
 # CVSS scores (needs internet). Slower + noisier, so it's opt-in (Deep toggle /
 # ?deep=1 / the per-host scan button).
 VULN_ARGS = os.environ.get("NMAP_VULN_ARGS", "--script vuln,vulners --script-timeout 60s")
+
+# --------------------------------------------------------------------------- #
+# Nmap scan profiles (Zenmap-style). The args are SERVER-DEFINED constants — a
+# client only ever sends a profile *name*, an optional validated port spec, and
+# optional validated NSE script names. This is what keeps "full nmap power"
+# injection-safe: no user string is ever spliced into the nmap command line.
+# --------------------------------------------------------------------------- #
+SCAN_PROFILES: dict[str, dict] = {
+    "quick":      {"args": "-sV -Pn -T4 -F",                              "timeout": "120s", "scripts": ""},
+    "default":    {"args": f"-sV -Pn -T4 --top-ports {TOP_PORTS}",        "timeout": "120s", "scripts": ""},
+    "intense":    {"args": "-sV -sC -Pn -T4 --top-ports 1000",            "timeout": "240s", "scripts": ""},
+    "aggressive": {"args": "-A -Pn -T4",                                  "timeout": "300s", "scripts": ""},
+    "vuln":       {"args": f"-sV -Pn -T4 --top-ports {TOP_PORTS}",        "timeout": "300s", "scripts": "vuln,vulners"},
+    "fullports":  {"args": "-sV -Pn -T4 -p-",                             "timeout": "600s", "scripts": ""},
+    "udp":        {"args": "-sU -sV -Pn -T4 --top-ports 50",             "timeout": "300s", "scripts": ""},
+}
+DEFAULT_PROFILE = "default"
+
+# Human-facing metadata for the UI (served via /api/profiles).
+PROFILE_META: dict[str, dict] = {
+    "quick":      {"label": "Quick",            "desc": "Fast -sV on the top 100 ports", "needs_root": False},
+    "default":    {"label": "Default",          "desc": f"-sV on the top {TOP_PORTS} ports (balanced)", "needs_root": False},
+    "intense":    {"label": "Intense",          "desc": "-sV + default NSE scripts (-sC), top 1000", "needs_root": False},
+    "aggressive": {"label": "Aggressive (OS)",  "desc": "-A: version, scripts, traceroute + OS detect", "needs_root": True},
+    "vuln":       {"label": "Vulnerability",    "desc": "-sV + NSE vuln/vulners (CVE + CVSS)", "needs_root": False},
+    "fullports":  {"label": "All 65535 ports",  "desc": "-sV -p- (thorough, slow)", "needs_root": False},
+    "udp":        {"label": "UDP (top 50)",     "desc": "-sU UDP scan of the top 50 ports", "needs_root": True},
+}
+
+# Validate user-supplied NSE scripts (names or categories) and port specs so
+# they can never break out of their nmap argument.
+_SCRIPT_RE = re.compile(r"^[a-z0-9][a-z0-9_\-*]{0,40}$", re.IGNORECASE)
+_PORTSPEC_RE = re.compile(r"^[0-9]{1,5}([,\-][0-9]{1,5}){0,256}$")
+# Scripts that could be intrusive/dangerous are refused even though they're valid
+# NSE — an enumeration tool should not brute-force or exploit by accident.
+_BLOCKED_SCRIPT_CATEGORIES = {"brute", "exploit", "dos", "malware"}
+
+
+def _safe_scripts(scripts: str | None) -> list[str]:
+    """Validated, deduped NSE script names/categories (intrusive ones removed)."""
+    if not scripts:
+        return []
+    out: list[str] = []
+    for raw in scripts.split(","):
+        name = raw.strip()
+        if name and _SCRIPT_RE.match(name) and name.lower() not in _BLOCKED_SCRIPT_CATEGORIES:
+            if name not in out:
+                out.append(name)
+    return out
+
+
+def build_host_scan_args(
+    profile: str | None,
+    scripts: str | None,
+    ports: str | None,
+    privileged: bool,
+    deep: bool,
+) -> str:
+    """Compose the nmap argument string for a per-host scan from a vetted profile.
+
+    Only server-defined profile args + validated script/port tokens are used, so
+    this is injection-safe by construction.
+    """
+    prof = SCAN_PROFILES.get(profile or DEFAULT_PROFILE, SCAN_PROFILES[DEFAULT_PROFILE])
+    args = prof["args"]
+
+    # Explicit port override — only when the profile hasn't already fixed ports.
+    if ports and _PORTSPEC_RE.match(ports) and "-p-" not in args and "-F" not in args:
+        args += f" -p {ports}"
+
+    # Assemble NSE scripts: profile's own + deep (vuln) + the user's vetted list.
+    script_list: list[str] = []
+    if prof["scripts"]:
+        script_list += prof["scripts"].split(",")
+    if deep:
+        script_list += ["vuln", "vulners"]
+    for name in _safe_scripts(scripts):
+        if name not in script_list:
+            script_list.append(name)
+    if script_list:
+        args += f" --script {','.join(script_list)} --script-timeout 60s"
+
+    # OS detection: -A already includes -O. For other profiles, add -O only when
+    # we actually have raw-socket privilege (root) — otherwise nmap just warns.
+    if privileged and "-A" not in args.split():
+        args += " -O --osscan-guess"
+
+    args += f" --host-timeout {prof['timeout']}"
+    return args
 
 _CVE_RE = re.compile(r"CVE-\d{4}-\d{3,7}", re.IGNORECASE)
 # vulners emits lines like:  CVE-2018-15473  5.3  https://vulners.com/...
@@ -131,18 +233,23 @@ def _ping_sweep(target: str) -> list[dict]:
     return discovered
 
 
-def _service_scan(ip: str, privileged: bool, deep: bool) -> dict:
-    """Phase 2: enumerate services/versions on one host.
+def _service_scan(
+    ip: str,
+    privileged: bool,
+    deep: bool,
+    profile: str | None = None,
+    scripts: str | None = None,
+    ports: str | None = None,
+) -> dict:
+    """Phase 2: enumerate one host using a chosen nmap profile.
 
-    `deep` adds NSE vuln scripts; `privileged` (root) adds OS detection (-O).
+    `profile` selects an allowlisted nmap scan type (quick/intense/aggressive/
+    vuln/fullports/udp); `scripts`/`ports` are validated add-ons; `deep` forces
+    the NSE vuln pass; `privileged` (root) enables real OS detection (-O).
     """
-    args = SERVICE_ARGS
+    args = build_host_scan_args(profile, scripts, ports, privileged, deep)
     if ":" in ip:  # IPv6 target — nmap needs -6
         args += " -6"
-    if privileged:
-        args += " -O"
-    if deep:
-        args += " " + VULN_ARGS
     scanner = nmap.PortScanner()
     scanner.scan(hosts=ip, arguments=args)
 
@@ -381,7 +488,7 @@ async def run_pipeline(target: str, scan_id: str | None, deep: bool = False):
     # ---- Phase 1: Ping Sweep ---------------------------------------------- #
     try:
         discovered = await loop.run_in_executor(
-            None, functools.partial(_ping_sweep, target)
+            _SCAN_EXECUTOR, functools.partial(_ping_sweep, target)
         )
     except nmap.PortScannerError:
         state.phase = ScanPhase.ERROR
@@ -419,7 +526,7 @@ async def run_pipeline(target: str, scan_id: str | None, deep: bool = False):
 
         try:
             result = await loop.run_in_executor(
-                None, functools.partial(_service_scan, host.ip, privileged, deep)
+                _SCAN_EXECUTOR, functools.partial(_service_scan, host.ip, privileged, deep)
             )
             host.os = result["os"]
             host.ports = result["ports"]
@@ -443,14 +550,25 @@ async def run_pipeline(target: str, scan_id: str | None, deep: bool = False):
     yield state.model_copy(deep=True)
 
 
-async def scan_single_host(ip: str, deep: bool = True) -> Host:
-    """Deep-scan one already-discovered host (the per-row "Scan Vulns" action).
+async def scan_single_host(
+    ip: str,
+    deep: bool = True,
+    profile: str | None = None,
+    scripts: str | None = None,
+    ports: str | None = None,
+) -> Host:
+    """Scan one already-discovered host with a chosen nmap profile.
 
-    Returns a fresh Host the client merges back into the grid in place.
+    Powers the per-row "Nmap Scan" + "Scan All" actions. Returns a fresh Host the
+    client merges back into the grid in place.
     """
     loop = asyncio.get_running_loop()
-    result = await loop.run_in_executor(
-        None, functools.partial(_service_scan, ip, is_privileged(), deep)
+    result = await asyncio.wait_for(
+        loop.run_in_executor(
+            _SCAN_EXECUTOR,
+            functools.partial(_service_scan, ip, is_privileged(), deep, profile, scripts, ports),
+        ),
+        timeout=HOST_SCAN_DEADLINE,
     )
     return Host(
         ip=ip,

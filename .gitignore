@@ -23,9 +23,9 @@ frontend/.vite/
 
 # ---- Tool output ----
 # Scan reports + exports are operator data; never commit them.
-purplerecon_*.json
-purplerecon_*.html
-purplerecon_*.csv
+enumgrid_*.json
+enumgrid_*.html
+enumgrid_*.csv
 *.rdb
 
 # ---- Scan history database (local operator data) ----

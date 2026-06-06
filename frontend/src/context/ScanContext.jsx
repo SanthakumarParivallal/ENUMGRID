@@ -47,7 +47,7 @@ function notifyDrift(alert) {
       if (alert.disappeared.length) parts.push(`-${alert.disappeared.length} gone`);
       if (alert.changed.length) parts.push(`${alert.changed.length} changed`);
       // eslint-disable-next-line no-new
-      new Notification('PurpleRecon — network changed', {
+      new Notification('EnumGrid — network changed', {
         body: `${alert.target}: ${parts.join(' · ') || 'configuration drift'}`,
       });
     };
@@ -97,6 +97,11 @@ const initialState = {
   monitor: false, // continuous mode: auto re-scan + alert on drift
   monitorEverySec: 300, // re-scan interval when monitoring
   driftAlert: null, // { appeared, disappeared, changed, at } when monitoring sees a change
+  profiles: {}, // available nmap scan profiles (from /api/profiles)
+  privileged: false, // backend has root → real nmap -O OS detection
+  scanProfile: 'default', // selected nmap profile for per-host + Scan All
+  scanScripts: '', // optional extra NSE scripts (comma list)
+  scanPorts: '', // optional explicit port spec
 };
 
 // Default to the live FastAPI stream; set VITE_USE_MOCK=true to force the
@@ -142,6 +147,18 @@ function reducer(state, action) {
 
     case 'SET_DRIFT':
       return { ...state, drift: action.drift };
+
+    case 'SET_PROFILES':
+      return { ...state, profiles: action.profiles, privileged: action.privileged };
+
+    case 'SET_SCAN_PROFILE':
+      return { ...state, scanProfile: action.profile };
+
+    case 'SET_SCAN_SCRIPTS':
+      return { ...state, scanScripts: action.scripts };
+
+    case 'SET_SCAN_PORTS':
+      return { ...state, scanPorts: action.ports };
 
     case 'TOGGLE_MONITOR':
       return { ...state, monitor: !state.monitor, driftAlert: null };
@@ -406,6 +423,23 @@ export function ScanProvider({ children }) {
 
   const toggleDeep = useCallback(() => dispatch({ type: 'TOGGLE_DEEP' }), []);
 
+  // --- nmap scan profiles -------------------------------------------------- #
+  // Load the allowlisted profiles (+ whether the backend has root for -O) once.
+  useEffect(() => {
+    fetch('/api/profiles')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d && d.profiles) {
+          dispatch({ type: 'SET_PROFILES', profiles: d.profiles, privileged: !!d.privileged });
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const setScanProfile = useCallback((profile) => dispatch({ type: 'SET_SCAN_PROFILE', profile }), []);
+  const setScanScripts = useCallback((scripts) => dispatch({ type: 'SET_SCAN_SCRIPTS', scripts }), []);
+  const setScanPorts = useCallback((ports) => dispatch({ type: 'SET_SCAN_PORTS', ports }), []);
+
   // --- continuous monitor mode --------------------------------------------- #
   const toggleMonitor = useCallback(() => dispatch({ type: 'TOGGLE_MONITOR' }), []);
   const setMonitorInterval = useCallback(
@@ -466,9 +500,14 @@ export function ScanProvider({ children }) {
 
     const signal =
       typeof AbortSignal !== 'undefined' && AbortSignal.timeout
-        ? AbortSignal.timeout(180000) // -sV (+ optional NSE) can be slow
+        ? AbortSignal.timeout(360000) // -sV/-A (+ optional NSE) can be slow
         : undefined;
-    return fetch(`/api/host/scan?ip=${encodeURIComponent(ip)}&deep=${deep ? 1 : 0}`, { signal })
+    const sp = stateRef.current;
+    const params = new URLSearchParams({ ip, deep: deep ? '1' : '0' });
+    if (sp.scanProfile && sp.scanProfile !== 'default') params.set('profile', sp.scanProfile);
+    if (sp.scanScripts) params.set('scripts', sp.scanScripts);
+    if (sp.scanPorts) params.set('ports', sp.scanPorts);
+    return fetch(`/api/host/scan?${params.toString()}`, { signal })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((host) => {
         if (host && host.ip) dispatch({ type: 'HOST_MERGE', host });
@@ -515,14 +554,14 @@ export function ScanProvider({ children }) {
     fetch('/api/report/pdf', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ target: s.target, hosts: s.hosts }),
+      body: JSON.stringify({ target: s.target, hosts: s.hosts, profile: s.scanProfile }),
     })
       .then((r) => (r.ok ? r.blob() : Promise.reject(new Error('report failed'))))
       .then((blob) => {
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `purplerecon_${(s.target || 'scan').replace(/[^a-z0-9]+/gi, '-')}.pdf`;
+        a.download = `enumgrid_${(s.target || 'scan').replace(/[^a-z0-9]+/gi, '-')}.pdf`;
         document.body.appendChild(a);
         a.click();
         a.remove();
@@ -555,6 +594,9 @@ export function ScanProvider({ children }) {
       toggleMonitor,
       setMonitorInterval,
       dismissAlert,
+      setScanProfile,
+      setScanScripts,
+      setScanPorts,
       scanHostVulns,
       scanAll,
       downloadReport,
@@ -570,6 +612,9 @@ export function ScanProvider({ children }) {
       toggleMonitor,
       setMonitorInterval,
       dismissAlert,
+      setScanProfile,
+      setScanScripts,
+      setScanPorts,
       scanHostVulns,
       scanAll,
       downloadReport,

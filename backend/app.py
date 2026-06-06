@@ -16,6 +16,7 @@ Run (from the backend/ directory, using the project's venv):
 
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import datetime
 
@@ -27,6 +28,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from models import ScanPhase, ScanState
 from report import build_pdf
 from scanner import (
+    PROFILE_META,
     is_privileged,
     nmap_available,
     run_pipeline,
@@ -177,18 +179,28 @@ async def scan_stream(
     )
 
 
+@app.get("/api/profiles")
+def profiles() -> dict:
+    """The available nmap scan profiles (Zenmap-style) + whether we have root."""
+    return {"profiles": PROFILE_META, "privileged": is_privileged()}
+
+
 @app.get("/api/host/scan")
 async def host_scan(
     ip: str = Query(..., description="IP of an already-discovered host"),
-    deep: bool = Query(True, description="Run NSE vuln scripts"),
+    deep: bool = Query(True, description="Force the NSE vuln/vulners pass"),
+    profile: str | None = Query(None, description="scan profile (quick/intense/aggressive/vuln/...)"),
+    scripts: str | None = Query(None, description="extra NSE scripts/categories (comma list)"),
+    ports: str | None = Query(None, description="explicit port spec, e.g. 1-1024,3389"),
     token: str | None = Query(None, description="API token (only if one is configured)"),
     authorization: str | None = Header(None),
 ):
-    """Deep-scan a single host and return its updated Host record (JSON).
+    """Scan a single host with the chosen nmap profile and return its Host record.
 
-    Powers the per-row "Scan Vulns" button — the client merges the result back
-    into the grid without disturbing the other hosts. Subject to the same auth,
-    scope and concurrency policy as the streaming endpoint.
+    Powers the per-row "Nmap Scan" button + "Scan All" — the client merges the
+    result back into the grid without disturbing the other hosts. `profile`,
+    `scripts` and `ports` are validated server-side (no nmap-arg injection).
+    Subject to the same auth, scope and concurrency policy as the stream.
     """
     if not token_ok(token, authorization):
         raise HTTPException(status_code=401, detail="unauthorized")
@@ -200,10 +212,20 @@ async def host_scan(
     async with scan_slot() as ok:
         if not ok:
             return JSONResponse(
-                {"error": "server busy — too many concurrent scans"},
+                {"error": "server busy — too many concurrent scans, retry shortly"},
                 status_code=429,
             )
-        host = await scan_single_host(ip, deep)
+        try:
+            host = await scan_single_host(ip, deep, profile, scripts, ports)
+        except (TimeoutError, asyncio.TimeoutError):
+            return JSONResponse(
+                {"error": "scan timed out — try a faster profile or a narrower port range"},
+                status_code=504,
+            )
+        except Exception as exc:  # noqa: BLE001 - surface a clean error, never hang
+            return JSONResponse(
+                {"error": f"scan failed ({type(exc).__name__})"}, status_code=502
+            )
     return JSONResponse(host.model_dump())
 
 
@@ -218,7 +240,7 @@ def report_pdf(payload: dict = Body(...)) -> Response:
     raw = str(payload.get("target") or "scan")
     safe = "".join(c if c.isalnum() else "-" for c in raw).strip("-")[:40] or "scan"
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-    filename = f"purplerecon_{safe}_{stamp}.pdf"
+    filename = f"enumgrid_{safe}_{stamp}.pdf"
     return Response(
         content=pdf,
         media_type="application/pdf",

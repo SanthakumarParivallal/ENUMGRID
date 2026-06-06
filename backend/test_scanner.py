@@ -154,3 +154,55 @@ def test_detect_os_falls_back_to_banner():
 def test_detect_os_unknown():
     node = _FakeNode({"tcp": {80: {"cpe": ""}}})
     assert scanner._detect_os(node, []) == "Unknown"
+
+
+# --- nmap scan profiles (Zenmap-style) + injection safety ------------------ #
+def test_profile_default_and_unknown_fallback():
+    a = scanner.build_host_scan_args("default", None, None, privileged=False, deep=False)
+    assert "-sV" in a and "--top-ports" in a
+    # unknown profile name falls back to default (never an arbitrary string)
+    assert scanner.build_host_scan_args("../../evil", None, None, False, False).startswith("-sV")
+
+
+def test_profile_aggressive_uses_dash_A():
+    a = scanner.build_host_scan_args("aggressive", None, None, privileged=False, deep=False)
+    assert "-A" in a.split()
+    # -A already includes -O, so we must NOT add a duplicate -O
+    assert a.split().count("-O") == 0
+
+
+def test_profile_vuln_adds_scripts():
+    a = scanner.build_host_scan_args("vuln", None, None, False, False)
+    assert "--script" in a and "vuln" in a and "vulners" in a
+
+
+def test_deep_forces_vuln_scripts_on_any_profile():
+    a = scanner.build_host_scan_args("quick", None, None, False, deep=True)
+    assert "--script" in a and "vuln" in a
+
+
+def test_privileged_adds_os_detection():
+    a = scanner.build_host_scan_args("default", None, None, privileged=True, deep=False)
+    assert "-O" in a.split() and "--osscan-guess" in a
+
+
+def test_ports_override_is_validated():
+    ok = scanner.build_host_scan_args("default", None, "1-1024,3389", False, False)
+    assert "-p 1-1024,3389" in ok
+    # an injection attempt is rejected (the space-containing spec fails the regex)
+    bad = scanner.build_host_scan_args("default", None, "80 -oG output", False, False)
+    assert "-oG" not in bad and "-p 80" not in bad
+
+
+def test_scripts_are_validated_and_intrusive_blocked():
+    assert scanner._safe_scripts("http-title,ssl-cert") == ["http-title", "ssl-cert"]
+    # injection + intrusive categories are dropped
+    assert scanner._safe_scripts("http-title; rm -rf /") == []
+    assert scanner._safe_scripts("brute,exploit,dos,malware") == []
+    assert scanner._safe_scripts("") == []
+
+
+def test_scripts_flow_into_args_safely():
+    a = scanner.build_host_scan_args("default", "http-title,$(whoami)", None, False, False)
+    assert "http-title" in a
+    assert "whoami" not in a and "$" not in a

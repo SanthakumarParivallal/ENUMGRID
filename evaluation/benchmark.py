@@ -1,15 +1,15 @@
 #!/usr/bin/env python3
 """
-benchmark.py — accuracy + speed comparison: PurpleRecon vs nmap.
+benchmark.py — accuracy + speed comparison: EnumGrid vs nmap.
 
-Runs PurpleRecon's discovery (`--discover`) and `nmap -sn` against the *same*
+Runs EnumGrid's discovery (`--discover`) and `nmap -sn` against the *same*
 target, then reports how they agree. Two ways to read the result:
 
   * Against the **docker testbed** (`evaluation/docker-compose.yml`) the set of
     live hosts is known exactly, so precision/recall are true.
   * Against a **real network** there is no perfect ground truth, so we treat the
     UNION of both tools as a ground-truth proxy and report per-tool recall,
-    Jaccard agreement, and each tool's unique finds (PurpleRecon's ARP/NDP/mDNS
+    Jaccard agreement, and each tool's unique finds (EnumGrid's ARP/NDP/mDNS
     passes typically catch ICMP-silent devices that `nmap -sn` misses).
 
 Usage:
@@ -59,8 +59,8 @@ def run_nmap_sn(target: str) -> tuple[set[str], float]:
     return _ips_from_nmap(proc.stdout), time.monotonic() - t0
 
 
-def run_purplerecon(target: str) -> tuple[set[str], float]:
-    """PurpleRecon `--discover` (ICMP+TCP+ARP+NDP+mDNS). Returns (hosts, seconds)."""
+def run_enumgrid(target: str) -> tuple[set[str], float]:
+    """EnumGrid `--discover` (ICMP+TCP+ARP+NDP+mDNS). Returns (hosts, seconds)."""
     with tempfile.TemporaryDirectory() as tmp:
         t0 = time.monotonic()
         subprocess.run(  # nosec B603 - fixed args, target is operator-supplied
@@ -70,7 +70,7 @@ def run_purplerecon(target: str) -> tuple[set[str], float]:
         )
         dt = time.monotonic() - t0
         hosts: set[str] = set()
-        for path in glob.glob(os.path.join(tmp, "purplerecon_*.json")):
+        for path in glob.glob(os.path.join(tmp, "enumgrid_*.json")):
             try:
                 with open(path, encoding="utf-8") as fh:
                     data = json.load(fh)
@@ -95,20 +95,20 @@ def compare(pr_hosts: set[str], nmap_hosts: set[str], truth: set[str] | None) ->
     return {
         "reference": "explicit ground-truth" if truth else "union (proxy)",
         "reference_count": len(reference),
-        "purplerecon_count": len(pr_hosts),
+        "enumgrid_count": len(pr_hosts),
         "nmap_count": len(nmap_hosts),
         "agreement_count": len(both),
         "jaccard": len(both) / len(union) if union else 0.0,
-        "purplerecon_only": sorted(pr_hosts - nmap_hosts),
+        "enumgrid_only": sorted(pr_hosts - nmap_hosts),
         "nmap_only": sorted(nmap_hosts - pr_hosts),
-        "purplerecon_metrics": _prf(pr_hosts, reference),
+        "enumgrid_metrics": _prf(pr_hosts, reference),
         "nmap_metrics": _prf(nmap_hosts, reference),
     }
 
 
 def render_md(result: dict) -> str:
     c = result["comparison"]
-    pm, nm = c["purplerecon_metrics"], c["nmap_metrics"]
+    pm, nm = c["enumgrid_metrics"], c["nmap_metrics"]
     return "\n".join([
         f"### Benchmark — target `{result['target']}`  ({result['timestamp']})",
         "",
@@ -117,19 +117,19 @@ def render_md(result: dict) -> str:
         "",
         "| Tool | Hosts found | Precision | Recall | F1 | Time (s) |",
         "|---|---:|---:|---:|---:|---:|",
-        f"| **PurpleRecon** | {c['purplerecon_count']} | {pm['precision']:.2f} | "
-        f"{pm['recall']:.2f} | {pm['f1']:.2f} | {result['purplerecon_seconds']:.1f} |",
+        f"| **EnumGrid** | {c['enumgrid_count']} | {pm['precision']:.2f} | "
+        f"{pm['recall']:.2f} | {pm['f1']:.2f} | {result['enumgrid_seconds']:.1f} |",
         f"| `nmap -sn` | {c['nmap_count']} | {nm['precision']:.2f} | "
         f"{nm['recall']:.2f} | {nm['f1']:.2f} | {result['nmap_seconds']:.1f} |",
         "",
-        f"- PurpleRecon-only finds (ICMP-silent → ARP/NDP/mDNS): "
-        f"`{', '.join(c['purplerecon_only']) or 'none'}`",
+        f"- EnumGrid-only finds (ICMP-silent → ARP/NDP/mDNS): "
+        f"`{', '.join(c['enumgrid_only']) or 'none'}`",
         f"- `nmap -sn`-only finds: `{', '.join(c['nmap_only']) or 'none'}`",
     ])
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description="PurpleRecon vs nmap discovery benchmark")
+    ap = argparse.ArgumentParser(description="EnumGrid vs nmap discovery benchmark")
     ap.add_argument("target", help="CIDR / IP / comma-list")
     ap.add_argument("--ground-truth", help="comma-separated known-live IPs (true precision/recall)")
     ap.add_argument("--json", help="write the full result as JSON to this path")
@@ -141,12 +141,12 @@ def main(argv: list[str] | None = None) -> int:
     print(f"» nmap -sn {args.target} …", file=sys.stderr)
     nmap_hosts, nmap_s = run_nmap_sn(args.target)
     print(f"» purple_recon --discover {args.target} …", file=sys.stderr)
-    pr_hosts, pr_s = run_purplerecon(args.target)
+    pr_hosts, pr_s = run_enumgrid(args.target)
 
     result = {
         "target": args.target,
         "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-        "purplerecon_seconds": round(pr_s, 2),
+        "enumgrid_seconds": round(pr_s, 2),
         "nmap_seconds": round(nmap_s, 2),
         "comparison": compare(pr_hosts, nmap_hosts, truth),
     }

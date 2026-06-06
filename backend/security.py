@@ -11,11 +11,11 @@ This module closes that gap by reusing the *same* `ScopeValidator` for every web
 entry point, and layers on three web-specific controls:
 
   * a public-target policy — internet-routable addresses are refused unless
-    `PURPLERECON_ALLOW_PUBLIC=1` (there is no interactive "are you sure?" prompt
+    `ENUMGRID_ALLOW_PUBLIC=1` (there is no interactive "are you sure?" prompt
     over HTTP, so we fail safe);
-  * a concurrency cap — at most `PURPLERECON_MAX_SCANS` scans run at once, so a
+  * a concurrency cap — at most `ENUMGRID_MAX_SCANS` scans run at once, so a
     burst of requests can't fork-bomb the host with nmap processes;
-  * an optional bearer/token gate — enabled only when `PURPLERECON_API_TOKEN`
+  * an optional bearer/token gate — enabled only when `ENUMGRID_API_TOKEN`
     is set, so the default localhost dev experience is unchanged.
 """
 
@@ -46,10 +46,10 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
-ALLOW_PUBLIC = _env_flag("PURPLERECON_ALLOW_PUBLIC")
-MAX_CONCURRENT_SCANS = _env_int("PURPLERECON_MAX_SCANS", 4)
-MAX_HOSTS = _env_int("PURPLERECON_MAX_HOSTS", 4096)
-API_TOKEN = os.environ.get("PURPLERECON_API_TOKEN") or None
+ALLOW_PUBLIC = _env_flag("ENUMGRID_ALLOW_PUBLIC")
+MAX_CONCURRENT_SCANS = _env_int("ENUMGRID_MAX_SCANS", 4)
+MAX_HOSTS = _env_int("ENUMGRID_MAX_HOSTS", 4096)
+API_TOKEN = os.environ.get("ENUMGRID_API_TOKEN") or None
 
 # A single process-wide gate on concurrent scans (set once at import).
 scan_semaphore = asyncio.Semaphore(MAX_CONCURRENT_SCANS)
@@ -85,14 +85,14 @@ def vet_target(target: str) -> None:
     if scope.has_public and not ALLOW_PUBLIC:
         raise ScopeRejected(
             "target includes public/internet-routable addresses; refused. "
-            "Set PURPLERECON_ALLOW_PUBLIC=1 to permit (authorized use only)."
+            "Set ENUMGRID_ALLOW_PUBLIC=1 to permit (authorized use only)."
         )
 
 
 def token_ok(token: str | None, authorization: str | None) -> bool:
     """Return True if the request is authorized.
 
-    Auth is *disabled* (always True) unless ``PURPLERECON_API_TOKEN`` is set,
+    Auth is *disabled* (always True) unless ``ENUMGRID_API_TOKEN`` is set,
     so the default localhost-only dev flow needs no configuration. When a token
     is configured, accept it via ``?token=`` (EventSource can't set headers) or
     an ``Authorization: Bearer <token>`` header.

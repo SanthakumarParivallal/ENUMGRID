@@ -1,4 +1,4 @@
-# PurpleRecon — Industrial-Level Network Enumeration Platform
+# EnumGrid — Industrial-Level Network Enumeration Platform
 
 A two-tiered, **purple-team** network enumeration tool: it thinks like an
 offensive scanner but acts like a defensive asset mapper. Discover every live
@@ -35,7 +35,7 @@ Or run the backend + CLI in a container with nmap baked in (Linux; LAN scanning
 needs the host network):
 
 ```bash
-PURPLERECON_API_TOKEN=changeme docker compose up --build
+ENUMGRID_API_TOKEN=changeme docker compose up --build
 ```
 
 Open <http://localhost:5173>. The target **auto-fills to your network** — or just
@@ -76,7 +76,7 @@ runs both, so you always get live data.
 
 ```bash
 pip install -e .                 # or: pip install -e ".[nmap,web]"
-purplerecon 192.168.0.0/24 --discover
+enumgrid 192.168.0.0/24 --discover
 ```
 
 ---
@@ -96,7 +96,7 @@ Phase 2  Vertical deep-dive nmap -sV (+ NSE)   service / version / vuln detectio
   `RST` is `weak` and suppressed by default (firewalls forge those).
 - **Vendor naming** — MAC → IEEE OUI lookup (39k+ entries via `--download-oui`);
   randomized "private Wi-Fi" MACs are detected and labelled, not guessed.
-> 📊 **Measured:** on a real `/24`, PurpleRecon found **11/12 live hosts (recall 1.00)** vs unprivileged `nmap -sn`'s **3 (recall 0.27)** — faster, zero false positives. See [`docs/EVALUATION.md`](docs/EVALUATION.md).
+> 📊 **Measured:** on a real `/24`, EnumGrid found **11/12 live hosts (recall 1.00)** vs unprivileged `nmap -sn`'s **3 (recall 0.27)** — faster, zero false positives. See [`docs/EVALUATION.md`](docs/EVALUATION.md).
 
 - **Device-type fingerprinting** — vendor + open ports + services + hostname →
   a coarse type (Router / Phone / Printer / Camera / Media-TV / NAS / IoT /
@@ -134,12 +134,12 @@ See [`docs`-level detail in the code](purple_recon.py) and
 
 The CLI's `ScopeValidator` is the single source of truth, and the **web backend
 reuses it** (`backend/security.py`) so both interfaces enforce the same policy.
-Web-only knobs (env vars): `PURPLERECON_ALLOW_PUBLIC`, `PURPLERECON_MAX_SCANS`,
-`PURPLERECON_MAX_HOSTS`, `PURPLERECON_API_TOKEN` — see `backend/README.md`.
+Web-only knobs (env vars): `ENUMGRID_ALLOW_PUBLIC`, `ENUMGRID_MAX_SCANS`,
+`ENUMGRID_MAX_HOSTS`, `ENUMGRID_API_TOKEN` — see `backend/README.md`.
 
 **Accuracy & limitations (honest):** network discovery is probabilistic. No
 scanner finds 100% of devices every run — MAC-randomized phones, ICMP-silent IoT
-and cold ARP caches all hide hosts. PurpleRecon uses three independent methods to
+and cold ARP caches all hide hosts. EnumGrid uses three independent methods to
 minimize blind spots and *labels what it cannot resolve* rather than inventing it.
 
 ---
@@ -175,7 +175,7 @@ backend, and frontend — with coverage gates (CLI ≥50%, backend ≥60%) on ev
 ```
 purple_recon.py        # the single-file CLI engine (shared primitives)
 test_purple_recon.py   # CLI test suite
-pyproject.toml         # pip-installable: `purplerecon` console command
+pyproject.toml         # pip-installable: `enumgrid` console command
 backend/               # FastAPI SSE service (reuses the CLI engine)
   ├─ scanner.py        #   two-tiered nmap pipeline (+ nmap -6) + NSE/CVSS parsing
   ├─ discovery.py      #   fast device discovery (ICMP/ARP/NDP/mDNS/TTL, no nmap)
