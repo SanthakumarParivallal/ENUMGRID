@@ -20,8 +20,11 @@ import asyncio
 import json
 from datetime import datetime
 
+import audit
+import credscan
 import cve
 import history
+import notify
 from discovery import run_discovery
 from fastapi import Body, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -152,6 +155,7 @@ async def scan_stream(
     try:
         vet_target(target)
     except ScopeRejected as exc:
+        audit.record("scan_refused", mode=mode, target=target, reason=exc.reason)
         return _sse_error(id, target, exc.reason)
 
     async def event_source():
@@ -178,6 +182,13 @@ async def scan_stream(
                     try:
                         history.save_scan(data, mode=mode)
                     except Exception:  # noqa: BLE001 - history is best-effort
+                        pass
+                    # Audit + outbound alerting (both best-effort, never block).
+                    summary = notify.summarize(data)
+                    audit.record("scan_complete", mode=mode, **summary)
+                    try:
+                        notify.scan_complete(summary)
+                    except Exception:  # noqa: BLE001 - alerting is best-effort
                         pass
                 yield f"data: {json.dumps(data)}\n\n"
 
@@ -236,6 +247,42 @@ async def host_scan(
     return JSONResponse(host.model_dump())
 
 
+@app.post("/api/host/credscan")
+def host_credscan(
+    payload: dict = Body(...),
+    token: str | None = Query(None),
+    authorization: str | None = Header(None),
+) -> JSONResponse:
+    """Authenticated (SSH) host check → exact OS / kernel / package inventory.
+
+    Credentialed scanning reads the *truth* from the host instead of inferring it
+    from banners (kills version-match false positives). Credentials are used in
+    memory only — never logged or stored. Authorized use only: scan hosts you
+    administer. Body: ``{ip, username, password?, key_filename?, port?}``.
+    """
+    if not token_ok(token, authorization):
+        raise HTTPException(status_code=401, detail="unauthorized")
+    ip = str(payload.get("ip") or "").strip()
+    username = str(payload.get("username") or "").strip()
+    if not ip or not username:
+        return JSONResponse({"ok": False, "error": "ip and username are required"}, status_code=400)
+    try:
+        vet_target(ip)
+    except ScopeRejected as exc:
+        return JSONResponse({"ok": False, "error": exc.reason}, status_code=400)
+
+    facts = credscan.ssh_facts(
+        ip,
+        username,
+        password=payload.get("password"),
+        key_filename=payload.get("key_filename"),
+        port=int(payload.get("port") or 22),
+    )
+    # Audit the attempt WITHOUT the credentials.
+    audit.record("credscan", target=ip, user=username, ok=bool(facts.get("ok")))
+    return JSONResponse(facts)
+
+
 @app.post("/api/report/pdf")
 def report_pdf(payload: dict = Body(...)) -> Response:
     """Render the supplied ScanState snapshot into a downloadable PDF report.
@@ -275,6 +322,12 @@ def history_diff(
     of the same target to compare.
     """
     return history.drift_for_target(target)
+
+
+@app.get("/api/audit")
+def audit_log(limit: int = Query(100, description="max entries (newest first)")) -> dict:
+    """Recent audit entries — every scan, refusal and completion is recorded."""
+    return {"entries": audit.tail(limit)}
 
 
 @app.get("/")

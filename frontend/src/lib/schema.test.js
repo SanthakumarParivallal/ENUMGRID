@@ -18,6 +18,7 @@ import {
   countOpenPorts,
   isCriticalHost,
   summarizeHosts,
+  collectVulns,
 } from './schema.js';
 
 describe('PortModel', () => {
@@ -66,6 +67,15 @@ describe('VulnModel', () => {
 
   it('does not invent a link for a non-CVE script finding', () => {
     expect(VulnModel({ id: 'ssl-heartbleed' }).url).toBe('');
+  });
+
+  it('carries KEV + EPSS prioritization signals', () => {
+    const v = VulnModel({ id: 'CVE-2021-44228', kev: true, epss: 0.97 });
+    expect(v.kev).toBe(true);
+    expect(v.epss).toBe(0.97);
+    const plain = VulnModel({ id: 'CVE-2000-0001' });
+    expect(plain.kev).toBe(false);
+    expect(plain.epss).toBeNull();
   });
 });
 
@@ -133,6 +143,23 @@ describe('derived helpers', () => {
     });
     expect(isCriticalHost(safe)).toBe(false);
     expect(isCriticalHost(bad)).toBe(true);
+  });
+
+  it('collectVulns risk-ranks KEV/EPSS above raw CVSS', () => {
+    const host = HostModel({
+      ip: '10.0.0.9',
+      ports: [
+        { port: 80, vulns: [
+          { id: 'CVE-HIGH-CVSS', severity: 'critical', cvss: 9.8 },          // not exploited
+          { id: 'CVE-EXPLOITED', severity: 'high', cvss: 7.5, kev: true },   // KEV → first
+          { id: 'CVE-PROBABLE', severity: 'medium', cvss: 5.0, epss: 0.8 },  // high EPSS → second
+        ] },
+      ],
+    });
+    const ranked = collectVulns(host).map((v) => v.id);
+    expect(ranked[0]).toBe('CVE-EXPLOITED');
+    expect(ranked[1]).toBe('CVE-PROBABLE');
+    expect(ranked[2]).toBe('CVE-HIGH-CVSS');
   });
 
   it('summarizeHosts rolls up counts', () => {

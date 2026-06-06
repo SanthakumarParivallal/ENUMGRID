@@ -188,6 +188,8 @@ export function VulnModel(data = {}) {
     output: data.output != null ? String(data.output) : '',
     url: url || (isCve ? `https://nvd.nist.gov/vuln/detail/${String(data.id).toUpperCase()}` : ''),
     confidence: oneOf(data.confidence, ['confirmed', 'version'], ''),
+    kev: Boolean(data.kev), // CISA Known Exploited Vulnerabilities (actively exploited)
+    epss: data.epss != null && Number.isFinite(Number(data.epss)) ? Number(data.epss) : null,
   };
 }
 
@@ -307,9 +309,15 @@ export function collectVulns(host) {
     for (const v of port.vulns ?? []) out.push({ ...v, port: port.port });
   }
   for (const v of host?.vulns ?? []) out.push({ ...v, port: null });
-  // Rank critical → info so the worst findings surface first.
+  // Risk-rank so what actually matters surfaces first: actively-exploited (KEV)
+  // → higher EPSS (exploit probability) → higher CVSS → severity band.
   const rank = { critical: 0, high: 1, medium: 2, low: 3, info: 4 };
-  return out.sort((a, b) => (rank[a.severity] ?? 9) - (rank[b.severity] ?? 9));
+  return out.sort((a, b) => {
+    if (Boolean(b.kev) !== Boolean(a.kev)) return a.kev ? -1 : 1;
+    if ((b.epss ?? 0) !== (a.epss ?? 0)) return (b.epss ?? 0) - (a.epss ?? 0);
+    if ((b.cvss ?? 0) !== (a.cvss ?? 0)) return (b.cvss ?? 0) - (a.cvss ?? 0);
+    return (rank[a.severity] ?? 9) - (rank[b.severity] ?? 9);
+  });
 }
 
 /** Total vuln findings on a host. */
