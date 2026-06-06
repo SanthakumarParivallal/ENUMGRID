@@ -37,6 +37,9 @@ enumgrid_*.csv
 oui.csv
 oui.txt
 
+# ---- secrets / local config (keep .env.example tracked) ----
+.env
+
 # ---- start.sh runtime logs ----
 .backend.log
 .frontend.log
