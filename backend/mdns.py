@@ -128,7 +128,7 @@ def _txt_get(properties: dict | None, key: str) -> str | None:
     for raw_key, raw_val in properties.items():
         try:
             k = raw_key.decode() if isinstance(raw_key, bytes) else str(raw_key)
-        except Exception:  # pragma: no cover - exotic encodings
+        except Exception:  # pragma: no cover  # nosec B112 - skip TXT keys with exotic encodings
             continue
         if k.lower() == key.lower() and raw_val is not None:
             try:
