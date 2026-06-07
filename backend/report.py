@@ -15,8 +15,6 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from io import BytesIO
-from xml.sax.saxutils import escape as _xml_escape
-from xml.sax.saxutils import quoteattr as _xml_quoteattr
 
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_LEFT
@@ -58,9 +56,17 @@ def _esc(value) -> str:
     device-controlled text (service/version banners, hostnames, vuln output, the
     target string). Without escaping, a single ``<``/``>``/``&`` would crash PDF
     generation — or let a banner inject markup. So every dynamic value is routed
-    through here before it reaches a Paragraph.
+    through here before it reaches a Paragraph. (Hand-rolled rather than
+    ``xml.sax.saxutils`` — these are output encoders, not XML parsers; doing it
+    inline keeps the blacklisted ``xml.sax`` import out of the tree entirely.)
     """
-    return _xml_escape("" if value is None else str(value))
+    s = "" if value is None else str(value)
+    return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+
+def _attr(value) -> str:
+    """Escaped, double-quoted attribute value for a reportlab tag (e.g. <a href=…>)."""
+    return '"' + _esc(value).replace('"', "&quot;") + '"'
 
 
 def _styles():
@@ -318,7 +324,7 @@ def build_pdf(payload: dict) -> bytes:
                     # Only emit a link for a safe http(s) URL; the attribute value
                     # is quoted/escaped so it can't break out of the <a> tag.
                     safe_link = isinstance(url, str) and url.lower().startswith(("http://", "https://"))
-                    id_html = f"<a href={_xml_quoteattr(url)}><u>{vid}</u></a>" if safe_link else vid
+                    id_html = f"<a href={_attr(url)}><u>{vid}</u></a>" if safe_link else vid
                     conf = v.get("confidence")
                     conf_html = " <i>(confirmed)</i>" if conf == "confirmed" else (
                         " <i>(version — verify)</i>" if conf == "version" else "")
