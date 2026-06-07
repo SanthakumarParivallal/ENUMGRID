@@ -422,7 +422,7 @@ function ControlBar() {
               </span>
             </div>
             <div className="hidden text-[10px] uppercase tracking-[0.18em] text-slate-500 sm:block">
-              Network Enumeration Platform
+              the Enumeration Platform
             </div>
           </div>
         </div>
@@ -2204,7 +2204,7 @@ const BOOT_LINES = [
   'arming discovery · ICMP · ARP · NDP · mDNS · NBNS',
   'OS fingerprint fusion online',
   'CVE correlation linked to NVD',
-  'EnumGrid ready',
+  'ENUMGRID ready',
 ];
 
 function BootSplash({ onDone }) {
@@ -2229,7 +2229,7 @@ function BootSplash({ onDone }) {
     <div
       onClick={onDone}
       role="status"
-      aria-label="EnumGrid starting"
+      aria-label="ENUMGRID starting"
       className={`fixed inset-0 z-[60] flex cursor-pointer flex-col items-center justify-center bg-steel-950 transition-opacity duration-500 ${
         leaving ? 'opacity-0' : 'opacity-100'
       }`}
@@ -2250,7 +2250,7 @@ function BootSplash({ onDone }) {
         ENUM<span className="text-amber">GRID</span>
       </h1>
       <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.4em] text-slate-500">
-        Network Enumeration Platform
+        the Enumeration Platform
       </p>
 
       {/* Scan-line + boot log */}
@@ -2300,7 +2300,7 @@ export default function IndustrialDashboard() {
   useEffect(() => {
     document.title =
       phase === ScanPhase.IDLE
-        ? 'ENUMGRID // Network Enumeration'
+        ? 'ENUMGRID: the Enumeration Platform'
         : `ENUMGRID // ${PHASE_META[phase]?.short || phase}`;
   }, [phase]);
 

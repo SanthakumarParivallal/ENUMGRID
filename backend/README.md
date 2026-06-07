@@ -1,4 +1,4 @@
-# Enumeration Platform — Backend (FastAPI + Nmap)
+# ENUMGRID — Backend (FastAPI + Nmap)
 
 Runs the **Two-Tiered Scan Pipeline** and streams `ScanState` snapshots to the
 dashboard over Server-Sent Events (SSE):
