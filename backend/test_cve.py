@@ -118,3 +118,37 @@ def test_enrich_skips_ports_without_cpe(monkeypatch):
     monkeypatch.setattr(cve, "_query_nvd", lambda c: _SAMPLE)
     out = cve.enrich({22: "", 80: "cpe:/a:vendor:web:1.0"})
     assert 22 not in out and 80 in out
+
+
+# --- API-key persistence (survives a restart) ------------------------------- #
+def test_api_key_persists_to_owner_only_file(tmp_path, monkeypatch):
+    import os
+    import stat
+
+    kf = tmp_path / "nvd_key"
+    monkeypatch.setattr(cve, "KEY_FILE", str(kf))
+    monkeypatch.setattr(cve, "API_KEY", None)
+
+    assert cve.set_api_key("SECRET-123") is True
+    assert kf.exists()
+    # Secret must be owner read/write only (0600).
+    assert stat.S_IMODE(os.stat(kf).st_mode) == 0o600
+    # What a fresh process would read on the next startup.
+    assert cve._load_persisted_key() == "SECRET-123"
+
+
+def test_clearing_api_key_removes_persisted_file(tmp_path, monkeypatch):
+    kf = tmp_path / "nvd_key"
+    monkeypatch.setattr(cve, "KEY_FILE", str(kf))
+    monkeypatch.setattr(cve, "API_KEY", None)
+
+    cve.set_api_key("x")
+    assert kf.exists()
+    assert cve.set_api_key("") is False
+    assert not kf.exists()
+    assert cve._load_persisted_key() is None
+
+
+def test_load_persisted_key_missing_file_is_none(tmp_path, monkeypatch):
+    monkeypatch.setattr(cve, "KEY_FILE", str(tmp_path / "does-not-exist"))
+    assert cve._load_persisted_key() is None

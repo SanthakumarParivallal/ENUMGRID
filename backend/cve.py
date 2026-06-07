@@ -46,7 +46,25 @@ from models import Severity, Vuln
 _DIR = os.path.dirname(os.path.abspath(__file__))
 
 NVD_URL = "https://services.nvd.nist.gov/rest/json/cves/2.0"
-API_KEY = os.environ.get("ENUMGRID_NVD_API_KEY") or None
+# Where a dashboard-entered key is persisted so it survives a restart. Owner-only
+# (0600) and gitignored — the key is still never logged. Overridable for tests.
+KEY_FILE = os.environ.get("ENUMGRID_NVD_KEY_FILE", os.path.join(_DIR, ".enumgrid_nvd_key"))
+
+
+def _load_persisted_key() -> str | None:
+    """Read a previously-saved NVD key from the local key file, or None."""
+    try:
+        with open(KEY_FILE, encoding="utf-8") as fh:
+            return fh.read().strip() or None
+    except OSError:
+        return None
+
+
+# Precedence: the explicit env var (e.g. from .env) wins; otherwise fall back to a
+# key persisted from the dashboard so it survives restarts. `_KEY_FROM_ENV` lets
+# us avoid stomping an env-provided key with the on-disk file.
+_KEY_FROM_ENV = bool(os.environ.get("ENUMGRID_NVD_API_KEY"))
+API_KEY = os.environ.get("ENUMGRID_NVD_API_KEY") or _load_persisted_key() or None
 DISABLED = os.environ.get("ENUMGRID_NVD_DISABLE", "").strip().lower() in ("1", "true", "yes", "on")
 CACHE_DB = os.environ.get("ENUMGRID_CVE_CACHE", os.path.join(_DIR, "enumgrid_cve_cache.db"))
 CACHE_TTL = max(1, int(os.environ.get("ENUMGRID_CVE_TTL_DAYS", "30"))) * 86400
@@ -72,16 +90,39 @@ def key_active() -> bool:
     return bool(API_KEY)
 
 
-def set_api_key(key: str | None) -> bool:
-    """Set (or clear) the NVD API key at runtime, in memory only.
+def _persist_key(key: str | None) -> None:
+    """Save (0600) or remove the NVD key file so it survives a restart.
 
-    Returns True if a non-empty key is now active. The key is never written to
-    disk or logged — it lives only in this process, exactly like other secrets.
-    A blank/None value clears it (drops back to the anonymous rate limit).
+    Best-effort: any filesystem error is swallowed (the key still works for this
+    process). The file is owner-read/write only and gitignored; the key value is
+    never logged.
+    """
+    try:
+        if key:
+            # O_CREAT with 0600 so the secret is owner-only even on first write.
+            fd = os.open(KEY_FILE, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(key)
+            os.chmod(KEY_FILE, 0o600)  # tighten perms even if the file pre-existed
+        elif os.path.exists(KEY_FILE):
+            os.remove(KEY_FILE)
+    except OSError:
+        pass
+
+
+def set_api_key(key: str | None) -> bool:
+    """Set (or clear) the NVD API key at runtime, and persist it across restarts.
+
+    Returns True if a non-empty key is now active. The key is saved to a local,
+    owner-only (0600), gitignored file so a key entered in the dashboard survives
+    a restart — it is still never logged. A blank/None value clears it (removes
+    the file and drops back to the anonymous rate limit). An ``ENUMGRID_NVD_API_KEY``
+    env var still takes precedence on the next startup.
     """
     global API_KEY
     cleaned = (key or "").strip()
     API_KEY = cleaned or None
+    _persist_key(API_KEY)
     return bool(API_KEY)
 
 
