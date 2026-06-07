@@ -21,6 +21,7 @@ import sqlite3
 import time
 import urllib.error
 import urllib.request
+from contextlib import contextmanager
 
 from models import Severity, Vuln
 
@@ -55,10 +56,16 @@ def ecosystem_from_os(os_name: str) -> str:
 # --------------------------------------------------------------------------- #
 # Cache
 # --------------------------------------------------------------------------- #
-def _conn() -> sqlite3.Connection:
+@contextmanager
+def _conn():
+    """OSV cache connection that commits, rolls back on error, and always closes."""
     conn = sqlite3.connect(CACHE_DB, timeout=5)
     conn.execute("CREATE TABLE IF NOT EXISTS osv (key TEXT PRIMARY KEY, payload TEXT, fetched_at REAL)")
-    return conn
+    try:
+        with conn:
+            yield conn
+    finally:
+        conn.close()
 
 
 def _cache_get(key: str) -> list[Vuln] | None:

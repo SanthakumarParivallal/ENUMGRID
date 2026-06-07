@@ -44,6 +44,11 @@ def test_refine_apple_vendor_without_hostname():
     assert out == "macOS / iOS (Apple)"
 
 
+def test_refine_apple_laptop_hostname_is_macos():
+    # Apple makes no non-Mac computers, so an Apple-OUI "laptop" is a Mac.
+    assert refine_os("Linux / macOS / Unix", vendor="Apple, Inc.", hostname="NISARGS-LAPTOP") == "macOS (Apple)"
+
+
 def test_refine_android_vendor():
     assert refine_os("Linux / macOS / Unix", vendor="Samsung Electronics") == "Android"
 

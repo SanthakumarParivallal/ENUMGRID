@@ -42,7 +42,7 @@ cd "$ROOT"
 BACKEND_PORT="${BACKEND_PORT:-8011}"
 FRONTEND_PORT="${FRONTEND_PORT:-5173}"
 PYTHON="$ROOT/.venv/bin/python"
-ACCURATE_OS=0
+ACCURATE_OS=1          # privileged (sudo) BY DEFAULT → real nmap -O, SYN/UDP, exact OS
 OPEN_BROWSER=1
 TLS=0
 
@@ -53,11 +53,12 @@ ${BOLD}EnumGrid — ultra-advanced network enumeration${RST}
 Usage: ./start.sh [options]
 
 Options:
-  --accurate-os, -o   Run the scanner privileged (sudo) so nmap can do real
-                      OS + version detection (-O) on per-host scans. Asks for
-                      your password once. Without this you still get a specific
-                      OS family (macOS/Android/Windows/router) — just not the
-                      exact build number.
+  (privileged is the DEFAULT — ./start.sh asks for your password once so nmap
+   can do real OS detection (-O), SYN + UDP scans and exact versions.)
+  --no-sudo           Run unprivileged (no password prompt). You still get a
+                      specific OS family (macOS/Android/Windows/router) and every
+                      scan still works (root-only scans auto-adapt) — just no
+                      exact -O build number.
   --tls               Serve the backend over HTTPS with a self-signed cert
                       (auto-generated). The UI proxy uses it transparently.
   --no-open           Don't open the browser automatically.
@@ -66,8 +67,8 @@ Options:
   -h, --help          Show this help.
 
 Examples:
-  ./start.sh                 # quick start, no password
-  ./start.sh --accurate-os   # exact OS/versions (asks for sudo password)
+  ./start.sh                 # full power — real OS/versions (asks for password once)
+  ./start.sh --no-sudo       # quick start, no password (auto-adapts)
   ./start.sh --tls           # encrypt the backend (HTTPS)
 EOF
 }
@@ -75,6 +76,7 @@ EOF
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --accurate-os|-o|--privileged|--os) ACCURATE_OS=1; shift ;;
+    --no-sudo|--unprivileged) ACCURATE_OS=0; shift ;;
     --tls)            TLS=1; shift ;;
     --no-open)        OPEN_BROWSER=0; shift ;;
     --port-back)      BACKEND_PORT="${2:?}"; shift 2 ;;
@@ -246,23 +248,32 @@ if [[ "$TLS" == "1" ]]; then
 fi
 
 # --------------------------------------------------------------------------- #
-# 5) Privileged mode (accurate OS) — cache sudo creds up front
+# 5) Privileged mode (accurate OS) — ON BY DEFAULT, cache sudo creds up front.
+#    We try sudo for full-fidelity scans (real -O / SYN / UDP). If sudo isn't
+#    available or the user declines, we DON'T refuse to start — we fall back to
+#    unprivileged mode (every scan still runs, root-only types auto-adapt).
 # --------------------------------------------------------------------------- #
 SUDO=()
 if [[ "$ACCURATE_OS" == "1" ]]; then
-  if [[ "$(id -u)" -ne 0 ]]; then
-    say "Accurate OS detection requested — caching sudo credentials (one prompt)…"
-    sudo -v || die "sudo authentication failed."
-    # Keep the sudo timestamp fresh while we run.
-    ( while true; do sudo -n true 2>/dev/null || exit; sleep 50; done ) &
-    SUDO_KEEPALIVE=$!
-    SUDO=(sudo -E)
+  if [[ "$(id -u)" -eq 0 ]]; then
+    ok "Running as root — full nmap power (real OS -O, SYN, UDP)."
+  else
+    say "Enabling full-fidelity scans — caching sudo credentials (one password prompt)…"
+    if sudo -v 2>/dev/null; then
+      # Keep the sudo timestamp fresh while we run so nmap stays elevated.
+      ( while true; do sudo -n true 2>/dev/null || exit; sleep 50; done ) &
+      SUDO_KEEPALIVE=$!
+      SUDO=(sudo -E)
+      ok "nmap will run privileged — real OS (-O) + SYN/UDP + version detection."
+    else
+      ACCURATE_OS=0
+      warn "sudo unavailable/declined — starting unprivileged instead (still fully functional)."
+      printf '   %s(root-only scans auto-adapt: SYN→connect, UDP→connect, OS detect skipped — never errors.)%s\n' "$DIM" "$RST"
+    fi
   fi
-  ok "nmap will run privileged — real OS (-O) + version detection on per-host scans"
 else
-  say "Fast mode: no password needed — every scan profile still runs."
+  say "Unprivileged mode (--no-sudo): no password needed — every scan profile still runs."
   printf '   %s(root-only scans auto-adapt: SYN→connect, UDP→connect, OS detect skipped — never errors.)%s\n' "$DIM" "$RST"
-  printf '   %s(tip: ./start.sh --accurate-os  → full-fidelity SYN/UDP + exact OS build numbers via sudo)%s\n' "$DIM" "$RST"
 fi
 
 # --------------------------------------------------------------------------- #

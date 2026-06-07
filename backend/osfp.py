@@ -98,7 +98,15 @@ def _apple_os_from_hostname(hostname: str | None) -> str:
         return "iOS (Apple)"
     if "ipad" in low:
         return "iPadOS (Apple)"
-    if any(k in low for k in ("macbook", "imac", "mac-mini", "macmini", "mac-pro", "macstudio")):
+    # Apple makes no non-Mac computers, so an Apple-OUI host that calls itself a
+    # laptop/desktop/MacBook is unambiguously a Mac.
+    if any(
+        k in low
+        for k in (
+            "macbook", "imac", "mac-mini", "macmini", "mac-pro", "macpro",
+            "macstudio", "mac-studio", "mbp", "mba", "laptop", "desktop", "-mac",
+        )
+    ):
         return "macOS (Apple)"
     return "macOS / iOS (Apple)"
 
