@@ -1113,39 +1113,41 @@ function PortDetailTable({ host }) {
 
   return (
     <div className="space-y-2 px-3 pb-3 pt-1 sm:px-12">
-      {/* Per-host toolbar — always visible so nmap can be run on any device. */}
-      <div className="flex items-center justify-between rounded border border-slate-700/70 bg-steel-850/60 px-3 py-1.5">
-        <div className="flex items-center gap-2 truncate font-mono text-[11px] text-slate-400">
+      {/* Per-host toolbar — always visible so nmap can be run on any device.
+          `items-start` + a wrapping meta line + a `shrink-0` button means a long
+          metadata line wraps under itself instead of colliding with the button. */}
+      <div className="flex items-start justify-between gap-3 rounded border border-slate-700/70 bg-steel-850/60 px-3 py-1.5">
+        <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[11px] text-slate-400">
           <Icon.Server className="h-3.5 w-3.5 shrink-0 text-slate-500" />
           <span className="text-slate-200">{host.ip}</span>
           {host.vendor && (
             <>
               <span className="text-slate-600">·</span>
-              <span className="text-slate-300">{host.vendor}</span>
+              <span className="max-w-[200px] truncate text-slate-300">{host.vendor}</span>
             </>
           )}
           {host.mac && (
             <>
               <span className="text-slate-600">·</span>
-              <span className="truncate">{host.mac}</span>
+              <span>{host.mac}</span>
             </>
           )}
           {host.os && host.os !== 'Unknown' && (
             <>
               <span className="text-slate-600">·</span>
-              <span className="truncate">{host.os}</span>
+              <span className="max-w-[200px] truncate">{host.os}</span>
             </>
           )}
           {host.ports.length > 0 && (
             <>
               <span className="text-slate-600">·</span>
-              <span>{host.ports.length} ports</span>
+              <span className="whitespace-nowrap">{host.ports.length} ports</span>
             </>
           )}
           {vulns.length > 0 && (
             <>
               <span className="text-slate-600">·</span>
-              <span className="text-crimson">{vulns.length} vulns</span>
+              <span className="whitespace-nowrap text-crimson">{vulns.length} vulns</span>
             </>
           )}
         </div>
@@ -1156,7 +1158,7 @@ function PortDetailTable({ host }) {
           }}
           disabled={host.vulnScanning}
           title="Deep-scan just this host for vulnerabilities (nmap --script vuln,vulners)"
-          className={`inline-flex items-center gap-1.5 rounded border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider transition disabled:cursor-not-allowed ${
+          className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider transition disabled:cursor-not-allowed ${
             host.vulnScanning
               ? 'border-amber/50 bg-amber/10 text-amber'
               : 'border-crimson/50 bg-crimson/10 text-crimson hover:bg-crimson hover:text-white'
@@ -1233,8 +1235,8 @@ function PortDetailTable({ host }) {
                 {p.port}
               </span>
               <span className="uppercase text-slate-400">{p.protocol}</span>
-              <span className="truncate text-slate-200">{p.service}</span>
-              <span className="truncate text-slate-400">{p.version || '—'}</span>
+              <span className="min-w-0 truncate text-slate-200">{p.service}</span>
+              <span className="min-w-0 truncate text-slate-400">{p.version || '—'}</span>
               <span className="flex justify-end">
                 <Tag className={PORT_STATE_STYLE[p.state]}>{p.state}</Tag>
               </span>
@@ -1267,7 +1269,7 @@ function PortDetailTable({ host }) {
                   {v.severity}
                 </span>
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                     {v.url ? (
                       <a
                         href={v.url}
@@ -1385,11 +1387,11 @@ function AssetRow({ host, expanded, onToggle }) {
         {/* ip */}
         <span className="font-mono font-semibold text-slate-100">{host.ip}</span>
         {/* hostname */}
-        <span className="truncate font-mono text-xs text-slate-400">
+        <span className="min-w-0 truncate font-mono text-xs text-slate-400">
           {host.hostname || <span className="text-slate-600">— no PTR —</span>}
         </span>
         {/* vendor */}
-        <span className="flex items-center gap-1.5 truncate text-xs">
+        <span className="flex min-w-0 items-center gap-1.5 truncate text-xs">
           {host.vendor === '(private/random)' ? (
             <span className="font-mono italic text-slate-500">private</span>
           ) : host.vendor ? (
@@ -1420,7 +1422,7 @@ function AssetRow({ host, expanded, onToggle }) {
           )}
         </span>
         {/* mac (+ IPv6 indicator) */}
-        <span className="flex items-center gap-1 truncate font-mono text-[11px] text-slate-400">
+        <span className="flex min-w-0 items-center gap-1 truncate font-mono text-[11px] text-slate-400">
           <span className="truncate">{host.mac || <span className="text-slate-600">—</span>}</span>
           {host.ipv6?.length > 0 && (
             <span
