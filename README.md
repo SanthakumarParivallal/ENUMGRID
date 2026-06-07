@@ -1,6 +1,6 @@
 <div align="center">
 
-# ENUMGRID: the Enumeration Platform
+# ENUMGRID: The Enumeration Platform
 
 **Angry-IP-style device discovery · Zenmap/nmap service & vuln depth · live CVE intelligence — as a CLI _and_ a web cockpit.**
 
