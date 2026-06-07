@@ -1,9 +1,23 @@
-# EnumGrid — Industrial-Level Network Enumeration Platform
+<div align="center">
+
+# ENUMGRID: the Enumeration Platform
+
+**Angry-IP-style device discovery · Zenmap/nmap service & vuln depth · live CVE intelligence — as a CLI _and_ a web cockpit.**
+
+[![CI](https://github.com/SanthakumarParivallal/ENUMGRID/actions/workflows/ci.yml/badge.svg)](https://github.com/SanthakumarParivallal/ENUMGRID/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-FFB300.svg)](LICENSE)
+[![Tests](https://img.shields.io/badge/tests-422%20passing-brightgreen.svg)](#testing)
+[![Python](https://img.shields.io/badge/python-3.10%E2%80%933.13-blue.svg)](pyproject.toml)
+[![Node](https://img.shields.io/badge/node-%E2%89%A520-blue.svg)](frontend/package.json)
+[![SAST: bandit](https://img.shields.io/badge/SAST-bandit%200%20high%2Fmed-blue.svg)](#security)
+[![Deps: 0 CVEs](https://img.shields.io/badge/deps-0%20known%20CVEs-brightgreen.svg)](#security)
+
+</div>
 
 A two-tiered, **purple-team** network enumeration tool: it thinks like an
 offensive scanner but acts like a defensive asset mapper. Discover every live
 device on a network you're authorized to assess, then deep-dive any host with
-nmap on demand. Author: **santhakumarParivallal** (Master's security project).
+nmap on demand. Author: **Santhakumar Parivallal** (Master's security project).
 
 It ships in two forms that share one engine:
 
@@ -267,3 +281,25 @@ start.sh               # ⭐ ONE command: setup + run both servers + open browse
 scripts/dev.sh         # runs both servers together (make dev)
 Makefile               # setup / dev / test / lint / clean
 ```
+
+---
+
+## Contributing & security
+
+- **Contributing:** see [`CONTRIBUTING.md`](CONTRIBUTING.md) (dev setup + the quality gate).
+- **Reporting a vulnerability in ENUMGRID:** see [`SECURITY.md`](SECURITY.md).
+- **Community:** [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md).
+
+## License
+
+Released under the **[MIT License](LICENSE)** © 2026 Santhakumar Parivallal.
+
+> ⚠️ **Authorized use only.** ENUMGRID performs active network reconnaissance.
+> Scan only systems and networks you own or are explicitly authorized, in
+> writing, to test. The author accepts no liability for misuse — use responsibly
+> and lawfully.
+
+## Author
+
+**Santhakumar Parivallal** — Master's security engineering project.
+[github.com/SanthakumarParivallal](https://github.com/SanthakumarParivallal)

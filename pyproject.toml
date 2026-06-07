@@ -1,21 +1,28 @@
 [build-system]
-requires = ["setuptools>=61"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "enumgrid"
 version = "1.0.0"
-description = "Two-tiered purple-team network enumeration cockpit — Angry-IP-style device discovery plus nmap service/vuln depth, in one terminal UI."
+description = "ENUMGRID: the Enumeration Platform — Angry-IP-style device discovery + nmap service/vuln depth + live CVE intelligence, as a CLI and a web cockpit."
 readme = "README.md"
 requires-python = ">=3.10"
-license = { text = "Authorized / educational use only" }
-authors = [{ name = "santhakumarParivallal" }]
-keywords = ["security", "network", "enumeration", "nmap", "discovery", "purple-team", "asset-inventory"]
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Santhakumar Parivallal" }]
+keywords = ["security", "network", "enumeration", "nmap", "discovery", "purple-team", "asset-inventory", "cve", "vulnerability-scanner"]
 classifiers = [
+    "Development Status :: 5 - Production/Stable",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Security",
     "Topic :: System :: Networking :: Monitoring",
     "Environment :: Console",
+    "Operating System :: OS Independent",
     "Intended Audience :: Information Technology",
 ]
 
@@ -35,7 +42,10 @@ web = [
 dev = ["pytest>=8.0", "ruff>=0.6"]
 
 [project.urls]
-Homepage = "https://example.com/enumgrid"
+Homepage = "https://github.com/SanthakumarParivallal/ENUMGRID"
+Repository = "https://github.com/SanthakumarParivallal/ENUMGRID"
+Issues = "https://github.com/SanthakumarParivallal/ENUMGRID/issues"
+Changelog = "https://github.com/SanthakumarParivallal/ENUMGRID/blob/main/CHANGELOG.md"
 
 [project.scripts]
 enumgrid = "purple_recon:cli"

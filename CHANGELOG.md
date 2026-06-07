@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to EnumGrid. Format based on
+All notable changes to **ENUMGRID: the Enumeration Platform**. Format based on
 [Keep a Changelog](https://keepachangelog.com/).
 
 ## [1.0.0] — 2026-06-06

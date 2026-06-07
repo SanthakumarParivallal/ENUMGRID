@@ -1,9 +1,16 @@
 {
-  "name": "enumeration-platform-frontend",
+  "name": "enumgrid-frontend",
   "private": true,
   "version": "1.0.0",
   "type": "module",
-  "description": "Industrial-Level Network Enumeration Platform — operator cockpit UI",
+  "description": "ENUMGRID: the Enumeration Platform — operator cockpit UI (React + Vite + Tailwind)",
+  "author": "Santhakumar Parivallal",
+  "license": "MIT",
+  "homepage": "https://github.com/SanthakumarParivallal/ENUMGRID",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/SanthakumarParivallal/ENUMGRID.git"
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
