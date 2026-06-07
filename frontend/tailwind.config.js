@@ -5,12 +5,27 @@ export default {
     extend: {
       colors: {
         // Industrial cockpit palette ---------------------------------------
-        // Strict dark-mode chassis built on slate, with three signal accents.
+        // Themeable chassis + neutrals driven by CSS variables (see index.css),
+        // so a single `<html data-theme>` swap repaints the whole UI (dark cockpit
+        // ⇄ light paper). Using `rgb(var(--x) / <alpha-value>)` keeps every
+        // opacity modifier (e.g. bg-steel-850/60) working automatically.
         steel: {
-          950: '#020617', // chassis / app background (bg-slate-950)
-          900: '#0b1220', // raised panels
-          850: '#0e1626', // panel header strips
-          800: '#162033', // hover / active row
+          950: 'rgb(var(--steel-950) / <alpha-value>)', // chassis / app background
+          900: 'rgb(var(--steel-900) / <alpha-value>)', // raised panels
+          850: 'rgb(var(--steel-850) / <alpha-value>)', // panel header strips
+          800: 'rgb(var(--steel-800) / <alpha-value>)', // hover / active row
+        },
+        // The neutral text/border ramp is themeable too (the light theme inverts
+        // it: low shades become dark ink, high shades become light hairlines).
+        slate: {
+          100: 'rgb(var(--slate-100) / <alpha-value>)',
+          200: 'rgb(var(--slate-200) / <alpha-value>)',
+          300: 'rgb(var(--slate-300) / <alpha-value>)',
+          400: 'rgb(var(--slate-400) / <alpha-value>)',
+          500: 'rgb(var(--slate-500) / <alpha-value>)',
+          600: 'rgb(var(--slate-600) / <alpha-value>)',
+          700: 'rgb(var(--slate-700) / <alpha-value>)',
+          800: 'rgb(var(--slate-800) / <alpha-value>)',
         },
         // Cyberpunk Amber — primary "energized / in-progress" accent
         amber: {

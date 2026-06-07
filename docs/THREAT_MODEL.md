@@ -52,14 +52,19 @@ The two boundaries that matter most:
 | T6 | **Unauthorized API access (if exposed)** | Optional **bearer token** (`ENUMGRID_API_TOKEN`); localhost-only bind by default; CORS limited to the dev origin + GET/POST | `backend/security.token_ok`, `app.py` CORS |
 | T7 | **SSRF via OUI download** | The IEEE OUI URL is a constant and **HTTPS-scheme-checked** before `urlopen` | `download_oui_registry` |
 | T8 | **Report tampering / info leak at rest** | Reports + history are **operator-local**, `.gitignore`d; JSON/HTML/CSV written atomically with **mode 0600** | `write_report`, `.gitignore` |
-| T9 | **Malicious banner / ARP / NDP / mDNS data crashing the parser** | Parsers are defensive and **fuzz-tested** (hypothesis); the UI's schema layer coerces every field and never throws | parser tests, `frontend/src/lib/schema.js` |
+| T9 | **Malicious banner / ARP / NDP / mDNS / SSDP data crashing the parser** | Parsers are defensive and **fuzz-tested** (hypothesis); the UI's schema layer coerces every field and never throws | parser tests, `frontend/src/lib/schema.js` |
 | T10 | **Supply-chain (vulnerable deps)** | CI runs **`bandit`** (SAST), **`pip-audit`**, and **`npm audit --omit=dev`** on every push; shipped deps are 0-vuln | `.github/workflows/ci.yml` |
+| T11 | **SSRF via SSDP `LOCATION`** — a rogue device advertises a UPnP description URL pointing at some *other* internal host | The description is fetched **only when its host matches the device that answered** and the scheme is http/https; the XML is scraped with targeted regexes (no XML parser → no XXE/entity expansion) | `backend/ssdp.py:_location_is_safe`, `discover_ssdp` |
+| T12 | **Report injection / DoS** — a device service banner (or hostname / vuln output) containing `<`, `>`, `&` breaks or injects into the PDF | Every device-/client-supplied value is **escaped** before reaching reportlab's `Paragraph`; CVE links use a quoted, scheme-checked URL | `backend/report.py:_esc` |
+| T13 | **Auth-token recovery via timing** | Admin / viewer token comparison uses **`hmac.compare_digest`** (constant-time) | `backend/security.py:role_for` |
+| T14 | **Hostile TLS certificate during web audit** | The web audit connects with `CERT_NONE` (it *inspects*, doesn't trust-gate), reads the cert in **DER form** and parses it with `cryptography` — a malformed cert yields no findings, never a crash | `backend/webscan.py:_peercert_dict` |
 
 ## 5. Residual risk & guidance
 
 - **TTL-based OS detection** is a *heuristic family* (not authoritative); run with
   `sudo` for nmap `-O`. The tool never presents a fabricated OS.
-- **mDNS** is best-effort (depends on what devices advertise).
+- **mDNS / SSDP / NBNS / SNMP** name resolution is best-effort (depends on what
+  each device chooses to advertise); a blank name is reported as blank, never guessed.
 - **Dev-tooling advisories** (vitest/vite/esbuild) affect only the local dev
   server, never the shipped build (`vite build` output contains none of them); CI
   gates on **shipped** deps via `npm audit --omit=dev`.

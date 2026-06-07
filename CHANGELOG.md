@@ -3,6 +3,71 @@
 All notable changes to **ENUMGRID: the Enumeration Platform**. Format based on
 [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+### Added — discovery
+- **SSDP / UPnP discovery** (`backend/ssdp.py`) — a new unprivileged name source
+  that fills the hostname/model gap for devices that don't answer mDNS or NBNS
+  (home routers, smart TVs, media renderers, consoles, many IoT). Sends the
+  standard `M-SEARCH` multicast, then fetches each responder's UPnP device
+  description for its `friendlyName` / `manufacturer` / `modelName` / device type.
+  SSRF-guarded (only fetches a `LOCATION` whose host matches the responder; http/s
+  only) and XXE-safe (targeted regex scrape, no XML parser). Verified live: a
+  previously-nameless gateway now resolves to "Sagemcom F3896LG".
+- **Discover-mode port preview** (`backend/discovery.py`) — discovery now runs a
+  fast, parallel, unprivileged TCP connect-scan of the common service ports, so
+  the live grid shows open ports immediately (no nmap, no root). These ports also
+  feed the device-type classifier (port signatures are its strongest hint), so
+  DEVICE/OS sharpens for free. The full `-sV`/CVE pass stays on-demand per host.
+
+### Added — web cockpit
+- **Light theme** — a "paper" light theme alongside the dark cockpit, toggled from
+  the toolbar and persisted. Implemented with CSS variables (`index.css`) so a
+  single `<html data-theme>` swap repaints the whole UI; opacity modifiers keep
+  working via Tailwind's `<alpha-value>`. Signal accents are shared across themes.
+- **Density toggle** — Cozy ⇄ Compact row spacing (matrix header, host rows, port
+  rows), toggled from the toolbar and persisted.
+- **Resizable matrix columns** — drag the Hostname / Vendor / Device·OS / MAC
+  column edges to resize; double-click a grip to reset. Widths persist; header and
+  rows always share one grid template, so they stay aligned.
+- **Sticky per-host detail toolbar** — a host's IP + Re-scan controls stay pinned
+  below the matrix header while scrolling a long ports/vulns list.
+- View preferences (theme · density · column widths) persist in `localStorage`
+  (`frontend/src/lib/preferences.js`) and apply before first paint (no theme flash).
+
+### Fixed
+- **PDF report could crash / inject markup** (`backend/report.py`) — service/version
+  banners, hostnames, vuln output and the target string (device-/attacker-controlled)
+  were passed raw into reportlab's `Paragraph`, which parses a mini-XML markup; a
+  single `<`, `>` or `&` (e.g. `Apache/2.4 (Ubuntu) & mod_ssl`) broke generation.
+  All dynamic values are now escaped; CVE links use a quoted, scheme-checked URL.
+- **TLS certificate audit never fired** (`backend/webscan.py`) — under
+  `verify_mode = CERT_NONE`, `ssl.getpeercert()` returns `{}`, so the expired /
+  self-signed checks silently never ran. The cert is now read in DER form and
+  parsed with `cryptography`. Verified live against `expired.badssl.com` /
+  `self-signed.badssl.com`.
+- **Auth tokens compared in non-constant time** (`backend/security.py`) — admin /
+  viewer token checks now use `hmac.compare_digest` (timing-safe).
+- **AWS security-group audit ignored IPv6** (`backend/cloudscan.py`) — ingress open
+  to `::/0` is now flagged like `0.0.0.0/0`.
+- **Discover-mode ports vs. "scanned"** (frontend) — now that discovery shows
+  preview ports, the auto-scan / "Scan All" / status logic keys off the real
+  `scanned` flag instead of `ports.length`, so hosts still get the full `-sV`/CVE
+  pass even when a preview port is already shown.
+- **Layout overlap in the matrix** — the expanded host-detail header no longer
+  collides with its Re-scan button; `truncate`d grid cells (hostname/vendor/MAC,
+  port service/version) now carry `min-w-0` so long values ellipsize instead of
+  expanding their column; the vuln-finding badge row wraps.
+
+### Configuration
+- New env vars: `ENUMGRID_DISCOVER_PORTS`, `ENUMGRID_PORT_TIMEOUT`,
+  `ENUMGRID_MDNS_SECS`, `ENUMGRID_SSDP_SECS` (see `backend/README.md`).
+
+### Quality
+- **435 tests** (CLI 84 · backend 325 · evaluation 7 · frontend 19) — new suites
+  `test_discovery.py`, `test_ssdp.py`, plus report-escaping and SG-IPv6 regressions.
+  ruff 0.
+
 ## [1.0.0] — 2026-06-06
 
 First public release (**v1**): the Angry-IP + Zenmap + monitoring trio in one
@@ -157,4 +222,5 @@ identity, automatic CVE intelligence, measured accuracy and a security self-audi
 - CI: lint · security · CLI matrix · backend · frontend.
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
+[Unreleased]: https://example.com/enumgrid/compare/v1.0.0...HEAD
 [1.0.0]: https://example.com/enumgrid/releases/tag/v1.0.0
