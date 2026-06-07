@@ -372,7 +372,10 @@ function ControlBar() {
     setMonitorInterval } = useScan();
   const [input, setInput] = useState(target);
   const hasHosts = hosts.length > 0;
-  const unscanned = hosts.filter((h) => h.status === HostStatus.UP && !h.ports.length).length;
+  // "Unscanned" = up hosts that haven't had a full nmap service scan yet. A host
+  // can already show discovery-mode ports (a fast preview) and still need the
+  // real -sV/CVE pass, so this counts by `scanned`, not `ports.length`.
+  const unscanned = hosts.filter((h) => h.status === HostStatus.UP && !h.scanned).length;
   const badge = SOURCE_BADGE[source] || SOURCE_BADGE.null;
 
   // Auto-detect the network you're actually on (via the backend) and pre-fill
@@ -1167,7 +1170,7 @@ function PortDetailTable({ host }) {
           ) : (
             <>
               <Icon.Search className="h-3.5 w-3.5" />
-              {host.ports.length > 0 ? 'Re-scan (nmap)' : 'Nmap Scan'}
+              {host.scanned ? 'Re-scan (nmap)' : 'Nmap Scan'}
             </>
           )}
         </button>
@@ -1506,8 +1509,10 @@ function ScanStateBadge({ host }) {
       </span>
     );
   }
-  // 5) Scan completed — show Done even when the host had no open ports.
-  if (host.ports.length || host.scanned) {
+  // 5) Full nmap scan completed — show Done even when the host had no open ports.
+  // Keyed off `scanned` (not `ports.length`): discovery-mode ports are only a
+  // preview, so a host showing them hasn't necessarily had the real scan yet.
+  if (host.scanned) {
     return (
       <span className={`${cls} border-matrix/40 bg-matrix/10 text-matrix`}>
         <Icon.Check className="h-3 w-3" />
@@ -1515,8 +1520,13 @@ function ScanStateBadge({ host }) {
       </span>
     );
   }
-  // 6) Discovered, not yet port-scanned — this is the resting state (NOT "Queued").
-  return <span className={`${cls} border-slate-700 bg-steel-900 text-slate-500`}>Ready</span>;
+  // 6) Discovered (possibly with preview ports), not yet nmap-scanned — the
+  // resting state. "Ports" hints that the fast probe already found open ports.
+  return (
+    <span className={`${cls} border-slate-700 bg-steel-900 text-slate-500`}>
+      {host.ports.length ? 'Ports' : 'Ready'}
+    </span>
+  );
 }
 
 function MatrixHeader({ sort, onSort, allExpanded, onToggleAll }) {

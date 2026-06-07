@@ -22,6 +22,7 @@ entry point, and layers on three web-specific controls:
 from __future__ import annotations
 
 import asyncio
+import hmac
 import os
 import sys
 
@@ -121,9 +122,13 @@ def role_for(token: str | None, authorization: str | None) -> str | None:
     if not (admin or viewer):
         return "admin"  # no auth configured → open dev mode
     provided = _provided(token, authorization)
-    if admin and provided == admin:
+    if not provided:
+        return None
+    # Constant-time comparison so a token can't be recovered by timing the
+    # response to byte-by-byte guesses (hmac.compare_digest is length-safe).
+    if admin and hmac.compare_digest(provided, admin):
         return "admin"
-    if viewer and provided == viewer:
+    if viewer and hmac.compare_digest(provided, viewer):
         return "viewer"
     return None
 

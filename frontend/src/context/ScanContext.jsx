@@ -653,9 +653,12 @@ export function ScanProvider({ children }) {
       .filter(
         (h) =>
           h.status === HostStatus.UP &&
-          // re-scan everything when forced; otherwise only hosts not yet scanned
-          // (no ports AND never completed a scan) so the run is incremental.
-          (force || (!h.ports.length && !h.scanned)) &&
+          // re-scan everything when forced; otherwise only hosts that haven't yet
+          // completed a full nmap scan, so the run is incremental. NB: a host may
+          // already show *discovery-mode* ports (a fast connect-scan preview) yet
+          // still need the real -sV/CVE pass — so we key off `scanned`, not
+          // `ports.length`.
+          (force || !h.scanned) &&
           !h.vulnScanning,
       )
       .map((h) => h.ip);
@@ -686,7 +689,7 @@ export function ScanProvider({ children }) {
       autoScannedRef.current !== state.scanId
     ) {
       const hasUnscanned = state.hosts.some(
-        (h) => h.status === HostStatus.UP && !h.ports.length && !h.scanned && !h.vulnScanning,
+        (h) => h.status === HostStatus.UP && !h.scanned && !h.vulnScanning,
       );
       if (hasUnscanned) {
         autoScannedRef.current = state.scanId;

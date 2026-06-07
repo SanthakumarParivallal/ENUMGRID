@@ -94,7 +94,7 @@ class Host(BaseModel):
     vendor: str | None = None       # OUI vendor or "(private/random)"
     ipv6: list[str] = Field(default_factory=list)  # IPv6 addrs (NDP cache, same MAC)
     device_type: str = ""           # heuristic type (Router/Phone/Printer/...) — not nmap -O
-    discovered_via: str = ""        # "icmp" / "arp" / "tcp/<port>"
+    discovered_via: str = ""        # "icmp" / "arp" / "tcp/<port>" / "mdns" / "ssdp"
     scanning: bool = False
     # When the backend lacks root (and no passwordless sudo), root-only scan flags
     # (-sS/-sU/-O) are auto-rewritten to unprivileged equivalents so the scan still

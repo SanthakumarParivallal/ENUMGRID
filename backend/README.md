@@ -77,6 +77,10 @@ packet is sent. Refused (returns an `Error` frame / `400` carrying a `message`):
 | `ENUMGRID_AUTO_SUDO` | `1` | when not root, auto-elevate scans via passwordless `sudo` if available (`-n`, never prompts); set `0` to always run unprivileged |
 | `ENUMGRID_MAX_SCANS` | `4` | cap on concurrent scans (excess → `429` / "server busy") |
 | `ENUMGRID_MAX_HOSTS` | `4096` | per-request host cap |
+| `ENUMGRID_DISCOVER_PORTS` | `1` | discover mode: connect-scan the common ports so the grid shows open ports (and sharper device types) with no nmap/root; set `0` to skip |
+| `ENUMGRID_PORT_TIMEOUT` | `0.5` | per-port connect timeout (seconds) for the discover-mode port probe |
+| `ENUMGRID_MDNS_SECS` | `6.0` | how long to listen for mDNS/Bonjour announcements (longer = more device names resolved) |
+| `ENUMGRID_SSDP_SECS` | `2.5` | how long to wait for SSDP/UPnP replies (resolves names + models for routers, smart TVs, media players, IoT) |
 | `ENUMGRID_API_TOKEN` | _(unset)_ | when set, require `?token=` or `Authorization: Bearer …` |
 | `ENUMGRID_NVD_API_KEY` | _(unset)_ | NVD API key — raises the live-CVE rate limit (5→50 req/30s) |
 | `ENUMGRID_NVD_DISABLE` | `0` | set `1` to disable live NVD lookups (cache + offline still used) |
