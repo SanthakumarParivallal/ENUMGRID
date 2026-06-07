@@ -1,0 +1,111 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1040 720" font-family="Inter, ui-sans-serif, system-ui, sans-serif" role="img" aria-label="ENUMGRID architecture: clients to authorized-use guard to two-tier scan pipeline to vulnerability intelligence to outputs">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#64748b"/>
+    </marker>
+    <style>
+      .title{font-size:22px;font-weight:700;fill:#f1f5f9}
+      .sub{font-size:13px;fill:#94a3b8}
+      .lane{font-size:11px;font-weight:700;fill:#475569;letter-spacing:3px}
+      .bt{font-size:14px;font-weight:600;fill:#e2e8f0}
+      .bs{font-size:11px;fill:#94a3b8}
+      .mono{font-family:'Fira Code',ui-monospace,SFMono-Regular,Menlo,monospace}
+    </style>
+  </defs>
+
+  <rect width="1040" height="720" fill="#0a0f1c"/>
+  <rect x="1.5" y="1.5" width="1037" height="717" rx="14" fill="none" stroke="#1e293b"/>
+
+  <!-- header -->
+  <text x="36" y="44" class="title">ENUM<tspan fill="#FFB300">GRID</tspan><tspan class="sub" font-size="14"> &#183; the Enumeration Platform &#8212; architecture</tspan></text>
+  <line x1="36" y1="58" x2="1004" y2="58" stroke="#1e293b"/>
+
+  <!-- lane labels (left rail) -->
+  <text transform="translate(24,124) rotate(-90)" text-anchor="middle" class="lane">CLIENTS</text>
+  <text transform="translate(24,220) rotate(-90)" text-anchor="middle" class="lane">GUARD</text>
+  <text transform="translate(24,316) rotate(-90)" text-anchor="middle" class="lane">PIPELINE</text>
+  <text transform="translate(24,424) rotate(-90)" text-anchor="middle" class="lane">INTEL</text>
+  <text transform="translate(24,528) rotate(-90)" text-anchor="middle" class="lane">OUTPUT</text>
+
+  <!-- Band A: clients (amber) -->
+  <g>
+    <rect x="70" y="84" width="448" height="80" rx="10" fill="#0e1729" stroke="#FFB300" stroke-opacity="0.55" stroke-width="1.5"/>
+    <text x="88" y="116" class="bt">CLI cockpit</text>
+    <text x="88" y="138" class="bs mono">purple_recon.py &#183; rich terminal dashboard</text>
+
+    <rect x="556" y="84" width="448" height="80" rx="10" fill="#0e1729" stroke="#FFB300" stroke-opacity="0.55" stroke-width="1.5"/>
+    <text x="574" y="116" class="bt">Web cockpit</text>
+    <text x="574" y="138" class="bs mono">React + Vite + Tailwind &#183; live SSE device grid</text>
+  </g>
+
+  <!-- arrows A -> B -->
+  <line x1="294" y1="164" x2="294" y2="190" stroke="#64748b" marker-end="url(#arrow)"/>
+  <line x1="780" y1="164" x2="780" y2="190" stroke="#64748b" marker-end="url(#arrow)"/>
+
+  <!-- Band B: guard (crimson) -->
+  <rect x="70" y="192" width="934" height="58" rx="10" fill="#1a1012" stroke="#D32F2F" stroke-opacity="0.6" stroke-width="1.5"/>
+  <text x="88" y="217" class="bt"><tspan fill="#D32F2F">&#9881;</tspan> ScopeValidator &#8212; authorized-use guardrail</text>
+  <text x="88" y="237" class="bs">refuses loopback &#183; multicast &#183; broadcast &#183; link-local &#183; reserved &#183; public-by-default &#183; anti flag-injection (shared by CLI + web)</text>
+
+  <!-- arrow B -> C -->
+  <line x1="537" y1="250" x2="537" y2="274" stroke="#64748b" marker-end="url(#arrow)"/>
+
+  <!-- Band C: pipeline (matrix) -->
+  <rect x="70" y="276" width="430" height="80" rx="10" fill="#0c1a14" stroke="#00E676" stroke-opacity="0.5" stroke-width="1.5"/>
+  <text x="88" y="308" class="bt">Phase 1 &#183; Discovery</text>
+  <text x="88" y="330" class="bs mono">ICMP &#183; TCP &#183; ARP &#183; NDP(IPv6) &#183; mDNS &#183; NBNS &#183; SNMP &#183; TTL&#8594;OS</text>
+
+  <rect x="574" y="276" width="430" height="80" rx="10" fill="#0c1a14" stroke="#00E676" stroke-opacity="0.5" stroke-width="1.5"/>
+  <text x="592" y="308" class="bt">Phase 2 &#183; nmap enumeration</text>
+  <text x="592" y="330" class="bs mono">11 profiles &#183; -sV / -O &#183; NSE scripts &#183; filtered-confirm</text>
+
+  <line x1="500" y1="316" x2="572" y2="316" stroke="#64748b" marker-end="url(#arrow)"/>
+
+  <!-- arrow C -> D -->
+  <line x1="537" y1="356" x2="537" y2="382" stroke="#64748b" marker-end="url(#arrow)"/>
+
+  <!-- Band D: intelligence (amber) -->
+  <rect x="70" y="384" width="295" height="80" rx="10" fill="#0e1729" stroke="#FFB300" stroke-opacity="0.45" stroke-width="1.5"/>
+  <text x="88" y="416" class="bt">CVE correlation</text>
+  <text x="88" y="438" class="bs">live NVD by CPE &#183; NSE vulners &#183; offline DB</text>
+
+  <rect x="385" y="384" width="270" height="80" rx="10" fill="#0e1729" stroke="#FFB300" stroke-opacity="0.45" stroke-width="1.5"/>
+  <text x="403" y="416" class="bt">Prioritize</text>
+  <text x="403" y="438" class="bs">CISA KEV &#183; FIRST EPSS</text>
+
+  <rect x="675" y="384" width="329" height="80" rx="10" fill="#0e1729" stroke="#FFB300" stroke-opacity="0.45" stroke-width="1.5"/>
+  <text x="693" y="416" class="bt">Backport-aware</text>
+  <text x="693" y="438" class="bs">OSV.dev &#8212; Ubuntu / Debian / Alpine</text>
+
+  <!-- arrow D -> E -->
+  <line x1="537" y1="464" x2="537" y2="490" stroke="#64748b" marker-end="url(#arrow)"/>
+
+  <!-- Band E: outputs (slate) -->
+  <g>
+    <rect x="70"  y="492" width="177" height="72" rx="10" fill="#0c1220" stroke="#475569" stroke-width="1.5"/>
+    <text x="86"  y="522" class="bt" font-size="13">Live grid</text>
+    <text x="86"  y="543" class="bs">SSE stream</text>
+
+    <rect x="259" y="492" width="177" height="72" rx="10" fill="#0c1220" stroke="#475569" stroke-width="1.5"/>
+    <text x="275" y="522" class="bt" font-size="13">History + drift</text>
+    <text x="275" y="543" class="bs">SQLite &#183; what changed</text>
+
+    <rect x="448" y="492" width="177" height="72" rx="10" fill="#0c1220" stroke="#475569" stroke-width="1.5"/>
+    <text x="464" y="522" class="bt" font-size="13">PDF report</text>
+    <text x="464" y="543" class="bs">clickable CVEs</text>
+
+    <rect x="637" y="492" width="177" height="72" rx="10" fill="#0c1220" stroke="#475569" stroke-width="1.5"/>
+    <text x="653" y="522" class="bt" font-size="13">Alerts</text>
+    <text x="653" y="543" class="bs">webhook &#183; Slack &#183; syslog</text>
+
+    <rect x="826" y="492" width="178" height="72" rx="10" fill="#0c1220" stroke="#475569" stroke-width="1.5"/>
+    <text x="842" y="522" class="bt" font-size="13">Audit log</text>
+    <text x="842" y="543" class="bs">append-only JSONL</text>
+  </g>
+
+  <!-- footer notes -->
+  <line x1="36" y1="600" x2="1004" y2="600" stroke="#1e293b"/>
+  <text x="36" y="628" class="sub"><tspan fill="#FFB300" font-weight="600">Also:</tspan> RBAC &#183; TLS &#183; persistent job queue &#183; credentialed SSH &#183; web DAST-lite &#183; SNMP naming &#183; AWS &#183; Active Directory</text>
+  <text x="36" y="654" class="sub"><tspan fill="#00E676" font-weight="600">Quality:</tspan> <tspan class="mono">422 tests &#183; ruff 0 &#183; bandit 0 high/med &#183; pip-audit 0 &#183; npm audit 0</tspan></text>
+  <text x="36" y="680" class="sub" font-size="11">One shared engine. Authorized use only &#8212; scan systems you own or are permitted to test.</text>
+</svg>

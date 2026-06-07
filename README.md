@@ -123,6 +123,8 @@ enumgrid 192.168.0.0/24 --discover
 
 ## How it works
 
+![ENUMGRID architecture — clients → authorized-use guard → two-tier scan pipeline → vulnerability intelligence → outputs](docs/architecture.svg)
+
 ```
 Phase 1  Horizontal sweep   ICMP + TCP + ARP   find live hosts (confidence-graded)
 Phase 2  Vertical deep-dive nmap -sV (+ NSE)   service / version / vuln detection

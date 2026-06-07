@@ -1,8 +1,10 @@
-# EnumGrid — Architecture
+# ENUMGRID — Architecture
 
 How the system is built and **why** it's built that way. The design goal is a
 tool that thinks like an offensive scanner but behaves like a defensive asset
 mapper: fast, honest, unprivileged-friendly, and safe to point at a real network.
+
+![ENUMGRID architecture diagram](architecture.svg)
 
 ## 1. One engine, two front-ends
 
