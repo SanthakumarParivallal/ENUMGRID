@@ -39,6 +39,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from contextlib import contextmanager
 
 from models import Severity, Vuln
 
@@ -87,13 +88,19 @@ def set_api_key(key: str | None) -> bool:
 # --------------------------------------------------------------------------- #
 # Local cache (SQLite) — makes repeat scans instant and the tool offline-capable.
 # --------------------------------------------------------------------------- #
-def _conn() -> sqlite3.Connection:
+@contextmanager
+def _conn():
+    """Cache connection that commits, rolls back on error, and always closes."""
     conn = sqlite3.connect(CACHE_DB, timeout=5)
     conn.execute(
         "CREATE TABLE IF NOT EXISTS cve_cache "
         "(key TEXT PRIMARY KEY, fetched_at REAL, payload TEXT)"
     )
-    return conn
+    try:
+        with conn:
+            yield conn
+    finally:
+        conn.close()
 
 
 def cache_count() -> int:

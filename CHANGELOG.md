@@ -12,10 +12,19 @@ identity, automatic CVE intelligence, measured accuracy and a security self-audi
 ### Launch & UX
 - **`./start.sh` — one command runs everything.** Checks prerequisites (offers to
   install nmap), creates the venv, installs backend + frontend deps, frees stuck
-  ports, starts both servers, waits for health, opens the browser. `--accurate-os`
-  runs privileged (one sudo prompt) for real `nmap -O`; cleans up on Ctrl-C.
+  ports, starts both servers, waits for health, opens the browser. **Privileged by
+  default** (one password prompt → real `nmap -O` / SYN / UDP); falls back to
+  unprivileged automatically if sudo is declined/unavailable (never blocks the
+  start). `--no-sudo` opts out. Cleans up on Ctrl-C.
 - **Boot animation** — an on-brand startup splash in the dashboard and an animated
   banner + spinner in `start.sh`.
+- **One-click full scan** — pressing *Start Scan* now runs discovery **and**
+  automatically port/service/OS-scans every up host (no second click).
+- **Survives reloads** — scan results persist to `sessionStorage`, so a refresh
+  (or a dev-server reload) restores the grid instead of wiping it to "standby".
+- **Advanced progress bar** — segmented Ping-Sweep/Nmap-Enum phase tags that
+  illuminate, a gradient fill with moving shimmer + pulsing leading edge, and a
+  live recolouring percentage.
 
 ### Discovery & enumeration
 - Two-tier engine: fast horizontal sweep → on-demand `nmap -sV` deep-dive.
@@ -126,12 +135,20 @@ identity, automatic CVE intelligence, measured accuracy and a security self-audi
   link-local/reserved/oversized refused, IPv4 + IPv6); anti-injection target regex.
 - Public-target refusal by default, concurrency cap, optional API token.
 - CI security gate: **bandit** (SAST) + **pip-audit** + **npm audit**.
+- **Zero dependency CVEs** — backend (`pip-audit`) and frontend (`npm audit`,
+  incl. dev tooling on vite 8 / vitest 4) both report 0 vulnerabilities.
 - [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md).
 
+### Robustness fixes
+- **SQLite handles no longer leak** — every cache/history/jobs connection now
+  commits *and* closes (sqlite3's own context manager only commits).
+- **Monitor mode never interrupts an in-flight port scan**; the session log is
+  capped so a long monitor run can't grow state without bound.
+
 ### Quality & reproducibility
-- **421 tests** (CLI 84 · backend 311 · evaluation 7 · frontend 17): unit,
+- **422 tests** (CLI 84 · backend 312 · evaluation 7 · frontend 19): unit,
   **FastAPI TestClient integration**, **hypothesis fuzzing**. ruff 0,
-  **bandit 0 high/medium**, pip-audit 0 CVEs.
+  **bandit 0 high/medium**, pip-audit 0 CVEs, npm audit 0.
 - **Measured evaluation** vs `nmap -sn` ([`docs/EVALUATION.md`](docs/EVALUATION.md)):
   recall 1.00 vs 0.27 unprivileged, faster, zero false positives. Reproducible
   docker testbed + benchmark harness.

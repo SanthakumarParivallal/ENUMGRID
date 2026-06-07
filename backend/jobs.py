@@ -21,6 +21,7 @@ import os
 import sqlite3
 import time
 from collections.abc import Callable
+from contextlib import contextmanager
 
 _DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.environ.get("ENUMGRID_JOBS_DB", os.path.join(_DIR, "enumgrid_jobs.db"))
@@ -44,11 +45,21 @@ CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status, id);
 """
 
 
-def _conn() -> sqlite3.Connection:
+@contextmanager
+def _conn():
+    """Queue connection that commits, rolls back on error, and always closes.
+
+    Preserves the existing ``with _conn() as conn:`` commit semantics (so
+    ``claim_next``'s explicit BEGIN IMMEDIATE/COMMIT still works) while ensuring
+    the handle is released instead of leaking until GC."""
     conn = sqlite3.connect(DB_PATH, timeout=10)
     conn.row_factory = sqlite3.Row
     conn.executescript(_SCHEMA)
-    return conn
+    try:
+        with conn:
+            yield conn
+    finally:
+        conn.close()
 
 
 def enqueue(kind: str, params: dict | None = None) -> int:

@@ -26,6 +26,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from contextlib import contextmanager
 
 from models import Severity, Vuln
 
@@ -98,10 +99,16 @@ def kev_set() -> set[str]:
 # --------------------------------------------------------------------------- #
 # FIRST EPSS (SQLite cache + batched API)
 # --------------------------------------------------------------------------- #
-def _epss_conn() -> sqlite3.Connection:
+@contextmanager
+def _epss_conn():
+    """EPSS cache connection that commits, rolls back on error, and always closes."""
     conn = sqlite3.connect(EPSS_CACHE, timeout=5)
     conn.execute("CREATE TABLE IF NOT EXISTS epss (cve TEXT PRIMARY KEY, score REAL, fetched_at REAL)")
-    return conn
+    try:
+        with conn:
+            yield conn
+    finally:
+        conn.close()
 
 
 def _epss_cached(cves: list[str]) -> tuple[dict[str, float], list[str]]:

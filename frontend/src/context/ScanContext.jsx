@@ -60,26 +60,67 @@ function notifyDrift(alert) {
   }
 }
 
-// A couple of seeded "history" sessions so the sidebar log reads like a tool
-// that's been in service, not a blank slate.
-const seededSessions = [
-  {
-    id: 'a31f8c02-prev',
-    target: '10.0.0.0/24',
-    status: ScanPhase.COMPLETE,
-    startedAt: Date.now() / 1000 - 3600,
-    hostCount: 14,
-    upCount: 9,
-  },
-  {
-    id: 'b7702d4e-prev',
-    target: '172.16.5.0/24',
-    status: ScanPhase.HALTED,
-    startedAt: Date.now() / 1000 - 7200,
-    hostCount: 6,
-    upCount: 3,
-  },
-];
+// No fake/seeded history — the session log only ever shows REAL scans you ran.
+const seededSessions = [];
+
+// --- scan-state persistence (survives page reloads) ----------------------- #
+// The dev server (Vite) can full-reload the page when it re-optimizes deps, and
+// a normal browser refresh would otherwise wipe a finished scan. We persist the
+// results to sessionStorage so reloading restores the grid instead of dropping
+// you back to an empty "standby" screen. Live in-flight streams can't resume
+// across a reload, so on restore we clear the running/transient flags and keep
+// whatever hosts were already found.
+const PERSIST_KEY = 'enumgrid_scan_v1';
+
+function loadPersisted() {
+  try {
+    if (typeof sessionStorage === 'undefined') return null;
+    const raw = sessionStorage.getItem(PERSIST_KEY);
+    if (!raw) return null;
+    const s = JSON.parse(raw);
+    if (!s || !Array.isArray(s.hosts)) return null;
+    // A scan that was mid-flight when the page reloaded can't keep streaming;
+    // present its partial results as a finished snapshot, spinners cleared.
+    const wasRunning = s.running || s.phase === ScanPhase.PING_SWEEP || s.phase === ScanPhase.NMAP_ENUMERATION;
+    return {
+      ...s,
+      running: false,
+      phase: wasRunning ? ScanPhase.COMPLETE : s.phase,
+      hosts: s.hosts.map((h) => ({
+        ...HostModel(h),
+        scanning: false,
+        vulnScanning: false,
+        queued: false,
+      })),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function persist(state) {
+  try {
+    if (typeof sessionStorage === 'undefined') return;
+    sessionStorage.setItem(
+      PERSIST_KEY,
+      JSON.stringify({
+        scanId: state.scanId,
+        target: state.target,
+        phase: state.phase,
+        progress: state.progress,
+        hosts: state.hosts,
+        startedAt: state.startedAt,
+        finishedAt: state.finishedAt,
+        source: state.source,
+        deepScan: state.deepScan,
+        sessions: state.sessions,
+        running: state.running,
+      }),
+    );
+  } catch {
+    /* storage full / unavailable — non-fatal */
+  }
+}
 
 const initialState = {
   scanId: null,
@@ -142,7 +183,9 @@ function reducer(state, action) {
         source,
         statusMessage: null, // clear any prior error/refusal note
         drift: null, // clear last run's drift until this scan completes
-        sessions: [session, ...state.sessions],
+        // Cap the session log so a long Monitor run can't grow it (and the
+        // persisted snapshot) without bound.
+        sessions: [session, ...state.sessions].slice(0, 50),
       };
     }
 
@@ -316,12 +359,22 @@ function reducer(state, action) {
 const ScanContext = createContext(null);
 
 export function ScanProvider({ children }) {
-  const [state, dispatch] = useReducer(reducer, initialState);
+  // Hydrate from sessionStorage so a page reload (incl. Vite dev re-optimizing
+  // deps) restores the last scan instead of wiping it back to "standby".
+  const [state, dispatch] = useReducer(reducer, initialState, (init) => {
+    const saved = loadPersisted();
+    return saved ? { ...init, ...saved } : init;
+  });
 
   // Always-current state snapshot for callbacks that must read live values
   // (e.g. the per-host scan needs the host object + active data source).
   const stateRef = useRef(state);
   stateRef.current = state;
+
+  // Persist the scan whenever the results change, so it survives a reload.
+  useEffect(() => {
+    persist(state);
+  }, [state.hosts, state.phase, state.progress, state.scanId, state.sessions, state.target]);
 
   // Mock engine — used in mock mode and as the offline fallback. Its callbacks
   // dispatch into the reducer; `dispatch` is stable so this is built once.
@@ -509,9 +562,14 @@ export function ScanProvider({ children }) {
   const monitorTimerRef = useRef(null);
   useEffect(() => {
     clearTimeout(monitorTimerRef.current);
+    // "Busy" = the discovery stream is live OR the auto port-scan is still
+    // running per-host (those don't flip `running`/`phase`). Without this guard a
+    // short monitor interval could fire mid-port-scan and wipe the grid.
+    const portScanBusy = state.hosts.some((h) => h.vulnScanning || h.queued);
     if (
       state.monitor &&
       !state.running &&
+      !portScanBusy &&
       state.target &&
       (state.phase === ScanPhase.COMPLETE || state.phase === ScanPhase.HALTED)
     ) {
@@ -528,6 +586,7 @@ export function ScanProvider({ children }) {
     state.target,
     state.deepScan,
     state.monitorEverySec,
+    state.hosts,
     startScan,
   ]);
 
@@ -614,6 +673,27 @@ export function ScanProvider({ children }) {
     const CONCURRENCY = 3;
     for (let w = 0; w < Math.min(CONCURRENCY, queue.length); w += 1) worker();
   }, [runHostScan]);
+
+  // Auto port-scan: the moment a live DISCOVERY completes, immediately enumerate
+  // ports/services/OS on every up host — so a single "Start Scan" gives the full
+  // picture (devices + open ports) without a second click. Runs once per scan.
+  const autoScannedRef = useRef(null);
+  useEffect(() => {
+    if (
+      state.phase === ScanPhase.COMPLETE &&
+      state.source === 'live' &&
+      state.scanId &&
+      autoScannedRef.current !== state.scanId
+    ) {
+      const hasUnscanned = state.hosts.some(
+        (h) => h.status === HostStatus.UP && !h.ports.length && !h.scanned && !h.vulnScanning,
+      );
+      if (hasUnscanned) {
+        autoScannedRef.current = state.scanId;
+        scanAll(false);
+      }
+    }
+  }, [state.phase, state.source, state.scanId, state.hosts, scanAll]);
 
   // One-click PDF report: POST the exact on-screen snapshot to the backend
   // renderer and trigger a download. Stateless — report always matches screen.

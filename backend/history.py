@@ -22,6 +22,7 @@ import json
 import os
 import sqlite3
 import sys
+from contextlib import contextmanager
 
 # Reuse the CLI's diff engine (single source of truth for drift).
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -56,10 +57,18 @@ _SUMMARY_COLS = (
 )
 
 
-def _connect() -> sqlite3.Connection:
+@contextmanager
+def _connect():
+    """Connection that commits on success / rolls back on error AND always
+    closes (sqlite3's own context manager commits but never closes — leaking the
+    handle until GC). Drop-in for the existing ``with _connect() as conn:`` sites."""
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
-    return conn
+    try:
+        with conn:  # preserve commit/rollback semantics
+            yield conn
+    finally:
+        conn.close()
 
 
 def init_db() -> None:

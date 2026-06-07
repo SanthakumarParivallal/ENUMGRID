@@ -572,43 +572,79 @@ function ControlBar() {
   );
 }
 
+// A phase tag that lights up as the scan moves through it. State styles use
+// literal class strings (so Tailwind's JIT always generates them).
+const PHASE_TAG_STYLE = {
+  active: 'border-amber/60 bg-amber/15 text-amber shadow-glow-amber',
+  done: 'border-matrix/40 bg-matrix/10 text-matrix',
+  pending: 'border-slate-700 bg-steel-900 text-slate-500',
+};
+function PhaseTag({ index, label, state }) {
+  return (
+    <span
+      className={`hidden shrink-0 items-center gap-1.5 rounded-md border px-2 py-1 font-mono text-[10px] uppercase tracking-wider transition sm:inline-flex ${PHASE_TAG_STYLE[state]}`}
+    >
+      <span className="opacity-70">{index}</span>
+      {state === 'done' ? (
+        <Icon.Check className="h-3 w-3" />
+      ) : (
+        <span className={`h-1.5 w-1.5 rounded-full bg-current ${state === 'active' ? 'animate-pulse-glow' : 'opacity-50'}`} />
+      )}
+      {label}
+    </span>
+  );
+}
+
+// Brand colours (match tailwind.config) for the inline-style gradient fill — an
+// inline gradient guarantees the colour renders regardless of JIT class output.
+const PROGRESS_RGB = { amber: '255,179,0', matrix: '0,230,118', crimson: '211,47,47' };
+
 function GlobalProgress({ phase, progress, running }) {
   const isComplete = phase === ScanPhase.COMPLETE;
   const isHalted = phase === ScanPhase.HALTED || phase === ScanPhase.ERROR;
-  const barColor = isHalted ? 'bg-crimson' : isComplete ? 'bg-matrix' : 'bg-amber';
-  const glow = isHalted ? '' : isComplete ? 'shadow-glow-matrix' : 'shadow-glow-amber';
+  const accent = isHalted ? 'crimson' : isComplete ? 'matrix' : 'amber';
+  const rgb = PROGRESS_RGB[accent];
+  const glow = isHalted ? 'shadow-glow-crimson' : isComplete ? 'shadow-glow-matrix' : 'shadow-glow-amber';
+  const dot = isHalted ? 'bg-crimson' : isComplete ? 'bg-matrix' : 'bg-amber';
+  const pctText = isHalted ? 'text-crimson' : isComplete ? 'text-matrix' : 'text-amber';
+
+  const p1 = phase === ScanPhase.PING_SWEEP ? 'active' : progress >= 40 || isComplete ? 'done' : 'pending';
+  const p2 = phase === ScanPhase.NMAP_ENUMERATION ? 'active' : isComplete ? 'done' : 'pending';
 
   return (
-    <div className="relative h-7 border-t border-slate-800 bg-steel-950/80">
-      {/* Phase boundary tick at 40% (Ping Sweep -> Nmap). */}
-      <div
-        className="absolute top-0 z-10 h-full w-px bg-slate-700/80"
-        style={{ left: '40%' }}
-        title="Phase 1 → Phase 2 boundary"
-      />
-      <div className="absolute inset-0 flex items-center px-4">
-        <div className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-steel-800">
+    <div className="flex items-center gap-3 border-t border-slate-800 bg-steel-950/80 px-4 py-2.5">
+      <PhaseTag index="01" label="Ping Sweep" state={p1} />
+
+      {/* Track */}
+      <div className="relative h-2.5 flex-1 rounded-full bg-steel-800 shadow-[inset_0_1px_2px_rgba(0,0,0,0.55)]">
+        {/* phase boundary tick at 40% (Ping Sweep → Nmap) */}
+        <div className="absolute top-1/2 z-20 h-3 w-px -translate-y-1/2 bg-slate-600/70" style={{ left: '40%' }} title="Phase 1 → Phase 2" />
+        {/* fill */}
+        <div
+          className={`relative h-full overflow-hidden rounded-full ${glow} transition-[width] duration-500 ease-out`}
+          style={{
+            width: `${progress}%`,
+            background: `linear-gradient(90deg, rgba(${rgb},0.55), rgb(${rgb}))`,
+          }}
+        >
+          {/* moving shimmer while a scan is live */}
+          {running && <div className="progress-stripes animate-stripe absolute inset-0 opacity-40" />}
+        </div>
+        {/* pulsing leading-edge head */}
+        {running && progress > 1 && progress < 100 && (
           <div
-            className={`progress-stripes h-full rounded-full ${barColor} ${glow} ${
-              running ? 'animate-stripe' : ''
-            } transition-[width] duration-500 ease-out`}
-            style={{ width: `${progress}%` }}
+            className={`absolute top-1/2 z-30 h-3.5 w-3.5 -translate-x-1/2 -translate-y-1/2 rounded-full ${dot} ${glow} animate-pulse-glow`}
+            style={{ left: `${progress}%` }}
           />
-        </div>
-        <div className="ml-3 flex items-center gap-3">
-          <span className="font-mono text-xs font-semibold tabular-nums text-slate-200">
-            {String(progress).padStart(3, ' ')}%
-          </span>
-        </div>
+        )}
       </div>
-      {/* Phase band labels */}
-      <div className="pointer-events-none absolute inset-x-4 bottom-0 flex justify-between">
-        <span className="font-mono text-[8px] uppercase tracking-widest text-slate-600">
-          ◄ ping sweep
-        </span>
-        <span className="-translate-x-12 font-mono text-[8px] uppercase tracking-widest text-slate-600">
-          nmap enum ►
-        </span>
+
+      <PhaseTag index="02" label="Nmap Enum" state={p2} />
+
+      {/* Live percentage */}
+      <div className="flex shrink-0 items-baseline gap-0.5 tabular-nums">
+        <span className={`font-mono text-base font-bold ${pctText}`}>{progress}</span>
+        <span className="font-mono text-[10px] text-slate-500">%</span>
       </div>
     </div>
   );
