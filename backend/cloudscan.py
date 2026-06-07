@@ -55,9 +55,12 @@ def open_sg_findings(security_groups: list[dict]) -> list[dict]:
     out: list[dict] = []
     for sg in security_groups or []:
         for perm in sg.get("IpPermissions", []) or []:
-            world = any(r.get("CidrIp") == "0.0.0.0/0" for r in perm.get("IpRanges", []) or [])
-            if not world:
+            v4 = any(r.get("CidrIp") == "0.0.0.0/0" for r in perm.get("IpRanges", []) or [])
+            # IPv6 ::/0 is just as world-open as 0.0.0.0/0 — flag it too.
+            v6 = any(r.get("CidrIpv6") == "::/0" for r in perm.get("Ipv6Ranges", []) or [])
+            if not (v4 or v6):
                 continue
+            scope = "0.0.0.0/0" if v4 else "::/0"  # name the actual open range
             frm, to = perm.get("FromPort"), perm.get("ToPort")
             proto = perm.get("IpProtocol", "?")
             port = "all" if frm is None else (str(frm) if frm == to else f"{frm}-{to}")
@@ -65,7 +68,7 @@ def open_sg_findings(security_groups: list[dict]) -> list[dict]:
                 "type": "aws-open-sg",
                 "group_id": sg.get("GroupId", ""),
                 "group_name": sg.get("GroupName", ""),
-                "detail": f"{proto}/{port} open to 0.0.0.0/0",
+                "detail": f"{proto}/{port} open to {scope}",
                 "severity": "high" if proto == "-1" or port in ("all", "22", "3389") else "medium",
             })
     return out

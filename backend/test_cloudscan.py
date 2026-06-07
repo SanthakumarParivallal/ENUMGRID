@@ -35,6 +35,20 @@ def test_open_sg_findings_flags_world_ingress():
     assert out[0]["severity"] == "high" and "22" in out[0]["detail"]
 
 
+def test_open_sg_findings_flags_ipv6_world_ingress():
+    # A SG open to ::/0 (IPv6) is just as exposed as 0.0.0.0/0 and must be flagged.
+    sgs = [{
+        "GroupId": "sg-2", "GroupName": "api",
+        "IpPermissions": [
+            {"IpProtocol": "tcp", "FromPort": 3389, "ToPort": 3389,
+             "Ipv6Ranges": [{"CidrIpv6": "::/0"}]},
+        ],
+    }]
+    out = cloudscan.open_sg_findings(sgs)
+    assert len(out) == 1
+    assert out[0]["severity"] == "high" and "::/0" in out[0]["detail"]
+
+
 def test_public_buckets_detected():
     acls = [
         ("secret", {"Grants": [{"Grantee": {"URI": "x"}}]}),

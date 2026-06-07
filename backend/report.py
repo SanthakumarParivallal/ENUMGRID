@@ -15,6 +15,8 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from io import BytesIO
+from xml.sax.saxutils import escape as _xml_escape
+from xml.sax.saxutils import quoteattr as _xml_quoteattr
 
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_LEFT
@@ -47,6 +49,18 @@ _SEV_COLOR = {
     "low": _MUTED,
     "info": _MUTED,
 }
+
+
+def _esc(value) -> str:
+    """Escape a value for safe inclusion in a reportlab Paragraph.
+
+    Paragraphs parse a mini-XML markup, and scan results carry attacker- or
+    device-controlled text (service/version banners, hostnames, vuln output, the
+    target string). Without escaping, a single ``<``/``>``/``&`` would crash PDF
+    generation — or let a banner inject markup. So every dynamic value is routed
+    through here before it reaches a Paragraph.
+    """
+    return _xml_escape("" if value is None else str(value))
 
 
 def _styles():
@@ -127,7 +141,7 @@ def _header_footer(canvas, doc):
 
 
 def _kv_table(rows, styles):
-    data = [[Paragraph(f"<b>{k}</b>", styles["PRBody"]), Paragraph(str(v), styles["PRBody"])] for k, v in rows]
+    data = [[Paragraph(f"<b>{_esc(k)}</b>", styles["PRBody"]), Paragraph(_esc(v), styles["PRBody"])] for k, v in rows]
     t = Table(data, colWidths=[45 * mm, 120 * mm])
     t.setStyle(TableStyle([
         ("LINEBELOW", (0, 0), (-1, -1), 0.4, _LINE),
@@ -144,11 +158,11 @@ def _inventory_table(hosts, styles):
     for h in hosts:
         open_ct = sum(1 for p in (h.get("ports") or []) if p.get("state") in ("open", "open|filtered"))
         data.append([
-            Paragraph(str(h.get("ip", "")), styles["PRMono"]),
-            Paragraph(str(h.get("hostname") or "—"), styles["PRMutedBody"]),
-            Paragraph(str(h.get("vendor") or "—"), styles["PRMutedBody"]),
-            Paragraph(str(h.get("device_type") or "—"), styles["PRMutedBody"]),
-            Paragraph(str(h.get("os") or "Unknown"), styles["PRMutedBody"]),
+            Paragraph(_esc(h.get("ip", "")), styles["PRMono"]),
+            Paragraph(_esc(h.get("hostname") or "—"), styles["PRMutedBody"]),
+            Paragraph(_esc(h.get("vendor") or "—"), styles["PRMutedBody"]),
+            Paragraph(_esc(h.get("device_type") or "—"), styles["PRMutedBody"]),
+            Paragraph(_esc(h.get("os") or "Unknown"), styles["PRMutedBody"]),
             Paragraph(str(open_ct), styles["PRMono"]),
         ])
     t = Table(data, colWidths=[26 * mm, 30 * mm, 34 * mm, 28 * mm, 34 * mm, 12 * mm], repeatRows=1)
@@ -173,11 +187,11 @@ def _ports_table(ports, styles):
     data = [[Paragraph(f"<b>{c}</b>", styles["PRMutedBody"]) for c in head]]
     for p in sorted(ports, key=lambda x: x.get("port", 0)):
         data.append([
-            Paragraph(str(p.get("port", "")), styles["PRMono"]),
-            Paragraph(str(p.get("protocol", "tcp")), styles["PRMutedBody"]),
-            Paragraph(str(p.get("state", "")), styles["PRMutedBody"]),
-            Paragraph(str(p.get("service", "")), styles["PRMutedBody"]),
-            Paragraph(str(p.get("version") or "—"), styles["PRMutedBody"]),
+            Paragraph(_esc(p.get("port", "")), styles["PRMono"]),
+            Paragraph(_esc(p.get("protocol", "tcp")), styles["PRMutedBody"]),
+            Paragraph(_esc(p.get("state", "")), styles["PRMutedBody"]),
+            Paragraph(_esc(p.get("service", "")), styles["PRMutedBody"]),
+            Paragraph(_esc(p.get("version") or "—"), styles["PRMutedBody"]),
         ])
     t = Table(data, colWidths=[16 * mm, 14 * mm, 22 * mm, 34 * mm, 78 * mm], repeatRows=1)
     t.setStyle(TableStyle([
@@ -215,8 +229,8 @@ def _chips(label, pairs, styles):
     """A 'label: a (n) · b (n)' one-liner for device-mix / top-services."""
     if not pairs:
         return None
-    body = " · ".join(f"{name} ({count})" for name, count in pairs)
-    return Paragraph(f"<b>{label}:</b> {body}", styles["PRMutedBody"])
+    body = " · ".join(f"{_esc(name)} ({count})" for name, count in pairs)
+    return Paragraph(f"<b>{_esc(label)}:</b> {body}", styles["PRMutedBody"])
 
 
 def build_pdf(payload: dict) -> bytes:
@@ -271,9 +285,9 @@ def build_pdf(payload: dict) -> bytes:
         story.append(PageBreak())
         story.append(Paragraph("Per-Host Detail", styles["PRH2"]))
         for h in scanned:
-            label = h.get("ip", "")
+            label = _esc(h.get("ip", ""))
             extra = " · ".join(
-                x for x in (h.get("device_type"), h.get("vendor"), h.get("os") if h.get("os") != "Unknown" else None)
+                _esc(x) for x in (h.get("device_type"), h.get("vendor"), h.get("os") if h.get("os") != "Unknown" else None)
                 if x
             )
             story.append(Paragraph(f"{label}{('  —  ' + extra) if extra else ''}", styles["PRHost"]))
@@ -296,16 +310,23 @@ def build_pdf(payload: dict) -> bytes:
                     port = f" :{v['port']}" if v.get("port") else ""
                     sev_hex = _SEV_COLOR.get(sev, _MUTED).hexval()[2:]
                     # CVE id is a live link to NVD; confidence flags verify-needed.
-                    vid = v.get("id", "")
+                    # Every dynamic field is escaped — vuln output is device/banner
+                    # text and the url/id come from the client payload, so an
+                    # unescaped char here would crash the build or inject markup.
+                    vid = _esc(v.get("id", ""))
                     url = v.get("url", "")
-                    id_html = f"<a href='{url}'><u>{vid}</u></a>" if url else vid
+                    # Only emit a link for a safe http(s) URL; the attribute value
+                    # is quoted/escaped so it can't break out of the <a> tag.
+                    safe_link = isinstance(url, str) and url.lower().startswith(("http://", "https://"))
+                    id_html = f"<a href={_xml_quoteattr(url)}><u>{vid}</u></a>" if safe_link else vid
                     conf = v.get("confidence")
                     conf_html = " <i>(confirmed)</i>" if conf == "confirmed" else (
                         " <i>(version — verify)</i>" if conf == "version" else "")
+                    detail = _esc(v.get("title") or (v.get("output", "") or "")[:90])
                     line = (
-                        f"<font color='#{sev_hex}'><b>[{sev.upper()}]</b></font> "
-                        f"{id_html}{port}{cvss}{conf_html} — "
-                        f"{v.get('title') or v.get('output', '')[:90]}"
+                        f"<font color='#{sev_hex}'><b>[{_esc(sev.upper())}]</b></font> "
+                        f"{id_html}{_esc(port)}{_esc(cvss)}{conf_html} — "
+                        f"{detail}"
                     )
                     story.append(Paragraph(line, styles["PRMutedBody"]))
             story.append(Spacer(1, 4))

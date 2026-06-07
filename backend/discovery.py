@@ -29,9 +29,10 @@ if _ROOT not in sys.path:
 import snmp  # noqa: E402
 from fingerprint import guess_device_type  # noqa: E402
 from mdns import discover_mdns  # noqa: E402
-from models import Host, HostStatus, ScanPhase, ScanState  # noqa: E402
+from models import Host, HostStatus, Port, PortState, Protocol, ScanPhase, ScanState  # noqa: E402
 from nbns import nbns_names  # noqa: E402
 from osfp import os_hint, refine_os  # noqa: E402
+from ssdp import discover_ssdp  # noqa: E402
 
 import purple_recon as pr  # noqa: E402  (path set above)
 
@@ -45,6 +46,53 @@ def _oui_table() -> dict[str, str]:
         path = pr.resolve_oui_path(None)
         _OUI_TABLE = pr.load_oui_table(path) if path else {}
     return _OUI_TABLE
+
+
+# --- discover-mode TCP port probe (fast, unprivileged) --------------------- #
+# A short connect-scan of the common service ports so the live grid shows open
+# ports immediately — without nmap or root. The full -sV/vuln enumeration stays
+# on-demand per host (/api/host/scan). Tunable via env so it can be turned off
+# or made more/less aggressive.
+PORT_PROBE = os.environ.get("ENUMGRID_DISCOVER_PORTS", "1").lower() not in ("0", "false", "no")
+PORT_PROBE_TIMEOUT = float(os.environ.get("ENUMGRID_PORT_TIMEOUT", "0.5"))
+# How long to listen for mDNS/Bonjour announcements. Longer = more device names
+# resolved (printers, Apple/IoT) at the cost of a slightly longer scan.
+MDNS_SECS = float(os.environ.get("ENUMGRID_MDNS_SECS", "6.0"))
+# How long to wait for SSDP/UPnP replies (routers, smart TVs, media, IoT).
+SSDP_SECS = float(os.environ.get("ENUMGRID_SSDP_SECS", "2.5"))
+
+# The common TCP ports knocked per host (reuses the CLI's curated top-ports set).
+_COMMON_PORTS: tuple[int, ...] = pr.FALLBACK_PORTS
+# Open ports that are inherently risky/high-signal on a LAN — flagged so the UI
+# highlights them even before a full service scan.
+_CRITICAL_PORTS = frozenset({21, 23, 135, 139, 445, 1433, 1521, 3306, 3389, 5432, 5900, 5985, 6379})
+
+
+def _probe_pair(pair: tuple[str, int]) -> bool:
+    """True when a TCP connect to ``(ip, port)`` completes (a real open service).
+
+    A full handshake can't be forged by a silent-drop firewall, so an ``open``
+    here is trustworthy — unlike nmap's ``filtered``. Best-effort: any socket
+    error is treated as not-open.
+    """
+    ip, port = pair
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+            sock.settimeout(PORT_PROBE_TIMEOUT)
+            return sock.connect_ex((ip, port)) == 0
+    except OSError:
+        return False
+
+
+def _make_port(port: int) -> Port:
+    """A discover-mode Port record (state OPEN, friendly service label)."""
+    return Port(
+        port=port,
+        protocol=Protocol.TCP,
+        service=pr.COMMON_SERVICES.get(port, "unknown"),
+        state=PortState.OPEN,
+        critical=port in _CRITICAL_PORTS,
+    )
 
 
 def _ip_key(ip: str) -> tuple[int, ...]:
@@ -105,6 +153,9 @@ async def run_discovery(target: str, scan_id: str | None):
     total = len(candidates) or 1
     candidate_set = set(candidates)
     hosts: dict[str, Host] = {}
+    # Open ports observed during the active TCP knock — reused as seeds for the
+    # common-port probe below so we never re-test a port we already confirmed.
+    seed_ports: dict[str, set[int]] = {}
 
     def snapshot(phase: ScanPhase, progress: int, finished: bool = False) -> ScanState:
         ordered = [hosts[ip] for ip in sorted(hosts, key=_ip_key)]
@@ -127,9 +178,11 @@ async def run_discovery(target: str, scan_id: str | None):
         for future in asyncio.as_completed(tasks):
             ip, result = await future
             done += 1
-            up, via, _ports, _conf = result
+            up, via, open_ports, _conf = result
             if up and ip not in hosts:
                 hosts[ip] = Host(ip=ip, status=HostStatus.UP, discovered_via=via)
+            if up and open_ports:
+                seed_ports.setdefault(ip, set()).update(open_ports)
             if done % 12 == 0 or done == total:
                 yield snapshot(ScanPhase.PING_SWEEP, min(60, 2 + int(done / total * 58)))
     finally:
@@ -147,6 +200,27 @@ async def run_discovery(target: str, scan_id: str | None):
         host.device_type = guess_device_type(vendor=host.vendor, hostname=host.hostname)
         hosts[ip] = host
     yield snapshot(ScanPhase.NMAP_ENUMERATION, 75)
+
+    # --- 2b) fast TCP connect-scan of the common ports (unprivileged) ------- #
+    # Fills the live grid's "ports" column right away — no nmap, no root. The
+    # full -sV/vuln enumeration stays on-demand per host (/api/host/scan). Open
+    # ports also feed the device-type classifier below (port signatures are its
+    # strongest hint), so this sharpens DEVICE/OS for free. Probes are fanned out
+    # across (ip, port) pairs so a host full of filtered ports doesn't serialize.
+    if PORT_PROBE and hosts:
+        targets = list(hosts)
+        pairs = [(ip, port) for ip in targets for port in _COMMON_PORTS]
+        found: dict[str, set[int]] = {ip: set(seed_ports.get(ip, ())) for ip in targets}
+        with ThreadPoolExecutor(
+            max_workers=min(256, max(16, len(pairs))), thread_name_prefix="portprobe"
+        ) as pp_pool:
+            for (ip, port), is_open in zip(pairs, pp_pool.map(_probe_pair, pairs)):
+                if is_open:
+                    found[ip].add(port)
+        for ip in targets:
+            if found[ip]:
+                hosts[ip].ports = [_make_port(p) for p in sorted(found[ip])]
+        yield snapshot(ScanPhase.NMAP_ENUMERATION, 85)
 
     # --- 3) reverse-DNS hostnames in parallel ------------------------------ #
     previous_timeout = socket.getdefaulttimeout()
@@ -214,9 +288,13 @@ async def run_discovery(target: str, scan_id: str | None):
     # Run *after* the active probe so the 128-thread sweep isn't dropping the
     # multicast replies; the quiet window makes name resolution reliable.
     try:
-        mdns = await loop.run_in_executor(None, lambda: discover_mdns(5.0))
+        mdns = await loop.run_in_executor(None, lambda: discover_mdns(MDNS_SECS))
     except Exception:
         mdns = {}
+    # IPs whose device type came from a *service announcement* (mDNS or SSDP) —
+    # authoritative (device-declared), so the heuristic fill below must not
+    # override them.
+    typed_by_service: set[str] = set()
     for ip, info in mdns.items():
         if ip not in candidate_set:
             continue  # keep results inside the requested scope
@@ -229,13 +307,51 @@ async def run_discovery(target: str, scan_id: str | None):
             host.hostname = info["hostname"]
         if info.get("device_type"):
             host.device_type = info["device_type"]  # service-based type is authoritative
+            typed_by_service.add(ip)
         if info.get("os"):
             host.os = info["os"]  # device-announced model → exact OS class
 
-    # Fill any still-empty device types from vendor + hostname (mDNS wins above).
+    # --- 4b) SSDP/UPnP enrichment: friendly names + models for the devices ---- #
+    # that don't speak mDNS/NBNS (routers, smart TVs, media renderers, consoles,
+    # many IoT). The announced `friendlyName` is a real human label and the
+    # `modelName`/`manufacturer` give a confident device type + vendor.
+    try:
+        ssdp_info = await loop.run_in_executor(None, lambda: discover_ssdp(SSDP_SECS))
+    except Exception:
+        ssdp_info = {}
+    for ip, info in ssdp_info.items():
+        if ip not in candidate_set:
+            continue
+        host = hosts.get(ip)
+        if host is None:
+            host = Host(ip=ip, status=HostStatus.UP, discovered_via="ssdp")
+            hosts[ip] = host
+        if info.get("hostname") and not host.hostname:
+            host.hostname = info["hostname"]
+        # UPnP manufacturer is a useful vendor when ARP gave us no MAC/OUI.
+        if info.get("manufacturer") and not host.vendor:
+            host.vendor = info["manufacturer"]
+        if info.get("device_type"):
+            host.device_type = info["device_type"]  # device-declared type is authoritative
+            typed_by_service.add(ip)
+        if info.get("os") and host.os in ("", "Unknown"):
+            host.os = info["os"]
+
+    # (Re)classify device type from every signal we now have — crucially the open
+    # ports, whose signatures are the *strongest* hint (e.g. 9100→Printer,
+    # 554→Camera, 445+139→Computer). Skip hosts already typed by a service
+    # announcement (mDNS/SSDP). guess_device_type returns "" when no signal is
+    # strong enough, so we never blank an existing label.
     for host in hosts.values():
-        if not host.device_type:
-            host.device_type = guess_device_type(vendor=host.vendor, hostname=host.hostname)
+        if host.ip in typed_by_service:
+            continue
+        open_ports = [p.port for p in host.ports if p.state in (PortState.OPEN, PortState.OPEN_FILTERED)]
+        services = [p.service for p in host.ports]
+        guessed = guess_device_type(
+            vendor=host.vendor, hostname=host.hostname, ports=open_ports, services=services,
+        )
+        if guessed:
+            host.device_type = guessed
 
     # Sharpen each host's coarse TTL family into a *specific* OS using the
     # vendor, hostname and device type we now have — e.g. the vague

@@ -88,6 +88,44 @@ def cert_findings(cert: dict | None) -> list[Vuln]:
     return out
 
 
+def _peercert_dict(der: bytes | None) -> dict | None:
+    """Parse a DER certificate into the dict shape `cert_findings` expects.
+
+    We connect with ``verify_mode = CERT_NONE`` (we *inspect* the cert, we don't
+    trust-gate the connection). Under CERT_NONE, ``ssl.getpeercert()`` returns an
+    empty dict — so the only way to read the cert is its binary (DER) form, which
+    we decode here. Returns ``notAfter`` + ``issuer``/``subject`` in the same
+    nested-tuple layout the stdlib produces, so the pure `cert_findings` parser
+    (and its tests) work unchanged. Best-effort: ``None`` on any parse failure.
+    """
+    if not der:
+        return None
+    try:
+        from cryptography import x509  # available via the TLS/credscan deps
+    except Exception:  # noqa: BLE001 - optional dep; degrade gracefully
+        return None
+    try:
+        cert = x509.load_der_x509_certificate(der)
+        try:
+            not_after = cert.not_valid_after_utc  # tz-aware UTC (cryptography ≥42)
+        except AttributeError:  # pragma: no cover - older cryptography
+            not_after = cert.not_valid_after
+        # Match ssl.getpeercert()'s "%b %d %H:%M:%S %Y GMT" so cert_findings parses it.
+        not_after_str = not_after.strftime("%b %d %H:%M:%S %Y GMT")
+
+        def _name(name) -> tuple:
+            # ((attr, value),) per RDN — issuer == subject ⇒ self-signed.
+            return tuple(((attr.rfc4514_attribute_name, attr.value),) for attr in name)
+
+        return {
+            "notAfter": not_after_str,
+            "issuer": _name(cert.issuer),
+            "subject": _name(cert.subject),
+        }
+    except Exception:  # noqa: BLE001 - malformed cert must never break the scan
+        return None
+
+
 def _fetch(ip: str, port: int, is_https: bool) -> tuple[dict, str, dict | None]:
     """Return (response headers, server banner, peer cert|None). Best-effort."""
     if is_https:
@@ -105,7 +143,8 @@ def _fetch(ip: str, port: int, is_https: bool) -> tuple[dict, str, dict | None]:
         sock = getattr(conn, "sock", None)
         if is_https and sock is not None:
             try:
-                cert = sock.getpeercert()
+                # Under CERT_NONE the dict form is empty; read the DER and parse it.
+                cert = _peercert_dict(sock.getpeercert(binary_form=True))
             except (OSError, ValueError):
                 cert = None
         return headers, headers.get("Server", ""), cert
