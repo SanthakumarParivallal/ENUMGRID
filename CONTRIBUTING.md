@@ -45,6 +45,16 @@ CI (`.github/workflows/ci.yml`) runs the same gate on every push.
 - Accepted `bandit`/`ruff` exceptions get an inline `# nosec <ID>` / `# noqa: <CODE>`
   with a one-line justification — never a blanket ignore.
 
+## Regenerating the README screenshot
+
+`docs/dashboard.png` is a **real** scan of the maintainer's LAN, captured with a
+no-dependency Chrome DevTools script (never simulated data):
+
+```bash
+./start.sh                       # in one terminal
+node scripts/screenshot.mjs      # in another → writes docs/dashboard.png
+```
+
 ## Pull requests
 
 1. Branch from `main`.
