@@ -12,6 +12,12 @@
 [![SAST: bandit](https://img.shields.io/badge/SAST-bandit%200%20high%2Fmed-blue.svg)](#security)
 [![Deps: 0 CVEs](https://img.shields.io/badge/deps-0%20known%20CVEs-brightgreen.svg)](#security)
 
+<br/>
+
+![ENUMGRID dashboard — live device grid with auto port-scan, OS/vendor fingerprinting, and CVE intelligence](docs/dashboard.png)
+
+<sub>The web cockpit mid-scan: real device discovery → automatic per-host nmap enumeration → CVE correlation. (A real scan of a home LAN — never simulated data.)</sub>
+
 </div>
 
 A two-tiered, **purple-team** network enumeration tool: it thinks like an
