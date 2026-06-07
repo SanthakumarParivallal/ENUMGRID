@@ -28,7 +28,7 @@ and cannot drift between the two interfaces.
 
 | Phase | What | Why split |
 |---|---|---|
-| 1 · Horizontal sweep | Find *which* hosts are live (ICMP/TCP/ARP/NDP/mDNS/TTL) | Cheap, fast, runs unprivileged; you almost always want the inventory first |
+| 1 · Horizontal sweep | Find *which* hosts are live + name/type them (ICMP/TCP/ARP/NDP/mDNS/NBNS/SNMP/SSDP/TTL + common-port preview) | Cheap, fast, runs unprivileged; you almost always want the inventory first |
 | 2 · Vertical deep-dive | Find *what's on* a host (`nmap -sV`, NSE, `-O` if root) | Expensive + noisy; should be **on demand**, per host or "Scan All" |
 
 Separating discovery from enumeration is what makes the tool feel like Angry IP
@@ -60,7 +60,17 @@ answers ARP for the whole subnet with one MAC — the classic 254-fake-hosts bug
 | **ARP cache** (`arp -an`) | ICMP-silent LAN devices (power-save phones, IoT) |
 | **NDP cache** (`ndp -an` / `ip -6 neigh`) | Each device's IPv6 (correlated by MAC) |
 | **mDNS/Bonjour** | Real device names + types (printers, Apple, cast, HomeKit) |
+| **NBNS (NetBIOS)** | Windows / printer / NAS names with no reverse-DNS |
+| **SNMP** | Switch/AP/printer `sysName`/`sysDescr` |
+| **SSDP/UPnP** | Router / TV / media / console / IoT `friendlyName` + model |
+| **TCP port preview** | Open common ports (no nmap/root) → instant grid + sharper device type |
 | **Ping TTL** | An honest OS *family* without root |
+
+Names are layered cheapest-first: reverse-DNS → NBNS → SNMP → mDNS → SSDP, each
+filling gaps the previous left. The TCP port preview is a fast, fanned-out
+connect-scan of the common ports during discovery; its results both populate the
+grid immediately and feed the device-type classifier (open-port signatures are
+its strongest signal), so DEVICE/OS sharpens before the on-demand `nmap -sV` runs.
 
 This is the measured design thesis (see [`EVALUATION.md`](EVALUATION.md)):
 unprivileged, it finds ~3.7× the hosts of `nmap -sn`.
@@ -77,6 +87,20 @@ unprivileged, it finds ~3.7× the hosts of `nmap -sn`.
 - **Validated frames.** Pydantic models (`backend/models.py`) are mirrored
   field-for-field by `frontend/src/lib/schema.js`, whose factories coerce every
   field and never throw — a malformed frame can't corrupt the UI tree.
+
+### 5a. Cockpit theming & view preferences
+
+The dashboard is **themeable without a re-render**: `index.css` defines the colour
+ramp (chassis + neutral text/border shades) as CSS variables, and Tailwind's
+`steel`/`slate` colours are declared as `rgb(var(--token) / <alpha-value>)`. A
+single `<html data-theme="light|dark">` swap repaints everything (opacity
+modifiers keep working via `<alpha-value>`); signal accents (amber/matrix/crimson)
+are shared. **Density** (`data-density`) and **column widths** work the same way —
+attribute selectors / inline `gridTemplateColumns` rather than React state for the
+visual. `frontend/src/lib/preferences.js` persists theme · density · column widths
+to `localStorage` and applies them at import time (before first paint, no flash).
+The matrix header and every row consume one shared grid-template string, so
+drag-resized columns stay aligned by construction.
 
 ## 6. Persistence & drift
 

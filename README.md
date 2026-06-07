@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/SanthakumarParivallal/ENUMGRID/actions/workflows/ci.yml/badge.svg)](https://github.com/SanthakumarParivallal/ENUMGRID/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-FFB300.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-422%20passing-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-435%20passing-brightgreen.svg)](#testing)
 [![Python](https://img.shields.io/badge/python-3.10%E2%80%933.13-blue.svg)](pyproject.toml)
 [![Node](https://img.shields.io/badge/node-%E2%89%A520-blue.svg)](frontend/package.json)
 [![SAST: bandit](https://img.shields.io/badge/SAST-bandit%200%20high%2Fmed-blue.svg)](#security)
@@ -147,6 +147,15 @@ Phase 2  Vertical deep-dive nmap -sV (+ NSE)   service / version / vuln detectio
   services (printers, Apple gear, Chromecasts, Sonos, HomeKit) to fill real
   device **names** and confident types for hosts that have no reverse-DNS record
   — the Fing/Angry-IP "what is this device" experience. Best-effort, never faked.
+- **SSDP / UPnP resolution** (web) — for the devices that don't speak mDNS or
+  NBNS (routers, smart TVs, media renderers, consoles, lots of IoT): an `M-SEARCH`
+  multicast + the responder's UPnP description yields its `friendlyName`,
+  manufacturer and model. SSRF-guarded (only fetches a `LOCATION` on the host that
+  answered) and XXE-safe. *(e.g. a nameless gateway → "Sagemcom F3896LG".)*
+- **Instant port preview** (web) — discovery runs a fast, unprivileged TCP
+  connect-scan of the common ports, so open ports show in the grid **immediately**
+  (no nmap, no root) — and those ports sharpen the device-type guess. The full
+  `nmap -sV` + CVE pass still runs on-demand per host (auto-triggered after a sweep).
 - **OS family (unprivileged)** — ping-reply **TTL** → OS family (Linux/macOS/Unix
   · Windows · network/IoT); `sudo` adds nmap `-O`. Honest: ambiguous → Unknown.
 - **IPv6-aware** — `ScopeValidator` is dual-stack (accepts IPv6 targets, refuses
@@ -219,6 +228,13 @@ Phase 2  Vertical deep-dive nmap -sV (+ NSE)   service / version / vuln detectio
   opened/closed ports vs the previous scan of the same target.
 - **PDF report** — `POST /api/report/pdf` renders the live snapshot (summary +
   inventory + per-host ports/vulns) into a self-contained PDF (one-click in the UI).
+  All device-supplied text (banners, hostnames, vuln output) is escaped, so a
+  hostile service banner can neither crash the report nor inject markup.
+- **Customizable cockpit** — toolbar toggles for a **light** ("paper") theme
+  alongside the dark cockpit, a **Compact ⇄ Cozy** density switch, and
+  **drag-resizable** matrix columns (double-click a grip to reset). All three
+  persist across reloads (`localStorage`). The per-host detail toolbar stays pinned
+  while you scroll a long ports/vulns list.
 
 See [`docs`-level detail in the code](purple_recon.py) and
 [`backend/README.md`](backend/README.md) for the API + security model.
@@ -248,11 +264,11 @@ make test      # ruff lint + CLI pytest + backend pytest + frontend Vitest
 | Suite | Count | Scope |
 |---|---|---|
 | `test_purple_recon.py` | 84 | guardrails (incl. IPv6 scope), NDP/ARP/OUI parsing, discovery policy, reports, export, renderers, **fuzzing** |
-| `backend/test_*.py` | 312 | scope/**RBAC**, **11 scan profiles** + injection safety, **privilege auto-adaptation** (root/sudo/unprivileged downgrade), **live NVD + offline CVE DB + OSV backport-aware**, **KEV+EPSS prioritization**, **credentialed SSH + package parsers**, **web-DAST audit**, **SNMP BER codec**, **AWS/LDAP parsers**, **job-queue**, **outbound alerting + audit**, NSE/CVSS, **multi-signal OS fingerprinting**, device + mDNS + **NBNS**, history + drift, PDF, **FastAPI integration**, **hypothesis fuzzing** |
+| `backend/test_*.py` | 325 | scope/**RBAC** (constant-time tokens), **11 scan profiles** + injection safety, **privilege auto-adaptation** (root/sudo/unprivileged downgrade), **live NVD + offline CVE DB + OSV backport-aware**, **KEV+EPSS prioritization**, **credentialed SSH + package parsers**, **web-DAST audit** (TLS cert parse), **SNMP BER codec**, **AWS/LDAP parsers** (incl. IPv6 SG), **job-queue**, **outbound alerting + audit**, NSE/CVSS, **multi-signal OS fingerprinting**, device discovery + mDNS + **NBNS** + **SSDP** + **port probe**, history + drift, **PDF escaping**, **FastAPI integration**, **hypothesis fuzzing** |
 | `frontend/src/**/*.test.js` | 19 | schema coercion / null-safety + scan-state transients, CVE link + confidence + **KEV/EPSS risk-rank**, derived counters |
 | `evaluation/test_benchmark.py` | 7 | benchmark metric math (precision/recall/Jaccard) |
 
-**422 tests, all green.** Static analysis is clean: **ruff** 0 findings, **bandit**
+**435 tests, all green.** Static analysis is clean: **ruff** 0 findings, **bandit**
 SAST 0 high/medium, **pip-audit** 0 known CVEs, **npm audit** 0 (vite 8 / vitest 4).
 CI (`.github/workflows/ci.yml`)
 runs **5 jobs** — lint (ruff), **security** (bandit + pip-audit + npm audit), CLI
@@ -275,12 +291,13 @@ test_purple_recon.py   # CLI test suite
 pyproject.toml         # pip-installable: `enumgrid` console command
 backend/               # FastAPI SSE service (reuses the CLI engine)
   ├─ scanner.py        #   two-tiered nmap pipeline (+ nmap -6) + NSE/CVSS parsing
-  ├─ discovery.py      #   fast device discovery (ICMP/ARP/NDP/mDNS/TTL, no nmap)
-  ├─ fingerprint.py    #   device-type heuristics  ·  mdns.py  Bonjour names
+  ├─ discovery.py      #   fast device discovery (ICMP/ARP/NDP/mDNS/SSDP/TTL + port probe)
+  ├─ fingerprint.py    #   device-type heuristics  ·  mdns.py / ssdp.py  device names
   ├─ osfp.py           #   specific OS from TTL + vendor + hostname + mDNS model
   ├─ security.py       #   ScopeValidator reuse (dual-stack) + auth + concurrency cap
   ├─ history.py        #   SQLite scan history + drift  ·  report.py  PDF
 frontend/              # Vite + React + Tailwind cockpit
+  └─ src/lib/preferences.js  #  persisted theme · density · column widths
 evaluation/            # benchmark harness + docker testbed (vs nmap)
 docs/                  # ARCHITECTURE · THREAT_MODEL · EVALUATION
 Dockerfile             # backend + CLI image (nmap baked in)

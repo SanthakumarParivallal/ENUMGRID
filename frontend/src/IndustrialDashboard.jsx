@@ -19,6 +19,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useScan } from './context/ScanContext.jsx';
+import { usePreferences, colWidth, COL_DEFAULTS } from './lib/preferences.js';
 import {
   ScanPhase,
   HostStatus,
@@ -56,6 +57,23 @@ const I = ({ children, className = 'w-4 h-4', viewBox = '0 0 24 24', ...rest }) 
 );
 
 const Icon = {
+  Sun: ({ className }) => (
+    <I className={className}>
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4" />
+    </I>
+  ),
+  Moon: ({ className }) => (
+    <I className={className}>
+      <path d="M20 14.5 A8 8 0 1 1 9.5 4 A6.2 6.2 0 0 0 20 14.5 Z" />
+    </I>
+  ),
+  Rows: ({ className }) => (
+    <I className={className}>
+      <rect x="3" y="4" width="18" height="5" rx="1" />
+      <rect x="3" y="12" width="18" height="5" rx="1" className="opacity-60" />
+    </I>
+  ),
   Radar: ({ className }) => (
     <I className={className}>
       <circle cx="12" cy="12" r="9" className="opacity-30" />
@@ -230,8 +248,18 @@ const SEVERITY_STYLE = {
 
 // Shared column template so the matrix header and every row stay aligned.
 // chevron | status | IP | hostname | vendor | MAC | open-ports | scan-status
-const GRID_COLS =
-  'grid grid-cols-[34px_48px_minmax(104px,1fr)_minmax(96px,0.9fr)_minmax(110px,1.1fr)_minmax(118px,1.1fr)_minmax(126px,140px)_56px_104px] items-center';
+// Base grid classes; the actual column tracks are supplied per-render via an
+// inline `gridTemplateColumns` (so columns can be drag-resized — see gridTemplate).
+const GRID_COLS = 'grid items-center';
+
+// Build the shared 9-column track list (header + every row use the SAME string so
+// they stay aligned). Fixed: chevron, status, IP, ports, scan-status. Resizable
+// (persisted px): hostname, vendor, device, mac. A trailing minmax(0,1fr) spacer
+// absorbs slack on wide screens and collapses to 0 (→ horizontal scroll) when narrow.
+function gridTemplate(colWidths) {
+  const w = (k) => colWidth(colWidths, k);
+  return `34px 48px 128px ${w('hostname')}px ${w('vendor')}px ${w('device')}px ${w('mac')}px 56px 104px minmax(0,1fr)`;
+}
 
 const QUICK_FILTERS = [
   { key: 'web', label: 'Web · 80/443', Icon: Icon.Globe },
@@ -370,6 +398,7 @@ function ControlBar() {
   const { target, phase, progress, running, source, deepScan, startScan, stopScan, toggleDeep,
     setTarget, scanAll, downloadReport, hosts, monitor, monitorEverySec, toggleMonitor,
     setMonitorInterval } = useScan();
+  const { theme, density, toggleTheme, toggleDensity } = usePreferences();
   const [input, setInput] = useState(target);
   const hasHosts = hosts.length > 0;
   // "Unscanned" = up hosts that haven't had a full nmap service scan yet. A host
@@ -567,6 +596,35 @@ function ControlBar() {
             <option value={900}>every 15m</option>
           </select>
         )}
+
+        {/* Divider before view-preference toggles. */}
+        <span className="mx-0.5 hidden h-6 w-px self-center bg-slate-700/70 lg:block" />
+
+        {/* Density toggle — compact ⇄ comfortable row spacing (persisted). */}
+        <button
+          onClick={toggleDensity}
+          aria-pressed={density === 'compact'}
+          title={density === 'compact' ? 'Comfortable row spacing' : 'Compact row spacing (fit more devices)'}
+          className={`${btnBase} ${
+            density === 'compact'
+              ? 'border-amber/50 bg-amber/10 text-amber'
+              : 'border-slate-700 bg-steel-900 text-slate-400 hover:border-slate-500 hover:text-slate-200'
+          }`}
+        >
+          <Icon.Rows className="h-4 w-4" />
+          <span className="hidden sm:inline">{density === 'compact' ? 'Compact' : 'Cozy'}</span>
+        </button>
+
+        {/* Theme toggle — dark cockpit ⇄ light paper (persisted). */}
+        <button
+          onClick={toggleTheme}
+          aria-pressed={theme === 'light'}
+          title={theme === 'light' ? 'Switch to dark theme' : 'Switch to light theme'}
+          className={`${btnBase} border-slate-700 bg-steel-900 text-slate-400 hover:border-slate-500 hover:text-slate-200`}
+        >
+          {theme === 'light' ? <Icon.Moon className="h-4 w-4" /> : <Icon.Sun className="h-4 w-4" />}
+          <span className="hidden sm:inline">{theme === 'light' ? 'Dark' : 'Light'}</span>
+        </button>
       </div>
 
       {/* Global progress bar ---------------------------------------------- */}
@@ -1097,6 +1155,43 @@ function SortHeader({ label, active, dir, onClick, className = '' }) {
   );
 }
 
+// Drag-to-resize grip on the right edge of a resizable matrix column header.
+// Pointer events update the persisted px width live; double-click resets it.
+function ColResizeHandle({ col, onResize, onReset }) {
+  const onPointerDown = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const cell = e.currentTarget.parentElement;
+    const startW = cell ? cell.getBoundingClientRect().width : 120;
+    const move = (ev) => onResize(col, startW + (ev.clientX - startX));
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+  };
+  return (
+    <span
+      onPointerDown={onPointerDown}
+      onDoubleClick={(e) => {
+        e.stopPropagation();
+        onReset(col);
+      }}
+      onClick={(e) => e.stopPropagation()}
+      title="Drag to resize · double-click to reset"
+      className="absolute -right-1 top-0 z-10 flex h-full w-2.5 cursor-col-resize touch-none items-center justify-center"
+    >
+      <span className="h-3.5 w-px bg-slate-600 transition-colors hover:bg-amber" />
+    </span>
+  );
+}
+
 function PortDetailTable({ host }) {
   const { scanHostVulns, profiles, scanProfile, scanScripts, scanPorts } = useScan();
   const vulns = collectVulns(host);
@@ -1116,7 +1211,7 @@ function PortDetailTable({ host }) {
       {/* Per-host toolbar — always visible so nmap can be run on any device.
           `items-start` + a wrapping meta line + a `shrink-0` button means a long
           metadata line wraps under itself instead of colliding with the button. */}
-      <div className="flex items-start justify-between gap-3 rounded border border-slate-700/70 bg-steel-850/60 px-3 py-1.5">
+      <div className="eg-detail-toolbar flex items-start justify-between gap-3 rounded border border-slate-700/70 bg-steel-850/95 px-3 py-1.5 backdrop-blur">
         <div className="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[11px] text-slate-400">
           <Icon.Server className="h-3.5 w-3.5 shrink-0 text-slate-500" />
           <span className="text-slate-200">{host.ip}</span>
@@ -1226,7 +1321,7 @@ function PortDetailTable({ host }) {
           {host.ports.map((p) => (
             <div
               key={`${p.port}/${p.protocol}`}
-              className={`grid grid-cols-[80px_72px_minmax(120px,1fr)_minmax(150px,1.5fr)_120px] items-center px-3 py-1.5 font-mono text-xs ${
+              className={`eg-port-row grid grid-cols-[80px_72px_minmax(120px,1fr)_minmax(150px,1.5fr)_120px] items-center px-3 py-1.5 font-mono text-xs ${
                 p.critical ? 'bg-crimson/5' : ''
               }`}
             >
@@ -1357,7 +1452,7 @@ function PortDetailTable({ host }) {
   );
 }
 
-function AssetRow({ host, expanded, onToggle }) {
+function AssetRow({ host, expanded, onToggle, template }) {
   const openCount = countOpenPorts(host);
   const crit = criticalCount(host);
   const isDown = host.status === HostStatus.DOWN;
@@ -1370,7 +1465,8 @@ function AssetRow({ host, expanded, onToggle }) {
         tabIndex={0}
         onClick={onToggle}
         onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), onToggle())}
-        className={`${GRID_COLS} cursor-pointer px-2 py-2.5 text-sm transition hover:bg-steel-800/60 ${
+        style={{ gridTemplateColumns: template }}
+        className={`${GRID_COLS} eg-grid-row cursor-pointer px-2 py-2.5 text-sm transition hover:bg-steel-800/60 ${
           expanded ? 'bg-steel-800/40' : ''
         }`}
       >
@@ -1531,10 +1627,18 @@ function ScanStateBadge({ host }) {
   );
 }
 
-function MatrixHeader({ sort, onSort, allExpanded, onToggleAll }) {
+function MatrixHeader({ sort, onSort, allExpanded, onToggleAll, template, onResize, onResetCol }) {
+  // A resizable column header: truncating label + a drag grip on its right edge.
+  const ColHead = ({ col, children }) => (
+    <span className="relative flex items-center pr-2 uppercase tracking-wider text-slate-500">
+      <span className="truncate">{children}</span>
+      <ColResizeHandle col={col} onResize={onResize} onReset={onResetCol} />
+    </span>
+  );
   return (
     <div
-      className={`${GRID_COLS} sticky top-0 z-10 border-b border-slate-700 bg-steel-850/95 px-2 py-2 text-[10px] font-semibold backdrop-blur`}
+      style={{ gridTemplateColumns: template }}
+      className={`${GRID_COLS} eg-matrix-header sticky top-0 z-10 border-b border-slate-700 bg-steel-850/95 px-2 py-2 text-[10px] font-semibold backdrop-blur`}
     >
       <button
         onClick={onToggleAll}
@@ -1556,10 +1660,10 @@ function MatrixHeader({ sort, onSort, allExpanded, onToggleAll }) {
         dir={sort.dir}
         onClick={() => onSort('ip')}
       />
-      <span className="uppercase tracking-wider text-slate-500">Hostname</span>
-      <span className="uppercase tracking-wider text-slate-500">Vendor</span>
-      <span className="uppercase tracking-wider text-slate-500">Device / OS</span>
-      <span className="uppercase tracking-wider text-slate-500">MAC</span>
+      <ColHead col="hostname">Hostname</ColHead>
+      <ColHead col="vendor">Vendor</ColHead>
+      <ColHead col="device">Device / OS</ColHead>
+      <ColHead col="mac">MAC</ColHead>
       <SortHeader
         label="Ports"
         active={sort.key === 'ports'}
@@ -1699,6 +1803,8 @@ function TopologyView({ hosts, onScan }) {
 
 function AssetMatrix({ hosts }) {
   const { scanHostVulns } = useScan();
+  const { colWidths, setColWidth } = usePreferences();
+  const template = useMemo(() => gridTemplate(colWidths), [colWidths]);
   const [view, setView] = useState('table'); // 'table' | 'map'
   const [query, setQuery] = useState('');
   const [filters, setFilters] = useState(() => new Set());
@@ -1834,6 +1940,9 @@ function AssetMatrix({ hosts }) {
                 onSort={onSort}
                 allExpanded={allExpanded}
                 onToggleAll={toggleAll}
+                template={template}
+                onResize={setColWidth}
+                onResetCol={(col) => setColWidth(col, COL_DEFAULTS[col])}
               />
               {visible.length === 0 ? (
                 <div className="px-6 py-16 text-center font-mono text-sm text-slate-500">
@@ -1847,6 +1956,7 @@ function AssetMatrix({ hosts }) {
                       host={host}
                       expanded={expanded.has(host.ip)}
                       onToggle={() => toggleRow(host.ip)}
+                      template={template}
                     />
                   ))}
                 </div>

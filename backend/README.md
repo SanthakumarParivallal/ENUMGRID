@@ -43,7 +43,8 @@ forwards `/api/*` to this server, so the dashboard talks to it same-origin.
 | GET | `/api/history/diff?target=<t>` | drift vs the previous scan: new/gone devices + opened/closed ports |
 
 `mode=discover` (default) is the fast device inventory (MAC + vendor + hostname +
-**device-type** fingerprint + **mDNS/Bonjour** names, no nmap). `mode=full` runs
+**device-type** fingerprint + **mDNS/Bonjour** + **SSDP/UPnP** names + a quick
+**common-port preview**, no nmap). `mode=full` runs
 the two-tiered nmap pipeline. `deep=1` adds an NSE **vuln-script** pass (`nmap --script vuln,vulners`),
 populating each port's `vulns[]` with real findings (CVE id, CVSS, severity). It's
 much slower, so it's opt-in.
