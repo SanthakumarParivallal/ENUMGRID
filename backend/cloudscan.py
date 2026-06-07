@@ -98,7 +98,7 @@ def aws_inventory(region: str | None = None) -> dict:
             name = b.get("Name", "")
             try:
                 acls.append((name, s3.get_bucket_acl(Bucket=name)))
-            except Exception:  # noqa: BLE001 - per-bucket permission errors are fine
+            except Exception:  # noqa: BLE001  # nosec B112 - per-bucket permission errors are expected; skip
                 continue
         bucket_findings = public_buckets(acls)
     except Exception as exc:  # noqa: BLE001 - surface a clean reason (creds/network)
