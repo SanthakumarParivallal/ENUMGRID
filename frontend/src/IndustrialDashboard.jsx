@@ -2035,8 +2035,9 @@ const COMMON_SCRIPTS = [
 /**
  * CVE / NVD API-key control. A free key from nvd.nist.gov raises the live-CVE
  * rate limit (5 → 50 req/30s). This makes it dead-simple: see the current
- * status, paste a key (applied immediately, in memory), or copy the one line
- * that makes it permanent in `.env`. No file-hunting required.
+ * status and paste a key — it applies immediately AND persists across restarts
+ * (saved to a local owner-only, git-ignored file). An `.env` var still works and
+ * takes precedence on startup. No file-hunting, no re-entering after a restart.
  */
 function NvdKeyButton() {
   const [open, setOpen] = useState(false);
@@ -2139,14 +2140,19 @@ function NvdKeyButton() {
             {msg && <p className="mt-1.5 font-mono text-[10px] text-slate-300">{msg}</p>}
 
             <div className="mt-2 border-t border-slate-700/70 pt-2 text-slate-500">
-              <p className="mb-1">To make it permanent (survives restart), add this line to your <span className="font-mono text-slate-300">.env</span> file:</p>
+              <p className="mb-1 text-[10px]">
+                Applying a key here <b className="text-slate-300">persists it across restarts</b> —
+                saved to a local, owner-only (0600), git-ignored file, never logged. No re-entry needed.
+              </p>
+              <p className="mb-1">Prefer config/containers? Set it via your <span className="font-mono text-slate-300">.env</span> instead (takes precedence on startup):</p>
               <code className="block select-all rounded bg-black/40 px-1.5 py-1 font-mono text-[10px] text-amber-200">
                 {status?.env_hint || 'ENUMGRID_NVD_API_KEY=<your-key>'}
               </code>
-              <p className="mt-1.5 text-[10px]">
-                Key is kept <b>in memory only</b> — never written to disk or logged by the app.
-                {status && <> Cached CVE records: <span className="font-mono text-slate-300">{status.cached_services}</span>.</>}
-              </p>
+              {status && (
+                <p className="mt-1.5 text-[10px]">
+                  Cached CVE records: <span className="font-mono text-slate-300">{status.cached_services}</span>.
+                </p>
+              )}
             </div>
           </div>
         </>

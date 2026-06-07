@@ -40,6 +40,8 @@ oui.txt
 # ---- secrets / local config (keep .env.example tracked) ----
 .env
 .certs/
+# NVD API key persisted from the dashboard (owner-only file, never committed)
+.enumgrid_nvd_key
 
 # ---- runtime logs + local intel caches (operator data) ----
 *.log
