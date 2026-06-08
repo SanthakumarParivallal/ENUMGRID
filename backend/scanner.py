@@ -58,7 +58,11 @@ HOST_SCAN_DEADLINE = int(os.environ.get("ENUMGRID_HOST_DEADLINE", "360"))
 
 # --- tunables (overridable via environment) -------------------------------- #
 DISCOVERY_ARGS = os.environ.get("NMAP_DISCOVERY_ARGS", "-sn -T4")
-TOP_PORTS = os.environ.get("NMAP_TOP_PORTS", "200")
+# Default service scan covers the top 1000 ports (nmap's default breadth) so the
+# out-of-the-box result is thorough — virtually every real-world listening service
+# is in this set. The adaptive pass (see scan_single_host) then sweeps ALL 65535
+# ports on just the hosts that already showed an open port.
+TOP_PORTS = os.environ.get("NMAP_TOP_PORTS", "1000")
 SERVICE_ARGS = os.environ.get(
     "NMAP_SERVICE_ARGS", f"-sV -Pn -T4 --top-ports {TOP_PORTS} --host-timeout 90s"
 )
@@ -953,6 +957,37 @@ async def run_pipeline(target: str, scan_id: str | None, deep: bool = False):
     yield state.model_copy(deep=True)
 
 
+def _merge_scan_results(quick: dict, deep: dict) -> dict:
+    """Union the ports of a quick (top-1000) and a deep (all-ports) scan result.
+
+    On a port collision the deep entry wins (it carries the full ``-sV`` version +
+    CVE data); ports only the quick pass observed are preserved. Host-level fields
+    prefer the deep result when it's more specific. Used by the adaptive scan so
+    the merged Host reflects the most thorough evidence from both passes.
+    """
+    by_key: dict[tuple[int, str], Port] = {}
+    for p in quick.get("ports", []):
+        by_key[(p.port, p.protocol.value)] = p
+    for p in deep.get("ports", []):
+        by_key[(p.port, p.protocol.value)] = p  # deep is authoritative on conflict
+    merged_ports = sorted(by_key.values(), key=lambda p: (p.port, p.protocol.value))
+
+    def _pick(primary: str, fallback: str) -> str:
+        return primary if primary and primary != "Unknown" else fallback
+
+    note = "; ".join(
+        dict.fromkeys(n for n in (quick.get("note", ""), deep.get("note", "")) if n)
+    )
+    return {
+        "os": _pick(deep.get("os", ""), quick.get("os", "")),
+        "hostname": deep.get("hostname") or quick.get("hostname"),
+        "ports": merged_ports,
+        "vulns": _dedupe(list(quick.get("vulns", [])) + list(deep.get("vulns", []))),
+        "device_type": deep.get("device_type") or quick.get("device_type", ""),
+        "note": note,
+    }
+
+
 async def scan_single_host(
     ip: str,
     deep: bool = True,
@@ -960,6 +995,7 @@ async def scan_single_host(
     scripts: str | None = None,
     ports: str | None = None,
     confirm: bool = True,
+    adaptive: bool = False,
 ) -> Host:
     """Scan one already-discovered host with a chosen nmap profile.
 
@@ -968,6 +1004,12 @@ async def scan_single_host(
     leaves ports in the ambiguous `filtered` state, a second pass re-probes just
     those ports with a different technique to resolve them (see
     :func:`_confirm_filtered`).
+
+    `adaptive` (used by the default auto-scan) implements the thorough-where-it-pays
+    strategy: do the fast top-1000 `-sV` scan first, and **only if** that finds an
+    open port, sweep ALL 65535 ports on this one host to catch services outside the
+    top-1000. Hosts with nothing open (the common case for firewalled clients) cost
+    just the quick pass — no wasted full-port scan, and nothing is ever fabricated.
     """
     loop = asyncio.get_running_loop()
     privileged = can_raw_scan()  # root OR passwordless sudo → real raw-socket scans
@@ -981,6 +1023,26 @@ async def scan_single_host(
         ),
         timeout=HOST_SCAN_DEADLINE,
     )
+
+    # Adaptive all-ports deep pass — only when the quick scan actually found an
+    # open port and the caller didn't pin a profile/port set. This is what makes
+    # "default" both fast (skips dead/firewalled hosts) and thorough (full sweep of
+    # live ones). Best-effort: a timeout/error just keeps the quick-scan result.
+    quick_open = [p for p in result["ports"] if p.state in (PortState.OPEN, PortState.OPEN_FILTERED)]
+    if adaptive and quick_open and not profile and not ports:
+        try:
+            deep_res = await asyncio.wait_for(
+                loop.run_in_executor(
+                    _SCAN_EXECUTOR,
+                    functools.partial(
+                        _service_scan, ip, privileged, deep, "fullports", None, None, True
+                    ),
+                ),
+                timeout=HOST_SCAN_DEADLINE,
+            )
+            result = _merge_scan_results(result, deep_res)
+        except (TimeoutError, asyncio.TimeoutError, nmap.PortScannerError):
+            pass  # keep the thorough-enough top-1000 result
 
     port_objs: list[Port] = result["ports"]
     # Second-chance confirmation for ports stuck in 'filtered'.

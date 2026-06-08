@@ -36,6 +36,14 @@ Separating discovery from enumeration is what makes the tool feel like Angry IP
 explicitly user-triggered so a scan never blasts every port on every host by
 surprise.
 
+**Adaptive depth.** Phase 2's default is a top-1000 `-sV` scan; then, *only* for a
+host that already showed an open port, it sweeps all 65 535 ports and merges the
+results (`scan_single_host(adaptive=…)` → `_merge_scan_results`, deep wins on a
+port collision). This is "thorough where it pays": live servers get an exhaustive
+picture, while firewalled/quiet endpoints (the common case — host firewalls, Wi-Fi
+client isolation) cost just the quick pass. Zero open ports is reported honestly,
+with the likely cause surfaced; ports are never fabricated.
+
 ## 3. Confidence-graded liveness (anti-false-positive)
 
 Not every "response" proves a host exists. The discovery engine grades evidence:
@@ -71,6 +79,16 @@ filling gaps the previous left. The TCP port preview is a fast, fanned-out
 connect-scan of the common ports during discovery; its results both populate the
 grid immediately and feed the device-type classifier (open-port signatures are
 its strongest signal), so DEVICE/OS sharpens before the on-demand `nmap -sV` runs.
+
+**Classification priority (and why it's honest).** `guess_device_type` ranks
+evidence **open ports > services > hostname > OUI vendor**. Hostname sits above
+vendor on purpose: a device's *self-assigned* name (`DESKTOP-…`, `W11N-…`) is a
+stronger identity than the OUI of a sub-component — the OUI frequently names the
+Wi-Fi/BT module (AzureWave, Intel, InProComm) rather than the product, which would
+otherwise mislabel a Windows laptop as "IoT". The OS line is equally conservative:
+a randomized ("locally-administered") MAC reports only the TTL family, never a
+fabricated "Android / iOS"; an empty/ambiguous signal stays blank. The rule
+throughout is *label only what the evidence supports, never guess*.
 
 This is the measured design thesis (see [`EVALUATION.md`](EVALUATION.md)):
 unprivileged, it finds ~3.7× the hosts of `nmap -sn`.

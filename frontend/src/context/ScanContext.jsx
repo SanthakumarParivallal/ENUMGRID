@@ -617,7 +617,10 @@ export function ScanProvider({ children }) {
         ? AbortSignal.timeout(360000) // -sV/-A (+ optional NSE) can be slow
         : undefined;
     const sp = stateRef.current;
-    const params = new URLSearchParams({ ip, deep: deep ? '1' : '0' });
+    // adaptive=1: on the default profile the backend does a fast top-1000 scan and
+    // then, only for hosts that show an open port, sweeps all 65535 ports. The
+    // backend ignores it when an explicit profile/port set is chosen.
+    const params = new URLSearchParams({ ip, deep: deep ? '1' : '0', adaptive: '1' });
     if (sp.scanProfile && sp.scanProfile !== 'default') params.set('profile', sp.scanProfile);
     if (sp.scanScripts) params.set('scripts', sp.scanScripts);
     if (sp.scanPorts) params.set('ports', sp.scanPorts);

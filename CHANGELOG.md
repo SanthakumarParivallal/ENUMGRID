@@ -19,6 +19,12 @@ All notable changes to **ENUMGRID: the Enumeration Platform**. Format based on
   the live grid shows open ports immediately (no nmap, no root). These ports also
   feed the device-type classifier (port signatures are its strongest hint), so
   DEVICE/OS sharpens for free. The full `-sV`/CVE pass stays on-demand per host.
+- **Adaptive port scanning** (`backend/scanner.py`) — the default service scan now
+  covers the **top 1000** ports with `-sV` (up from 200), and then sweeps **all
+  65 535** ports on *only* the hosts that already showed at least one open port
+  (`scan_single_host(adaptive=…)`, `_merge_scan_results`; `?adaptive=1`). Thorough
+  where it pays, fast where it doesn't (firewalled/dead hosts cost just the quick
+  pass) — and never a fabricated port.
 
 ### Added — web cockpit
 - **Light theme** — a "paper" light theme alongside the dark cockpit, toggled from
@@ -34,6 +40,35 @@ All notable changes to **ENUMGRID: the Enumeration Platform**. Format based on
   below the matrix header while scrolling a long ports/vulns list.
 - View preferences (theme · density · column widths) persist in `localStorage`
   (`frontend/src/lib/preferences.js`) and apply before first paint (no theme flash).
+- **Bigger NSE script menu** — the one-click "add NSE" chips are now a curated,
+  categorized set (HTTP · TLS · SSH · SMB/Windows · Naming/Services · CVE — ~30
+  scripts), all server-validated and non-intrusive, with a one-click "clear".
+- **Topology map scales to any host count** — the radial view now sizes its SVG
+  canvas to the data and distributes nodes across circumference-proportional rings,
+  so a large `/24` no longer collapses or overlaps (verified 11→150 hosts, every
+  node in-bounds with arc-gap > node diameter).
+- **Honest "no open ports" diagnostic** — when most fully-scanned hosts expose no
+  ports, the grid explains the likely *real* cause (host firewalls / Wi-Fi client
+  isolation — visible via ARP at L2, unreachable over TCP at L3) instead of leaving
+  it ambiguous. It never invents ports.
+
+### Changed
+- **NVD API key now persists across restarts** (`backend/cve.py`) — a key entered
+  in the dashboard is saved to a local, owner-only (`0600`), git-ignored file and
+  loaded on startup (`ENUMGRID_NVD_API_KEY` still takes precedence), so it no longer
+  has to be re-entered after every restart. The key is still never logged.
+
+### Fixed — classification accuracy (anti-hallucination)
+- **Device type mislabelled from the Wi-Fi-chip vendor** (`backend/fingerprint.py`)
+  — `guess_device_type` ranked the OUI vendor above the hostname, so a Windows
+  "DESKTOP-…"/"W11N-…" machine whose wireless module is made by an IoT-adjacent
+  vendor (e.g. AzureWave) was tagged "IoT / Embedded". Priority is now
+  ports > services > **hostname > vendor** — a device's self-assigned name beats
+  its sub-component's OUI. Verified: `DESKTOP-…`/`W11N-…` → Computer / Windows.
+- **Fabricated mobile OS for randomized MACs** (`backend/osfp.py`) — a private
+  ("locally-administered") MAC no longer asserts "Android / iOS"; it reports only
+  the honest TTL family (Linux/macOS/Unix · Windows · or nothing), since a private
+  MAC is just as likely a laptop. Windows "DESKTOP-…" hostnames resolve to Windows.
 
 ### Fixed
 - **PDF report could crash / inject markup** (`backend/report.py`) — service/version
@@ -48,6 +83,10 @@ All notable changes to **ENUMGRID: the Enumeration Platform**. Format based on
   `self-signed.badssl.com`.
 - **Auth tokens compared in non-constant time** (`backend/security.py`) — admin /
   viewer token checks now use `hmac.compare_digest` (timing-safe).
+- **CI security gate (bandit B406)** (`backend/report.py`) — importing
+  `xml.sax.saxutils` (used only for output *escaping*, not parsing) tripped
+  bandit's XML blacklist and failed the security job. Replaced with inline
+  escapers so no blacklisted module is imported; bandit is clean again.
 - **AWS security-group audit ignored IPv6** (`backend/cloudscan.py`) — ingress open
   to `::/0` is now flagged like `0.0.0.0/0`.
 - **Discover-mode ports vs. "scanned"** (frontend) — now that discovery shows
@@ -61,12 +100,14 @@ All notable changes to **ENUMGRID: the Enumeration Platform**. Format based on
 
 ### Configuration
 - New env vars: `ENUMGRID_DISCOVER_PORTS`, `ENUMGRID_PORT_TIMEOUT`,
-  `ENUMGRID_MDNS_SECS`, `ENUMGRID_SSDP_SECS` (see `backend/README.md`).
+  `ENUMGRID_MDNS_SECS`, `ENUMGRID_SSDP_SECS`, `ENUMGRID_NVD_KEY_FILE`
+  (see `backend/README.md`). The default `NMAP_TOP_PORTS` is now `1000` (was `200`).
 
 ### Quality
-- **435 tests** (CLI 84 · backend 325 · evaluation 7 · frontend 19) — new suites
-  `test_discovery.py`, `test_ssdp.py`, plus report-escaping and SG-IPv6 regressions.
-  ruff 0.
+- **441 tests** (CLI 84 · backend 331 · evaluation 7 · frontend 19) — new suites
+  `test_discovery.py`, `test_ssdp.py`; new regressions for report-escaping, SG-IPv6,
+  NVD-key persistence, device-type priority (hostname > vendor) and honest
+  randomized-MAC OS. ruff 0; bandit 0.
 
 ## [1.0.0] — 2026-06-06
 

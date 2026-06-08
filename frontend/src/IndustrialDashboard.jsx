@@ -1757,11 +1757,6 @@ function TopoNode({ x, y, host, radius, center, onScan }) {
 }
 
 function TopologyView({ hosts, onScan }) {
-  const W = 920;
-  const H = 620;
-  const cx = W / 2;
-  const cy = H / 2;
-
   // Hub = the gateway/router (by type, else the .1 host, else the first host).
   const gw =
     hosts.find((h) => /router|gateway/i.test(h.device_type || '')) ||
@@ -1769,33 +1764,75 @@ function TopologyView({ hosts, onScan }) {
     hosts[0];
   const others = hosts.filter((h) => h !== gw);
 
-  const PER_RING = 12;
-  const BASE_R = 135;
-  const RING_STEP = 115;
-  const nodes = others.map((h, i) => {
-    const ring = Math.floor(i / PER_RING);
-    const ringStart = ring * PER_RING;
-    const inRing = Math.min(PER_RING, others.length - ringStart);
-    const pos = i - ringStart;
-    const r = BASE_R + ring * RING_STEP;
-    const angle = (2 * Math.PI * pos) / inRing - Math.PI / 2;
-    return { host: h, x: cx + r * Math.cos(angle), y: cy + r * Math.sin(angle) };
-  });
+  // Adaptive radial layout — fits ANY host count without clipping/overlap:
+  // rings hold a count proportional to their circumference (outer rings hold
+  // more), node size shrinks as the network grows, and the SVG viewBox is sized
+  // to the outermost ring so nothing ever falls outside the canvas.
+  const n = others.length;
+  const nodeR = n > 120 ? 6 : n > 60 ? 8 : n > 30 ? 11 : 15;
+  const minSpacing = nodeR * 2 + 16; // min arc gap between adjacent node centers
+  const baseR = 120 + nodeR * 3;
+  const ringStep = nodeR * 2 + 64;
+
+  const nodes = [];
+  let placed = 0;
+  let ring = 0;
+  while (placed < n) {
+    const r = baseR + ring * ringStep;
+    const cap = Math.max(6, Math.floor((2 * Math.PI * r) / minSpacing));
+    const count = Math.min(cap, n - placed);
+    const offset = (ring % 2) * (Math.PI / count); // stagger alternate rings
+    for (let p = 0; p < count; p += 1) {
+      const angle = (2 * Math.PI * p) / count - Math.PI / 2 + offset;
+      nodes.push({ host: others[placed + p], r, angle });
+    }
+    placed += count;
+    ring += 1;
+  }
+  const ringCount = ring;
+  const maxR = baseR + Math.max(0, ringCount - 1) * ringStep;
+  const pad = nodeR + 56;
+  const size = Math.max(420, 2 * (maxR + pad));
+  const cx = size / 2;
+  const cy = size / 2;
+  const pos = nodes.map((nd) => ({
+    host: nd.host,
+    x: cx + nd.r * Math.cos(nd.angle),
+    y: cy + nd.r * Math.sin(nd.angle),
+  }));
 
   return (
     <div className="min-h-0 flex-1 overflow-auto p-4">
-      <svg viewBox={`0 0 ${W} ${H}`} className="mx-auto block w-full max-w-[1100px]" style={{ minHeight: 460 }}>
-        {nodes.map((n) => (
-          <line key={`e-${n.host.ip}`} x1={cx} y1={cy} x2={n.x} y2={n.y} stroke="#1e293b" strokeWidth="1" />
+      <svg
+        viewBox={`0 0 ${size} ${size}`}
+        className="mx-auto block w-full"
+        style={{ maxWidth: Math.min(size, 1100), minHeight: 420 }}
+        preserveAspectRatio="xMidYMid meet"
+      >
+        {/* faint ring guides */}
+        {Array.from({ length: ringCount }, (_, i) => (
+          <circle
+            key={`ring-${i}`}
+            cx={cx}
+            cy={cy}
+            r={baseR + i * ringStep}
+            fill="none"
+            stroke="rgb(var(--slate-800))"
+            strokeWidth="1"
+            strokeDasharray="2 5"
+          />
         ))}
-        {gw && <TopoNode x={cx} y={cy} host={gw} radius={28} center onScan={onScan} />}
-        {nodes.map((n) => (
-          <TopoNode key={n.host.ip} x={n.x} y={n.y} host={n.host} radius={18} onScan={onScan} />
+        {pos.map((nd) => (
+          <line key={`e-${nd.host.ip}`} x1={cx} y1={cy} x2={nd.x} y2={nd.y} stroke="rgb(var(--slate-800))" strokeWidth="1" />
+        ))}
+        {gw && <TopoNode x={cx} y={cy} host={gw} radius={Math.max(nodeR + 8, 20)} center onScan={onScan} />}
+        {pos.map((nd) => (
+          <TopoNode key={nd.host.ip} x={nd.x} y={nd.y} host={nd.host} radius={nodeR} onScan={onScan} />
         ))}
       </svg>
       <p className="mt-2 text-center font-mono text-[10px] text-slate-600">
-        hub = gateway · ring = discovered devices · color = device type (amber router · green smart/IoT · crimson
-        finding) · click a node to nmap it
+        hub = gateway · {others.length} devices on {ringCount} ring{ringCount === 1 ? '' : 's'} · color = device
+        type (amber router · green smart/IoT · crimson finding) · click a node to nmap it
       </p>
     </div>
   );
@@ -1884,6 +1921,14 @@ function AssetMatrix({ hosts }) {
   const toggleAll = () =>
     setExpanded(allExpanded ? new Set() : new Set(visible.map((h) => h.ip)));
 
+  // Honest diagnostic (no fabrication): when most fully-scanned hosts expose zero
+  // open ports, that's almost always a real network condition — host firewalls or
+  // Wi-Fi client isolation (devices are visible at layer 2 via ARP but unreachable
+  // at layer 3). We explain it rather than inventing ports.
+  const scannedUp = hosts.filter((h) => h.status === HostStatus.UP && h.scanned);
+  const closedUp = scannedUp.filter((h) => countOpenPorts(h) === 0);
+  const mostlyClosed = scannedUp.length >= 5 && closedUp.length / scannedUp.length >= 0.8;
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <FilterToolbar
@@ -1930,6 +1975,19 @@ function AssetMatrix({ hosts }) {
               </button>
             ))}
           </div>
+
+          {mostlyClosed && (
+            <div className="flex items-start gap-2 border-b border-amber/25 bg-amber/[0.06] px-3 py-1.5 text-[11px] text-amber/90">
+              <Icon.Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>
+                <b>{closedUp.length} of {scannedUp.length} scanned hosts show no open ports.</b>{' '}
+                This is normal and <b>real</b>, not a tool error — endpoints commonly run a host
+                firewall, and many corporate/guest Wi-Fi networks use <b>client isolation</b> (devices
+                are visible via ARP at layer&nbsp;2 but can't be reached over TCP at layer&nbsp;3). Any
+                ports shown are genuinely open; nothing is simulated.
+              </span>
+            </div>
+          )}
 
           {view === 'map' ? (
             <TopologyView hosts={visible} onScan={scanHostVulns} />
@@ -2026,10 +2084,41 @@ function ScanErrorBanner() {
   );
 }
 
-// Common, non-intrusive NSE scripts offered as one-click chips in the nmap bar.
-const COMMON_SCRIPTS = [
-  'http-title', 'http-headers', 'http-enum', 'ssl-cert', 'ssl-enum-ciphers',
-  'ssh-hostkey', 'smb-os-discovery', 'banner', 'vulners',
+// Curated, non-intrusive NSE scripts offered as one-click chips, grouped by
+// category. All names are server-validated (no brute/exploit/dos/malware) and
+// match the backend's name regex (alnum/_/-/* only — no dots), so picking any of
+// these is injection-safe by construction.
+const SCRIPT_GROUPS = [
+  {
+    label: 'HTTP',
+    scripts: [
+      'http-title', 'http-headers', 'http-server-header', 'http-methods',
+      'http-enum', 'http-auth', 'http-cors', 'http-security-headers',
+    ],
+  },
+  {
+    label: 'TLS',
+    scripts: ['ssl-cert', 'ssl-enum-ciphers', 'ssl-date', 'tls-alpn', 'tls-nextprotoneg'],
+  },
+  {
+    label: 'SSH',
+    scripts: ['ssh-hostkey', 'ssh-auth-methods', 'ssh2-enum-algos'],
+  },
+  {
+    label: 'SMB / Windows',
+    scripts: [
+      'smb-os-discovery', 'smb-security-mode', 'smb2-security-mode',
+      'smb-protocols', 'smb2-capabilities', 'smb2-time',
+    ],
+  },
+  {
+    label: 'Naming / services',
+    scripts: ['banner', 'dns-service-discovery', 'nbstat', 'snmp-info', 'rpcinfo', 'ftp-anon', 'smtp-commands'],
+  },
+  {
+    label: 'CVE',
+    scripts: ['vulners', 'vuln'],
+  },
 ];
 
 /**
@@ -2283,27 +2372,44 @@ function ScanConfigBar() {
         />
       </div>
 
-      {/* Row 4 — one-click NSE script menu */}
-      <div className="flex flex-wrap items-center gap-1">
-        <span className="mr-1 text-[10px] font-semibold uppercase tracking-widest text-slate-500">
-          add NSE
-        </span>
-        {COMMON_SCRIPTS.map((s) => {
-          const on = scriptSet.has(s);
-          return (
+      {/* Row 4 — one-click NSE script menu, grouped by category */}
+      <div className="space-y-1">
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+            add NSE
+          </span>
+          {scriptSet.size > 0 && (
             <button
-              key={s}
-              onClick={() => toggleScript(s)}
-              className={`rounded border px-1.5 py-0.5 font-mono text-[10px] transition ${
-                on
-                  ? 'border-amber bg-amber/15 text-amber'
-                  : 'border-slate-700 bg-steel-900 text-slate-400 hover:border-slate-500 hover:text-slate-200'
-              }`}
+              onClick={() => [...scriptSet].forEach((s) => toggleScript(s))}
+              className="rounded border border-slate-700 px-1.5 py-0.5 font-mono text-[10px] text-slate-400 transition hover:border-crimson/60 hover:text-crimson"
             >
-              {on ? '✓ ' : '+ '}{s}
+              clear {scriptSet.size}
             </button>
-          );
-        })}
+          )}
+        </div>
+        {SCRIPT_GROUPS.map((group) => (
+          <div key={group.label} className="flex flex-wrap items-center gap-1">
+            <span className="mr-1 w-[88px] shrink-0 text-right text-[9px] font-semibold uppercase tracking-wider text-slate-600">
+              {group.label}
+            </span>
+            {group.scripts.map((s) => {
+              const on = scriptSet.has(s);
+              return (
+                <button
+                  key={s}
+                  onClick={() => toggleScript(s)}
+                  className={`rounded border px-1.5 py-0.5 font-mono text-[10px] transition ${
+                    on
+                      ? 'border-amber bg-amber/15 text-amber'
+                      : 'border-slate-700 bg-steel-900 text-slate-400 hover:border-slate-500 hover:text-slate-200'
+                  }`}
+                >
+                  {on ? '✓ ' : '+ '}{s}
+                </button>
+              );
+            })}
+          </div>
+        ))}
       </div>
 
       {/* Auto-adapt notice: a root-only profile still runs unprivileged, downgraded. */}

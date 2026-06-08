@@ -89,6 +89,10 @@ _HOST_OS = (
     (("openwrt",), "OpenWrt (Linux)"),
     (("raspberrypi", "raspberry"), "Linux (Raspberry Pi OS)"),
     (("ubuntu",), "Linux (Ubuntu)"),
+    # Windows self-assigned names: the default machine name is "DESKTOP-XXXXXXX";
+    # corporate images use "WnnN-…" asset tags; these laptop lines ship Windows.
+    (("desktop-", "w11", "w10", "win-", "thinkpad", "latitude", "elitebook",
+      "probook", "optiplex", "precision"), "Windows"),
 )
 
 
@@ -135,12 +139,17 @@ def refine_os(
     if "apple" in vlow or dtype == "Apple device":
         return _apple_os_from_hostname(hostname)
 
-    # 3) Known Android maker → Android (Linux kernel).
-    if any(v in vlow for v in _ANDROID_VENDORS) or dtype in ("Phone / Tablet", "Phone / Laptop"):
-        # A laptop-or-phone (random MAC) on a 128-TTL stack is Windows; else Android.
-        if ttl_family == "Windows":
-            return "Windows"
-        return "Android" if (vlow and any(v in vlow for v in _ANDROID_VENDORS)) else "Android / iOS"
+    # 3) Known Android maker (a real OUI signal) → Android (Linux kernel).
+    if any(v in vlow for v in _ANDROID_VENDORS) or dtype == "Phone / Tablet":
+        # A 128-TTL stack is Windows; otherwise the maker tells us it's Android.
+        return "Windows" if ttl_family == "Windows" else "Android"
+
+    # 3b) "Phone / Laptop" is the *randomized-MAC* fallback — there is NO real
+    #     vendor/hostname signal, so we must NOT assert a mobile OS. A private MAC
+    #     is just as likely a Windows/macOS/Linux laptop as a phone. Report only
+    #     the honest TTL family (or nothing) — never a fabricated "Android / iOS".
+    if dtype == "Phone / Laptop":
+        return ttl_family
 
     # 4) Infrastructure / embedded by device class.
     if dtype == "Router / Gateway":

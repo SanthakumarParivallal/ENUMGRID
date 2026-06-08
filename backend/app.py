@@ -285,6 +285,7 @@ async def host_scan(
     profile: str | None = Query(None, description="scan profile (quick/intense/aggressive/vuln/...)"),
     scripts: str | None = Query(None, description="extra NSE scripts/categories (comma list)"),
     ports: str | None = Query(None, description="explicit port spec, e.g. 1-1024,3389"),
+    adaptive: bool = Query(False, description="default profile only: if the top-1000 scan finds an open port, sweep all 65535"),
     token: str | None = Query(None, description="API token (only if one is configured)"),
     authorization: str | None = Header(None),
 ):
@@ -309,7 +310,7 @@ async def host_scan(
                 status_code=429,
             )
         try:
-            host = await scan_single_host(ip, deep, profile, scripts, ports)
+            host = await scan_single_host(ip, deep, profile, scripts, ports, adaptive=adaptive)
         except (TimeoutError, asyncio.TimeoutError):
             return JSONResponse(
                 {"error": "scan timed out — try a faster profile or a narrower port range"},
@@ -503,6 +504,7 @@ def _job_host_scan(params: dict) -> dict:
     host = asyncio.run(scan_single_host(
         ip, deep=bool(params.get("deep", False)),
         profile=params.get("profile"), scripts=params.get("scripts"), ports=params.get("ports"),
+        adaptive=bool(params.get("adaptive", False)),
     ))
     return host.model_dump()
 
