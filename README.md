@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/SanthakumarParivallal/ENUMGRID/actions/workflows/ci.yml/badge.svg)](https://github.com/SanthakumarParivallal/ENUMGRID/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-FFB300.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-435%20passing-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-441%20passing-brightgreen.svg)](#testing)
 [![Python](https://img.shields.io/badge/python-3.10%E2%80%933.13-blue.svg)](pyproject.toml)
 [![Node](https://img.shields.io/badge/node-%E2%89%A520-blue.svg)](frontend/package.json)
 [![SAST: bandit](https://img.shields.io/badge/SAST-bandit%200%20high%2Fmed-blue.svg)](#security)
@@ -140,9 +140,13 @@ Phase 2  Vertical deep-dive nmap -sV (+ NSE)   service / version / vuln detectio
   randomized "private Wi-Fi" MACs are detected and labelled, not guessed.
 > 📊 **Measured:** on a real `/24`, EnumGrid found **11/12 live hosts (recall 1.00)** vs unprivileged `nmap -sn`'s **3 (recall 0.27)** — faster, zero false positives. See [`docs/EVALUATION.md`](docs/EVALUATION.md).
 
-- **Device-type fingerprinting** — vendor + open ports + services + hostname →
-  a coarse type (Router / Phone / Printer / Camera / Media-TV / NAS / IoT /
-  Computer). Evidence-driven and explainable; shows nothing when unsure.
+- **Device-type fingerprinting (accurate, never fabricated)** — open ports +
+  services + **hostname > vendor** → a coarse type (Router / Phone / Printer /
+  Camera / Media-TV / NAS / IoT / Computer). A device's *self-assigned name* (e.g.
+  `DESKTOP-…`) outranks the OUI of its Wi-Fi chip, so a Windows laptop isn't
+  mislabelled "IoT" just because its wireless module vendor is IoT-adjacent. A
+  randomized ("private") MAC reports only the honest TTL OS family — never a
+  guessed "Android / iOS". Evidence-driven and explainable; shows nothing when unsure.
 - **mDNS / Bonjour resolution** (web) — browses the network for advertised
   services (printers, Apple gear, Chromecasts, Sonos, HomeKit) to fill real
   device **names** and confident types for hosts that have no reverse-DNS record
@@ -170,6 +174,12 @@ Phase 2  Vertical deep-dive nmap -sV (+ NSE)   service / version / vuln detectio
   not just a one-shot scan.
 - **Service / version detection** — Phase 2 runs real `nmap -sV`; ports, service
   names and product versions stream into each device's expandable detail table.
+- **Adaptive depth (thorough where it pays)** — the default scan covers the **top
+  1000** ports with `-sV`, then automatically sweeps **all 65 535** ports on *only*
+  the hosts that already showed an open port. Live servers get a full picture;
+  firewalled/quiet clients cost just the quick pass. When most scanned hosts show
+  no ports, the grid honestly flags the likely cause (host firewall / Wi-Fi client
+  isolation) rather than inventing ports.
 - **11 Zenmap-style scan profiles** — pick per scan from the toolbar dropdown:
   *Quick · Default · Intense · **Recon** (rich safe enum: titles, certs, host
   keys, SMB/DNS) · Aggressive (`-A` +OS) · **Stealth SYN** (`-sS -T2`, low-noise)
@@ -199,7 +209,9 @@ Phase 2  Vertical deep-dive nmap -sV (+ NSE)   service / version / vuln detectio
      a last-resort fallback.
   Every finding is a **clickable link to its NVD page** and tagged with its
   **confidence** (`confirmed` = NSE actively tested · `version` = version/CPE
-  match — verify). Set `ENUMGRID_NVD_API_KEY` to raise the NVD rate limit;
+  match — verify). Paste a free **NVD API key in the dashboard** to raise the rate
+  limit (5 → 50 req/30s) — it now **persists across restarts** (owner-only,
+  git-ignored file; never logged), or set `ENUMGRID_NVD_API_KEY` (takes precedence).
   `ENUMGRID_NVD_DISABLE=1` turns live lookups off. (Verified live: an OpenSSH
   `7.2p2` CPE returned 12 current CVEs in ~2.6 s, then instant from cache.)
 - **Risk prioritization (KEV + EPSS).** Findings are enriched with **CISA KEV**
@@ -264,11 +276,11 @@ make test      # ruff lint + CLI pytest + backend pytest + frontend Vitest
 | Suite | Count | Scope |
 |---|---|---|
 | `test_purple_recon.py` | 84 | guardrails (incl. IPv6 scope), NDP/ARP/OUI parsing, discovery policy, reports, export, renderers, **fuzzing** |
-| `backend/test_*.py` | 325 | scope/**RBAC** (constant-time tokens), **11 scan profiles** + injection safety, **privilege auto-adaptation** (root/sudo/unprivileged downgrade), **live NVD + offline CVE DB + OSV backport-aware**, **KEV+EPSS prioritization**, **credentialed SSH + package parsers**, **web-DAST audit** (TLS cert parse), **SNMP BER codec**, **AWS/LDAP parsers** (incl. IPv6 SG), **job-queue**, **outbound alerting + audit**, NSE/CVSS, **multi-signal OS fingerprinting**, device discovery + mDNS + **NBNS** + **SSDP** + **port probe**, history + drift, **PDF escaping**, **FastAPI integration**, **hypothesis fuzzing** |
+| `backend/test_*.py` | 331 | scope/**RBAC** (constant-time tokens), **11 scan profiles** + injection safety + **adaptive all-ports scan**, **privilege auto-adaptation** (root/sudo/unprivileged downgrade), **live NVD** (+ persisted API key) **+ offline CVE DB + OSV backport-aware**, **KEV+EPSS prioritization**, **credentialed SSH + package parsers**, **web-DAST audit** (TLS cert parse), **SNMP BER codec**, **AWS/LDAP parsers** (incl. IPv6 SG), **job-queue**, **outbound alerting + audit**, NSE/CVSS, **multi-signal OS fingerprinting** (hostname > vendor, honest random-MAC OS), device discovery + mDNS + **NBNS** + **SSDP** + **port probe**, history + drift, **PDF escaping**, **FastAPI integration**, **hypothesis fuzzing** |
 | `frontend/src/**/*.test.js` | 19 | schema coercion / null-safety + scan-state transients, CVE link + confidence + **KEV/EPSS risk-rank**, derived counters |
 | `evaluation/test_benchmark.py` | 7 | benchmark metric math (precision/recall/Jaccard) |
 
-**435 tests, all green.** Static analysis is clean: **ruff** 0 findings, **bandit**
+**441 tests, all green.** Static analysis is clean: **ruff** 0 findings, **bandit**
 SAST 0 high/medium, **pip-audit** 0 known CVEs, **npm audit** 0 (vite 8 / vitest 4).
 CI (`.github/workflows/ci.yml`)
 runs **5 jobs** — lint (ruff), **security** (bandit + pip-audit + npm audit), CLI

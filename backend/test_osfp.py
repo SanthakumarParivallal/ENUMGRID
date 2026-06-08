@@ -76,6 +76,24 @@ def test_refine_windows_stays_windows():
     assert refine_os("Windows", vendor="Dell Inc.") == "Windows"
 
 
+def test_refine_windows_hostname():
+    # A Windows "DESKTOP-…" / "W11N-…" name is a strong Windows signal even if the
+    # TTL family came back as the generic 64-bucket.
+    assert refine_os("Linux / macOS / Unix", hostname="DESKTOP-SC8BRDS") == "Windows"
+    assert refine_os("Linux / macOS / Unix", hostname="W11N-ITR34321") == "Windows"
+
+
+def test_refine_random_mac_does_not_fake_mobile_os():
+    # "Phone / Laptop" is the randomized-MAC fallback (no real vendor/hostname).
+    # We must report only the honest TTL family — never a fabricated "Android / iOS".
+    assert refine_os("Linux / macOS / Unix", vendor="(private/random)",
+                     device_type="Phone / Laptop") == "Linux / macOS / Unix"
+    assert refine_os("Windows", vendor="(private/random)",
+                     device_type="Phone / Laptop") == "Windows"
+    # No TTL reply at all → honestly unknown (empty), not a guess.
+    assert refine_os("", vendor="(private/random)", device_type="Phone / Laptop") == ""
+
+
 def test_refine_no_signal_keeps_family():
     # No vendor/hostname/type → unchanged honest family (never degraded).
     assert refine_os("Linux / macOS / Unix") == "Linux / macOS / Unix"

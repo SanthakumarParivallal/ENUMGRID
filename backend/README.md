@@ -37,7 +37,7 @@ forwards `/api/*` to this server, so the dashboard talks to it same-origin.
 | GET | `/api/health` | `{ status, nmap, privileged, max_concurrent_scans, allow_public }` |
 | GET | `/api/network` | best-effort `{ primary_ip, suggested_target }` (dashboard auto-fill / empty-target Start) |
 | GET | `/api/scan/stream?target=<t>&id=<id>&mode=<discover\|full>&deep=<0\|1>` | SSE stream of `ScanState` frames |
-| GET | `/api/host/scan?ip=<ip>&deep=<0\|1>` | nmap one host, returns its `Host` (per-row "Nmap Scan" + "Scan All") |
+| GET | `/api/host/scan?ip=<ip>&deep=<0\|1>&adaptive=<0\|1>` | nmap one host, returns its `Host` (per-row "Nmap Scan" + "Scan All"). `adaptive=1` (default profile only): after the top-1000 `-sV` scan, if an open port is found, sweep all 65535 on that host |
 | POST | `/api/report/pdf` | body = a `ScanState` snapshot → `application/pdf` download |
 | GET | `/api/history?target=<t>&limit=<n>` | recent scan summaries (timeline) |
 | GET | `/api/history/diff?target=<t>` | drift vs the previous scan: new/gone devices + opened/closed ports |
@@ -83,7 +83,9 @@ packet is sent. Refused (returns an `Error` frame / `400` carrying a `message`):
 | `ENUMGRID_MDNS_SECS` | `6.0` | how long to listen for mDNS/Bonjour announcements (longer = more device names resolved) |
 | `ENUMGRID_SSDP_SECS` | `2.5` | how long to wait for SSDP/UPnP replies (resolves names + models for routers, smart TVs, media players, IoT) |
 | `ENUMGRID_API_TOKEN` | _(unset)_ | when set, require `?token=` or `Authorization: Bearer …` |
-| `ENUMGRID_NVD_API_KEY` | _(unset)_ | NVD API key — raises the live-CVE rate limit (5→50 req/30s) |
+| `ENUMGRID_NVD_API_KEY` | _(unset)_ | NVD API key — raises the live-CVE rate limit (5→50 req/30s). Takes precedence over a key entered in the dashboard |
+| `ENUMGRID_NVD_KEY_FILE` | `backend/.enumgrid_nvd_key` | where a dashboard-entered NVD key is persisted (owner-only `0600`, git-ignored, never logged) so it survives restarts |
+| `NMAP_TOP_PORTS` | `1000` | port breadth for the default/vuln profiles; the adaptive pass then sweeps all 65535 on hosts with an open port |
 | `ENUMGRID_NVD_DISABLE` | `0` | set `1` to disable live NVD lookups (cache + offline still used) |
 | `ENUMGRID_CVE_TTL_DAYS` | `30` | freshness window for the local CVE cache |
 | `ENUMGRID_NVD_BUDGET` | `20` | max seconds of live NVD lookups per host scan |

@@ -74,7 +74,12 @@ _HOSTNAME_HINTS: list[tuple[tuple[str, ...], str]] = [
     (("echo", "alexa", "nest", "hue", "hive"), "Smart-home"),
     (("nas", "synology", "diskstation", "qnap"), "NAS / Storage"),
     (("iphone", "ipad", "android", "phone", "pixel", "galaxy"), "Phone / Tablet"),
-    (("macbook", "imac", "desktop", "laptop", "pc", "thinkpad"), "Computer"),
+    # Windows / desktop / laptop self-assigned names. NB: Windows' default machine
+    # name is "DESKTOP-XXXXXXX" and many corporate images use "WnnN-…"/asset tags,
+    # so these are a strong, device-declared "this is a computer" signal.
+    (("macbook", "imac", "desktop", "laptop", "pc-", "-pc", "thinkpad", "latitude",
+      "elitebook", "probook", "optiplex", "precision", "surface", "w11", "w10",
+      "win-", "wks", "workstation"), "Computer"),
 ]
 
 # Modern phones/laptops use a randomized ("locally-administered") MAC for privacy.
@@ -99,10 +104,14 @@ def guess_device_type(
 ) -> str:
     """Return a coarse device-type label, or "" when no signal is strong enough.
 
-    Priority: open-port signatures > service names > OUI vendor > hostname. This
-    ordering puts the most reliable (observed-port) evidence first and falls back
-    to softer hints, so a freshly-discovered device (vendor only) still gets a
-    sensible label that sharpens once it's nmap-scanned.
+    Priority: open-port signatures > service names > **hostname** > OUI vendor >
+    randomized-MAC hint. Observed evidence (ports/services) comes first; then the
+    device's *self-assigned hostname* — which is a stronger identity signal than
+    the OUI vendor, because the OUI often names a sub-component (e.g. the Wi-Fi
+    module: AzureWave/Intel/InProComm) rather than the product. That ordering is
+    what stops a Windows "DESKTOP-…" laptop being mislabelled "IoT" just because
+    its wireless card is made by an IoT-adjacent vendor. Returns "" when nothing
+    is strong enough — we never guess.
     """
     open_ports = set(ports or [])
 
@@ -117,16 +126,16 @@ def guess_device_type(
         if hit:
             return hit
 
-    # 3) OUI vendor
+    # 3) hostname (device's own name — beats the OUI of a sub-component vendor)
+    hit = _match_keywords(hostname, _HOSTNAME_HINTS)
+    if hit:
+        return hit
+
+    # 4) OUI vendor
     if vendor and vendor != RANDOM_MAC_LABEL:
         hit = _match_keywords(vendor, _VENDOR_HINTS)
         if hit:
             return hit
-
-    # 4) hostname
-    hit = _match_keywords(hostname, _HOSTNAME_HINTS)
-    if hit:
-        return hit
 
     # 5) a randomized MAC with no other signal is almost always a modern
     #    phone/laptop using a private Wi-Fi address — a useful, honest hint.
