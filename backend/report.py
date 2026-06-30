@@ -239,9 +239,17 @@ def _chips(label, pairs, styles):
     return Paragraph(f"<b>{_esc(label)}:</b> {body}", styles["PRMutedBody"])
 
 
+# Defensive upper bound on how many hosts a single report renders. Legitimate
+# scans are already bounded by the host cap (default 4096); this guards against a
+# crafted/oversized POST body exhausting memory in reportlab.
+MAX_REPORT_HOSTS = 10000
+
+
 def build_pdf(payload: dict) -> bytes:
     """Render a ScanState-shaped dict into a PDF and return its bytes."""
-    hosts = sorted(payload.get("hosts") or [], key=lambda h: _ip_key(h.get("ip", "")))
+    raw_hosts = payload.get("hosts")
+    raw_hosts = raw_hosts if isinstance(raw_hosts, list) else []
+    hosts = sorted(raw_hosts[:MAX_REPORT_HOSTS], key=lambda h: _ip_key(h.get("ip", "")))
     target = payload.get("target") or "—"
     summary = _summary(hosts)
     generated = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")

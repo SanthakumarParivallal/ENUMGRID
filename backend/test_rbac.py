@@ -46,3 +46,27 @@ def test_legacy_api_token_is_admin(monkeypatch):
     _set(monkeypatch, api="legacy")  # ENUMGRID_API_TOKEN counts as admin
     assert security.admin_ok("legacy", None) is True
     assert security.admin_ok(None, None) is False
+
+
+# --- open-mode locality guard (anti LAN-exposure / DNS-rebinding) ----------- #
+def test_open_mode_detection(monkeypatch):
+    _set(monkeypatch)
+    assert security.open_mode() is True
+    _set(monkeypatch, admin="x")
+    assert security.open_mode() is False
+    _set(monkeypatch, viewer="v")
+    assert security.open_mode() is False
+
+
+def test_client_is_local():
+    for ok in ("127.0.0.1", "::1", "localhost", "127.5.6.7", "testclient"):
+        assert security.client_is_local(ok) is True, ok
+    for bad in ("192.168.0.10", "10.0.0.5", "8.8.8.8", "", None, "evil.com"):
+        assert security.client_is_local(bad) is False, bad
+
+
+def test_host_header_local():
+    for ok in ("localhost", "127.0.0.1", "127.0.0.1:8011", "[::1]:8011", "localhost:5173", None):
+        assert security.host_header_local(ok) is True, ok
+    for bad in ("evil.com", "evil.com:8011", "10.0.0.5:8011", "attacker.example"):
+        assert security.host_header_local(bad) is False, bad

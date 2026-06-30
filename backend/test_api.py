@@ -153,3 +153,25 @@ def test_history_diff_unavailable_then_changes():
     diff = client.get("/api/history/diff?target=10.0.0.0/24").json()
     assert diff["available"] is True and diff["has_changes"] is True
     assert any(h["ip"] == "10.0.0.9" for h in diff["disappeared_hosts"])
+
+
+# --- open-mode locality guard (anti LAN-exposure / DNS-rebinding) ----------- #
+def test_open_mode_blocks_rebinding_host_header():
+    # In open (no-token) mode a request whose Host header is a rebound domain is
+    # refused, even though the in-process peer is "local" — defeating DNS rebinding.
+    r = client.get("/api/health", headers={"host": "evil.example.com"})
+    assert r.status_code == 401
+    # A genuinely local Host is served.
+    assert client.get("/api/health", headers={"host": "localhost:8011"}).status_code == 200
+
+
+def test_history_requires_token_when_configured(monkeypatch):
+    # With auth enabled, the inventory endpoints must NOT be readable without a
+    # token (regression: they previously bypassed RBAC unlike /api/audit).
+    monkeypatch.setattr(security, "ADMIN_TOKEN", "secret")
+    monkeypatch.setattr(security, "API_TOKEN", None)
+    monkeypatch.setattr(security, "VIEWER_TOKEN", None)
+    assert client.get("/api/history").status_code == 401
+    assert client.get("/api/history/diff?target=10.0.0.0/24").status_code == 401
+    assert client.get("/api/history?token=secret").status_code == 200
+    assert client.get("/api/history/diff?target=10.0.0.0/24&token=secret").status_code == 200

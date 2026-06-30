@@ -67,10 +67,20 @@ The web API runs the **same `ScopeValidator` as the CLI** (`backend/security.py`
 reuses `purple_recon.ScopeValidator`), so every request is vetted before a single
 packet is sent. Refused (returns an `Error` frame / `400` carrying a `message`):
 
-- loopback `127.0.0.0/8`, multicast, broadcast, link-local, reserved space;
+- loopback `127.0.0.0/8`, multicast, broadcast, link-local (incl. cloud-metadata
+  `169.254.169.254`), reserved space; hostnames are rejected (IP/CIDR only);
 - anything with injectable characters (anti nmap-flag-injection);
 - scopes larger than the host cap;
 - **public / internet-routable** targets — unless you opt in (below).
+
+**Access control & exposure.** RBAC: `ENUMGRID_ADMIN_TOKEN` (launch scans /
+credentialed checks) and optional `ENUMGRID_VIEWER_TOKEN` (read-only: health,
+history, audit). With **no token configured the API is fail-closed to local
+clients** — a middleware refuses any `/api/*` call from a non-loopback peer or
+with a non-local `Host` header (anti DNS-rebinding), so binding to `0.0.0.0`
+(Docker `--network host`) can't expose the scanner to the LAN without a token.
+The scan history (`/api/history*`) is RBAC-gated like `/api/audit`. Prefer the
+`Authorization: Bearer …` header over `?token=` (query strings leak into logs).
 
 | Env var | Default | Effect |
 | ------- | ------- | ------ |
@@ -82,7 +92,9 @@ packet is sent. Refused (returns an `Error` frame / `400` carrying a `message`):
 | `ENUMGRID_PORT_TIMEOUT` | `0.5` | per-port connect timeout (seconds) for the discover-mode port probe |
 | `ENUMGRID_MDNS_SECS` | `6.0` | how long to listen for mDNS/Bonjour announcements (longer = more device names resolved) |
 | `ENUMGRID_SSDP_SECS` | `2.5` | how long to wait for SSDP/UPnP replies (resolves names + models for routers, smart TVs, media players, IoT) |
-| `ENUMGRID_API_TOKEN` | _(unset)_ | when set, require `?token=` or `Authorization: Bearer …` |
+| `ENUMGRID_ADMIN_TOKEN` | _(unset)_ | admin token — required for scans / credentialed checks when set (prefer the `Authorization: Bearer …` header) |
+| `ENUMGRID_VIEWER_TOKEN` | _(unset)_ | read-only token (health / history / audit) |
+| `ENUMGRID_API_TOKEN` | _(unset)_ | legacy alias for the admin token (`?token=` or `Authorization: Bearer …`) |
 | `ENUMGRID_NVD_API_KEY` | _(unset)_ | NVD API key — raises the live-CVE rate limit (5→50 req/30s). Takes precedence over a key entered in the dashboard |
 | `ENUMGRID_NVD_KEY_FILE` | `backend/.enumgrid_nvd_key` | where a dashboard-entered NVD key is persisted (owner-only `0600`, git-ignored, never logged) so it survives restarts |
 | `NMAP_TOP_PORTS` | `1000` | port breadth for the default/vuln profiles; the adaptive pass then sweeps all 65535 on hosts with an open port |
