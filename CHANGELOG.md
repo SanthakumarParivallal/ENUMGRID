@@ -98,16 +98,38 @@ All notable changes to **ENUMGRID: the Enumeration Platform**. Format based on
   port service/version) now carry `min-w-0` so long values ellipsize instead of
   expanding their column; the vuln-finding badge row wraps.
 
+### Security (audit)
+*Findings from a full white-box source audit (OWASP-aligned manual review +
+Bandit/pip-audit/npm-audit). No critical/RCE issues; the items below were fixed.*
+- **Unauthenticated LAN exposure of the zero-config API (High)** — with no token,
+  open mode granted admin to *every* caller; combined with the `0.0.0.0` Docker
+  `--network host` bind this exposed the scanner to the LAN. Open mode is now
+  **fail-closed to local clients**: a middleware refuses any `/api/*` request from
+  a non-loopback peer when no token is set (`app.py:_local_only_in_open_mode`,
+  `security.open_mode`/`client_is_local`).
+- **DNS-rebinding / drive-by scanning (Medium)** — the same middleware validates
+  the `Host` header is local in open mode, so a rebound origin can't drive the
+  local scanner (`security.host_header_local`).
+- **Inventory disclosure via history endpoints (Medium)** — `/api/history` and
+  `/api/history/diff` are now RBAC-gated (viewer/admin) like `/api/audit`, instead
+  of serving the device/port inventory unauthenticated.
+- **PDF endpoint memory exhaustion (Low)** — `build_pdf` caps the host list
+  (`MAX_REPORT_HOSTS`) before rendering.
+- Hardening guidance added (prefer `Authorization` header over `?token=`; TLS +
+  token before remote exposure; data-at-rest permissions) — see
+  [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) (T15–T18) and `SECURITY.md`.
+
 ### Configuration
 - New env vars: `ENUMGRID_DISCOVER_PORTS`, `ENUMGRID_PORT_TIMEOUT`,
   `ENUMGRID_MDNS_SECS`, `ENUMGRID_SSDP_SECS`, `ENUMGRID_NVD_KEY_FILE`
   (see `backend/README.md`). The default `NMAP_TOP_PORTS` is now `1000` (was `200`).
 
 ### Quality
-- **441 tests** (CLI 84 · backend 331 · evaluation 7 · frontend 19) — new suites
+- **446 tests** (CLI 84 · backend 336 · evaluation 7 · frontend 19) — new suites
   `test_discovery.py`, `test_ssdp.py`; new regressions for report-escaping, SG-IPv6,
-  NVD-key persistence, device-type priority (hostname > vendor) and honest
-  randomized-MAC OS. ruff 0; bandit 0.
+  NVD-key persistence, device-type priority (hostname > vendor), honest
+  randomized-MAC OS, and the **open-mode locality guard + history RBAC** security
+  fixes. ruff 0; bandit 0; pip-audit 0; npm audit 0.
 
 ## [1.0.0] — 2026-06-06
 

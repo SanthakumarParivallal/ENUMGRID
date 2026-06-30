@@ -15,7 +15,10 @@ services:
     # Docker Desktop, host networking is limited — prefer `make dev` there.
     network_mode: host
     environment:
-      # With host networking the API is reachable on the LAN — protect it.
+      # With host networking the API binds the host's interfaces, but it is safe
+      # by default: with NO token set it serves *local* clients only (loopback
+      # peer + local Host header) and refuses LAN/remote callers. Set a token to
+      # enable authenticated remote access (and front it with TLS).
       ENUMGRID_API_TOKEN: ${ENUMGRID_API_TOKEN:-}
       ENUMGRID_ALLOW_PUBLIC: ${ENUMGRID_ALLOW_PUBLIC:-}
       ENUMGRID_MAX_SCANS: ${ENUMGRID_MAX_SCANS:-4}

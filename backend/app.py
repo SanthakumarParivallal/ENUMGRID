@@ -29,6 +29,7 @@ import history
 import jobs
 import notify
 import osv
+import security
 import threatintel
 import webscan
 from discovery import run_discovery
@@ -78,6 +79,37 @@ _SSE_HEADERS = {
     "Connection": "keep-alive",
     "X-Accel-Buffering": "no",
 }
+
+
+@app.middleware("http")
+async def _local_only_in_open_mode(request, call_next):
+    """Fail-closed guard for the zero-config (no-token) deployment.
+
+    When no auth token is configured the API grants admin to every caller, which
+    is only acceptable for a *local* operator. This guard therefore restricts open
+    mode to loopback peers whose `Host` header is also local — so binding to
+    `0.0.0.0` (e.g. Docker `--network host`), a LAN client, or a DNS-rebinding /
+    drive-by request from a browser on another origin cannot drive the scanner
+    without an explicit `ENUMGRID_ADMIN_TOKEN`. When a token *is* configured the
+    per-endpoint RBAC checks govern access and this guard steps aside.
+    """
+    path = request.url.path
+    if path.startswith("/api/") and security.open_mode():
+        client_host = request.client.host if request.client else None
+        if not (
+            security.client_is_local(client_host)
+            and security.host_header_local(request.headers.get("host"))
+        ):
+            return JSONResponse(
+                {
+                    "error": (
+                        "API is in open (no-token) mode and serves local clients only. "
+                        "Set ENUMGRID_ADMIN_TOKEN to enable authenticated remote access."
+                    )
+                },
+                status_code=401,
+            )
+    return await call_next(request)
 
 
 @app.get("/api/health")
@@ -415,21 +447,35 @@ def report_pdf(payload: dict = Body(...)) -> Response:
 def history_list(
     target: str | None = Query(None, description="filter to one target"),
     limit: int = Query(50, description="max rows (newest first)"),
+    token: str | None = Query(None),
+    authorization: str | None = Header(None),
 ) -> dict:
-    """Recent scan summaries — powers the dashboard's history timeline."""
+    """Recent scan summaries — powers the dashboard's history timeline.
+
+    Read access (viewer or admin); open when no tokens are configured. The scan
+    history is operator data (device inventory + open ports), so it is gated by
+    the same RBAC as the audit log rather than served unauthenticated.
+    """
+    if not token_ok(token, authorization):
+        raise HTTPException(status_code=401, detail="unauthorized")
     return {"scans": history.list_scans(target, limit)}
 
 
 @app.get("/api/history/diff")
 def history_diff(
     target: str = Query(..., description="target to compute drift for"),
+    token: str | None = Query(None),
+    authorization: str | None = Header(None),
 ) -> dict:
     """'What changed since last time?' for `target`.
 
     Compares the two most recent stored scans and returns new/gone devices and
     per-host opened/closed ports. `available` is False until there are two scans
-    of the same target to compare.
+    of the same target to compare. Read-gated (viewer or admin) like the history
+    list, since it discloses the same operator inventory data.
     """
+    if not token_ok(token, authorization):
+        raise HTTPException(status_code=401, detail="unauthorized")
     return history.drift_for_target(target)
 
 

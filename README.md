@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/SanthakumarParivallal/ENUMGRID/actions/workflows/ci.yml/badge.svg)](https://github.com/SanthakumarParivallal/ENUMGRID/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-FFB300.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-441%20passing-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-446%20passing-brightgreen.svg)](#testing)
 [![Python](https://img.shields.io/badge/python-3.10%E2%80%933.13-blue.svg)](pyproject.toml)
 [![Node](https://img.shields.io/badge/node-%E2%89%A520-blue.svg)](frontend/package.json)
 [![SAST: bandit](https://img.shields.io/badge/SAST-bandit%200%20high%2Fmed-blue.svg)](#security)
@@ -276,11 +276,11 @@ make test      # ruff lint + CLI pytest + backend pytest + frontend Vitest
 | Suite | Count | Scope |
 |---|---|---|
 | `test_purple_recon.py` | 84 | guardrails (incl. IPv6 scope), NDP/ARP/OUI parsing, discovery policy, reports, export, renderers, **fuzzing** |
-| `backend/test_*.py` | 331 | scope/**RBAC** (constant-time tokens), **11 scan profiles** + injection safety + **adaptive all-ports scan**, **privilege auto-adaptation** (root/sudo/unprivileged downgrade), **live NVD** (+ persisted API key) **+ offline CVE DB + OSV backport-aware**, **KEV+EPSS prioritization**, **credentialed SSH + package parsers**, **web-DAST audit** (TLS cert parse), **SNMP BER codec**, **AWS/LDAP parsers** (incl. IPv6 SG), **job-queue**, **outbound alerting + audit**, NSE/CVSS, **multi-signal OS fingerprinting** (hostname > vendor, honest random-MAC OS), device discovery + mDNS + **NBNS** + **SSDP** + **port probe**, history + drift, **PDF escaping**, **FastAPI integration**, **hypothesis fuzzing** |
+| `backend/test_*.py` | 336 | scope/**RBAC** (constant-time tokens), **11 scan profiles** + injection safety + **adaptive all-ports scan**, **privilege auto-adaptation** (root/sudo/unprivileged downgrade), **live NVD** (+ persisted API key) **+ offline CVE DB + OSV backport-aware**, **KEV+EPSS prioritization**, **credentialed SSH + package parsers**, **web-DAST audit** (TLS cert parse), **SNMP BER codec**, **AWS/LDAP parsers** (incl. IPv6 SG), **job-queue**, **outbound alerting + audit**, NSE/CVSS, **multi-signal OS fingerprinting** (hostname > vendor, honest random-MAC OS), device discovery + mDNS + **NBNS** + **SSDP** + **port probe**, history + drift, **PDF escaping**, **FastAPI integration**, **hypothesis fuzzing** |
 | `frontend/src/**/*.test.js` | 19 | schema coercion / null-safety + scan-state transients, CVE link + confidence + **KEV/EPSS risk-rank**, derived counters |
 | `evaluation/test_benchmark.py` | 7 | benchmark metric math (precision/recall/Jaccard) |
 
-**441 tests, all green.** Static analysis is clean: **ruff** 0 findings, **bandit**
+**446 tests, all green.** Static analysis is clean: **ruff** 0 findings, **bandit**
 SAST 0 high/medium, **pip-audit** 0 known CVEs, **npm audit** 0 (vite 8 / vitest 4).
 CI (`.github/workflows/ci.yml`)
 runs **5 jobs** — lint (ruff), **security** (bandit + pip-audit + npm audit), CLI

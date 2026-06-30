@@ -58,6 +58,10 @@ The two boundaries that matter most:
 | T12 | **Report injection / DoS** — a device service banner (or hostname / vuln output) containing `<`, `>`, `&` breaks or injects into the PDF | Every device-/client-supplied value is **escaped** before reaching reportlab's `Paragraph`; CVE links use a quoted, scheme-checked URL | `backend/report.py:_esc` |
 | T13 | **Auth-token recovery via timing** | Admin / viewer token comparison uses **`hmac.compare_digest`** (constant-time) | `backend/security.py:role_for` |
 | T14 | **Hostile TLS certificate during web audit** | The web audit connects with `CERT_NONE` (it *inspects*, doesn't trust-gate), reads the cert in **DER form** and parses it with `cryptography` — a malformed cert yields no findings, never a crash | `backend/webscan.py:_peercert_dict` |
+| T15 | **LAN exposure of the zero-config API** — binding to `0.0.0.0` (Docker `--network host`) with no token would let any LAN host drive the scanner (open mode grants admin to all) | The zero-config "open" mode is **fail-closed to local clients only**: a middleware refuses any `/api/*` call from a non-loopback peer when no token is set, so exposure requires an explicit `ENUMGRID_ADMIN_TOKEN` | `app.py:_local_only_in_open_mode`, `security.client_is_local`, `security.open_mode` |
+| T16 | **DNS-rebinding / drive-by scanning** — a malicious web page resolves its domain to `127.0.0.1` and issues `GET /api/scan/stream?...` to make the local browser drive the scanner | In open mode the middleware also validates the **`Host` header** is local (a rebind sends `Host: evil.com`); state-changing JSON `POST`s are additionally CORS-preflight-gated to the dev origin | `app.py:_local_only_in_open_mode`, `security.host_header_local` |
+| T17 | **Inventory disclosure via history endpoints** — `/api/history*` returned the device/port inventory without auth even when tokens were configured | Both endpoints are now **RBAC-gated** (viewer/admin) like `/api/audit`; open when no tokens are set | `app.py:history_list/history_diff`, `security.token_ok` |
+| T18 | **Memory exhaustion via the PDF endpoint** — an oversized POST body to `/api/report/pdf` could blow up reportlab | The host list is **capped** (`MAX_REPORT_HOSTS`, well above the scan host cap) before rendering | `backend/report.py:build_pdf` |
 
 ## 5. Residual risk & guidance
 
@@ -69,7 +73,19 @@ The two boundaries that matter most:
   server, never the shipped build (`vite build` output contains none of them); CI
   gates on **shipped** deps via `npm audit --omit=dev`.
 - **Before exposing the API beyond localhost**: set `ENUMGRID_API_TOKEN`, keep
-  `ENUMGRID_ALLOW_PUBLIC` unset, and front it with TLS.
+  `ENUMGRID_ALLOW_PUBLIC` unset, and front it with TLS. Without a token the API is
+  fail-closed to local clients (T15/T16), so remote access is opt-in by design.
+- **Prefer the `Authorization: Bearer …` header over `?token=`** when a token is
+  configured: query strings can be written to access logs / proxy logs / browser
+  history. The `?token=` form remains for convenience but the header is the
+  recommended channel, especially over a shared or proxied deployment.
+- **Credentialed inputs** (`/api/host/credscan` SSH, `/api/ad/enum` LDAP) are
+  **admin-gated** and used in memory only (never logged/stored); a client-supplied
+  `key_filename` / `dc_host` is trusted *because the caller is already admin* —
+  these endpoints are for assets you administer, with your own credentials.
+- **Local data at rest** (history DB, CVE/KEV/EPSS caches, audit log) is
+  operator data; on a shared host, restrict the working directory's permissions
+  (the NVD key file is already written `0600`).
 
 ## 6. Authorization (legal)
 

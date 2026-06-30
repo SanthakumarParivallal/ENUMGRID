@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import hmac
+import ipaddress
 import os
 import sys
 
@@ -131,6 +132,69 @@ def role_for(token: str | None, authorization: str | None) -> str | None:
     if viewer and hmac.compare_digest(provided, viewer):
         return "viewer"
     return None
+
+
+def open_mode() -> bool:
+    """True when NO auth token is configured (the zero-config 'open' dev mode).
+
+    In this mode :func:`role_for` grants admin to everyone, which is only safe for
+    *local* clients — the app-level access guard (see ``app.py``) therefore
+    restricts open mode to loopback peers so that binding to ``0.0.0.0`` (e.g. the
+    Docker ``--network host`` deployment) can never expose the scanner to the LAN
+    without an explicit token.
+    """
+    return not (ADMIN_TOKEN or API_TOKEN or VIEWER_TOKEN)
+
+
+# Hostnames that denote a same-machine client. "testclient"/"testserver" are
+# Starlette's in-process TestClient peer + Host values — synthesised by the ASGI
+# test transport and impossible to produce from a real network socket, so
+# trusting them keeps the test suite working without weakening the guarantee for
+# real peers.
+_LOCAL_HOSTNAMES = frozenset(
+    {"127.0.0.1", "::1", "localhost", "testclient", "testserver"}
+)
+
+
+def client_is_local(client_host: str | None) -> bool:
+    """True iff the request's peer address is loopback / same-machine.
+
+    Uses the *real* socket peer (never a spoofable ``X-Forwarded-For``), so it is
+    a sound basis for the open-mode restriction.
+    """
+    host = (client_host or "").strip().lower()
+    if not host:
+        return False
+    if host in _LOCAL_HOSTNAMES:
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def _host_only(host_header: str) -> str:
+    """Strip the optional port from a ``Host`` header (IPv4/name/IPv6-bracketed)."""
+    h = host_header.strip()
+    if h.startswith("["):  # [::1]:8011  →  ::1
+        return h[1 : h.index("]")] if "]" in h else h[1:]
+    if h.count(":") == 1:  # host:port  (IPv4 or name)
+        return h.rsplit(":", 1)[0]
+    return h  # bare IPv6 or no port
+
+
+def host_header_local(host_header: str | None) -> bool:
+    """True iff the ``Host`` header names a loopback host — an anti-DNS-rebinding
+    check used only in open mode (a rebinding attack sends ``Host: evil.com``)."""
+    if not host_header:
+        return True  # no Host header (e.g. HTTP/1.0 / test client) → not a rebind
+    name = _host_only(host_header).lower()
+    if name in _LOCAL_HOSTNAMES:
+        return True
+    try:
+        return ipaddress.ip_address(name).is_loopback
+    except ValueError:
+        return False
 
 
 def token_ok(token: str | None, authorization: str | None) -> bool:
