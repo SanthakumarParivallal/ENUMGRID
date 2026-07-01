@@ -76,7 +76,7 @@ def os_from_ttl(ttl: int | None) -> str:
 _ANDROID_VENDORS = (
     "samsung", "xiaomi", "redmi", "oneplus", "vivo", "oppo", "honor", "huawei",
     "nothing", "motorola", "realme", "lge", "lg electronics", "sony mobile",
-    "tcl", "fairphone", "asus",
+    "tcl", "fairphone", "asus", "transsion", "guangdong oppo",
 )
 # Hostname tokens that pin a personal device's OS precisely.
 _HOST_OS = (
@@ -153,8 +153,16 @@ def refine_os(
 
     # 4) Infrastructure / embedded by device class.
     if dtype == "Router / Gateway":
-        if "mikrotik" in vlow:
+        if "mikrotik" in vlow or "routerboard" in vlow:
             return "MikroTik RouterOS"
+        if "fortinet" in vlow:
+            return "FortiOS"
+        if "sonicwall" in vlow:
+            return "SonicOS"
+        if "palo alto" in vlow:
+            return "PAN-OS"
+        if "sophos" in vlow:
+            return "Sophos Firewall OS"
         return "Router firmware (Linux)"
     if dtype == "Printer":
         return "Printer firmware"

@@ -45,6 +45,9 @@ def test_service_hint():
     "vendor,expected",
     [
         ("Sagemcom Broadband SAS", "Router / Gateway"),
+        ("Routerboard.com", "Router / Gateway"),    # MikroTik's older OUI name
+        ("MikroTikls SIA", "Router / Gateway"),     # MikroTik's newer OUI name
+        ("Fortinet Inc", "Router / Gateway"),
         ("Hangzhou Hikvision", "Camera"),
         ("Brother Industries", "Printer"),
         ("Synology", "NAS / Storage"),

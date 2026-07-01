@@ -112,6 +112,26 @@ async def _local_only_in_open_mode(request, call_next):
     return await call_next(request)
 
 
+# Baseline security response headers (defence-in-depth). Cheap and standard:
+# stop MIME sniffing of the JSON/PDF responses, forbid framing (clickjacking) and
+# referrer leakage, and scope resources to same-origin. Applied to every response.
+_SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Content-Security-Policy": "frame-ancestors 'none'",
+    "Referrer-Policy": "no-referrer",
+    "Cross-Origin-Resource-Policy": "same-origin",
+}
+
+
+@app.middleware("http")
+async def _security_headers(request, call_next):
+    response = await call_next(request)
+    for name, value in _SECURITY_HEADERS.items():
+        response.headers.setdefault(name, value)
+    return response
+
+
 @app.get("/api/health")
 def health() -> dict:
     return {

@@ -27,6 +27,8 @@ import {
   summarizeHosts,
 } from '../lib/schema.js';
 import { createScanEngine, deepScanHost } from '../lib/mockScanEngine.js';
+import { authFetch, authHeaders, streamUrl } from '../lib/auth.js';
+import { hostsToCsv, snapshotToJson, exportFilename, downloadText } from '../lib/exporters.js';
 
 /* ---------------------------------------------------------- initial state -- */
 
@@ -409,7 +411,7 @@ export function ScanProvider({ children }) {
   // a real change raises a dismissible alert + a browser notification.
   const fetchDrift = useCallback((target) => {
     if (!target) return;
-    fetch(`/api/history/diff?target=${encodeURIComponent(target)}`)
+    authFetch(`/api/history/diff?target=${encodeURIComponent(target)}`)
       .then((r) => (r.ok ? r.json() : null))
       .then((drift) => {
         if (!drift) return;
@@ -436,7 +438,9 @@ export function ScanProvider({ children }) {
       const url =
         `/api/scan/stream?target=${encodeURIComponent(target)}&id=${scanId}` +
         (deep ? '&deep=1' : '');
-      const es = new EventSource(url);
+      // EventSource can't set headers, so the token (if any) rides as a query
+      // param — same-origin/localhost only.
+      const es = new EventSource(streamUrl(url));
       let gotData = false;
 
       es.onmessage = (e) => {
@@ -471,7 +475,9 @@ export function ScanProvider({ children }) {
             dispatch({
               type: 'ERROR',
               message:
-                'Backend unreachable — the scan engine isn’t responding. Start it with ./start.sh (or check backend/.backend.log).',
+                'Backend unreachable or unauthorized — the scan engine didn’t respond. ' +
+                'Check it’s running (./start.sh), and if API auth is enabled, set your ' +
+                'API token (the key button in the toolbar).',
             });
           }
         } else {
@@ -515,7 +521,7 @@ export function ScanProvider({ children }) {
         launch('10.0.0.0/24', deep);
         return;
       }
-      fetch('/api/network')
+      authFetch('/api/network')
         .then((r) => (r.ok ? r.json() : null))
         .then((d) => launch((d && d.suggested_target) || '192.168.1.0/24', deep))
         .catch(() => launch('192.168.1.0/24', deep));
@@ -528,7 +534,7 @@ export function ScanProvider({ children }) {
   // --- nmap scan profiles -------------------------------------------------- #
   // Load the allowlisted profiles (+ whether the backend has root for -O) once.
   useEffect(() => {
-    fetch('/api/profiles')
+    authFetch('/api/profiles')
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
         if (d && d.profiles) {
@@ -624,7 +630,7 @@ export function ScanProvider({ children }) {
     if (sp.scanProfile && sp.scanProfile !== 'default') params.set('profile', sp.scanProfile);
     if (sp.scanScripts) params.set('scripts', sp.scanScripts);
     if (sp.scanPorts) params.set('ports', sp.scanPorts);
-    return fetch(`/api/host/scan?${params.toString()}`, { signal })
+    return authFetch(`/api/host/scan?${params.toString()}`, { signal })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
       .then((host) => {
         if (host && host.ip) dispatch({ type: 'HOST_MERGE', host });
@@ -708,7 +714,7 @@ export function ScanProvider({ children }) {
     if (!s.hosts.length) return;
     fetch('/api/report/pdf', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: authHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ target: s.target, hosts: s.hosts, profile: s.scanProfile }),
     })
       .then((r) => (r.ok ? r.blob() : Promise.reject(new Error('report failed'))))
@@ -726,6 +732,20 @@ export function ScanProvider({ children }) {
         // eslint-disable-next-line no-console
         console.warn('[report] PDF generation needs the live backend running');
       });
+  }, []);
+
+  // Client-side CSV / JSON export of the current results (no backend needed —
+  // the data is already in state, matching the CLI's export formats).
+  const exportCsv = useCallback(() => {
+    const s = stateRef.current;
+    if (!s.hosts.length) return;
+    downloadText(exportFilename(s.target, 'csv'), 'text/csv;charset=utf-8', hostsToCsv(s.hosts));
+  }, []);
+
+  const exportJson = useCallback(() => {
+    const s = stateRef.current;
+    if (!s.hosts.length) return;
+    downloadText(exportFilename(s.target, 'json'), 'application/json', snapshotToJson(s.target, s.hosts));
   }, []);
 
   const stopScan = useCallback(() => {
@@ -755,6 +775,8 @@ export function ScanProvider({ children }) {
       scanHostVulns,
       scanAll,
       downloadReport,
+      exportCsv,
+      exportJson,
       shortId,
     }),
     [
@@ -773,6 +795,8 @@ export function ScanProvider({ children }) {
       scanHostVulns,
       scanAll,
       downloadReport,
+      exportCsv,
+      exportJson,
     ],
   );
 

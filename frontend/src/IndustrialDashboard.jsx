@@ -20,6 +20,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useScan } from './context/ScanContext.jsx';
 import { usePreferences, colWidth, COL_DEFAULTS } from './lib/preferences.js';
+import { authFetch, useApiToken } from './lib/auth.js';
 import {
   ScanPhase,
   HostStatus,
@@ -72,6 +73,12 @@ const Icon = {
     <I className={className}>
       <rect x="3" y="4" width="18" height="5" rx="1" />
       <rect x="3" y="12" width="18" height="5" rx="1" className="opacity-60" />
+    </I>
+  ),
+  Lock: ({ className }) => (
+    <I className={className}>
+      <rect x="5" y="11" width="14" height="9" rx="1.5" />
+      <path d="M8 11 V8 A4 4 0 0 1 16 8 V11" />
     </I>
   ),
   Radar: ({ className }) => (
@@ -275,10 +282,14 @@ const QUICK_FILTERS = [
 function osFamily(host) {
   const s = (host?.os || '').toLowerCase();
   if (!s || s === 'unknown' || s === 'fingerprinting…') return '';
-  if (/(apple|macos|ios|ipados|watchos|tvos)/.test(s)) return 'Apple';
+  // The honest unprivileged TTL lump ("Linux / macOS / Unix") names several
+  // families at once — group it as Linux/Unix, not Apple (it contains "macos").
+  if (s.includes('linux / macos')) return 'Linux / Unix';
+  // Android before Apple so "Android / iOS" isn't caught by the \bios\b test.
   if (s.includes('android')) return 'Android';
+  if (s.includes('apple') || /\b(macos|ios|ipados|watchos|tvos)\b/.test(s)) return 'Apple';
   if (s.includes('windows')) return 'Windows';
-  if (/(router|routeros|openwrt)/.test(s)) return 'Router';
+  if (/(router|routeros|openwrt|forti)/.test(s)) return 'Router';
   if (/(embedded|rtos|iot|smart tv)/.test(s)) return 'IoT / Embedded';
   if (/(linux|unix|nas|raspberry|ubuntu|debian)/.test(s)) return 'Linux / Unix';
   return 'Other';
@@ -394,9 +405,59 @@ const SOURCE_BADGE = {
   null: { label: 'Stream Idle', dot: 'bg-slate-500', text: 'text-slate-400' },
 };
 
+// Export the current results as a PDF report, or CSV / JSON data (client-side —
+// matches the CLI's export formats). One consolidated menu keeps the bar tidy.
+function ExportMenu({ disabled, btnBase }) {
+  const { downloadReport, exportCsv, exportJson } = useScan();
+  const [open, setOpen] = useState(false);
+  useEscapeToClose(open, useCallback(() => setOpen(false), []));
+  const item =
+    'flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-xs text-slate-300 transition hover:bg-steel-800 hover:text-slate-100';
+  const run = (fn) => () => {
+    fn();
+    setOpen(false);
+  };
+  return (
+    <div className="relative">
+      <button
+        onClick={() => !disabled && setOpen((o) => !o)}
+        disabled={disabled}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        title="Export the current scan — PDF report, CSV or JSON"
+        className={`${btnBase} border-slate-700 bg-steel-900 text-slate-300 hover:border-slate-500 hover:text-slate-100 disabled:opacity-50`}
+      >
+        <Icon.Download className="h-4 w-4" />
+        Export
+        <span className="text-[9px] opacity-60">▾</span>
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />
+          <div
+            role="menu"
+            aria-label="Export format"
+            className="absolute right-0 z-40 mt-1 w-44 rounded-md border border-slate-700 bg-steel-850 p-1 shadow-glow-amber"
+          >
+            <button role="menuitem" onClick={run(downloadReport)} className={item}>
+              <Icon.Download className="h-3.5 w-3.5 text-crimson" /> PDF report
+            </button>
+            <button role="menuitem" onClick={run(exportCsv)} className={item}>
+              <Icon.Server className="h-3.5 w-3.5 text-matrix" /> CSV (inventory)
+            </button>
+            <button role="menuitem" onClick={run(exportJson)} className={item}>
+              <Icon.Terminal className="h-3.5 w-3.5 text-amber" /> JSON (full snapshot)
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function ControlBar() {
   const { target, phase, progress, running, source, deepScan, startScan, stopScan, toggleDeep,
-    setTarget, scanAll, downloadReport, hosts, monitor, monitorEverySec, toggleMonitor,
+    setTarget, scanAll, hosts, monitor, monitorEverySec, toggleMonitor,
     setMonitorInterval } = useScan();
   const { theme, density, toggleTheme, toggleDensity } = usePreferences();
   const [input, setInput] = useState(target);
@@ -411,7 +472,7 @@ function ControlBar() {
   // the target — so "Start Scan" scans the right subnet out of the box.
   useEffect(() => {
     let cancelled = false;
-    fetch('/api/network')
+    authFetch('/api/network')
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         if (!cancelled && data && data.suggested_target) {
@@ -558,16 +619,8 @@ function ControlBar() {
         {/* Thin divider before secondary actions. */}
         <span className="mx-0.5 hidden h-6 w-px self-center bg-slate-700/70 lg:block" />
 
-        {/* One-click PDF report of the current results. */}
-        <button
-          onClick={downloadReport}
-          disabled={!hasHosts}
-          title="Download a PDF report of the current scan results"
-          className={`${btnBase} border-slate-700 bg-steel-900 text-slate-300 hover:border-slate-500 hover:text-slate-100 disabled:opacity-50`}
-        >
-          <Icon.Download className="h-4 w-4" />
-          Report
-        </button>
+        {/* Export the current results — PDF report, or CSV / JSON data. */}
+        <ExportMenu disabled={!hasHosts} btnBase={btnBase} />
 
         {/* Monitor: auto re-scan on an interval + alert on drift. */}
         <button
@@ -1032,10 +1085,12 @@ function FilterToolbar({
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           spellCheck={false}
+          type="search"
+          aria-label="Search hosts by IP, hostname, OS, service or version"
           placeholder="Search IP, hostname, OS, service or version…"
           className="w-full rounded border border-slate-700 bg-steel-900 py-2 pl-9 pr-8 font-mono text-sm text-slate-100 outline-none transition focus:border-amber/60 focus:shadow-glow-amber"
         />
-        {query && (
+        {query ? (
           <button
             onClick={() => setQuery('')}
             className="absolute right-2 text-slate-500 hover:text-slate-200"
@@ -1043,6 +1098,14 @@ function FilterToolbar({
           >
             <Icon.X className="h-4 w-4" />
           </button>
+        ) : (
+          <kbd
+            aria-hidden="true"
+            title="Press / to search"
+            className="pointer-events-none absolute right-2.5 hidden rounded border border-slate-700 bg-steel-950 px-1 font-mono text-[10px] text-slate-500 sm:block"
+          >
+            /
+          </kbd>
         )}
       </label>
 
@@ -1463,10 +1526,13 @@ function AssetRow({ host, expanded, onToggle, template }) {
       <div
         role="button"
         tabIndex={0}
+        data-host-row
+        aria-expanded={expanded}
+        aria-label={`Host ${host.ip}${host.hostname ? ` (${host.hostname})` : ''} — Enter to ${expanded ? 'collapse' : 'expand'}`}
         onClick={onToggle}
         onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), onToggle())}
         style={{ gridTemplateColumns: template }}
-        className={`${GRID_COLS} eg-grid-row cursor-pointer px-2 py-2.5 text-sm transition hover:bg-steel-800/60 ${
+        className={`${GRID_COLS} eg-grid-row cursor-pointer px-2 py-2.5 text-sm outline-none transition hover:bg-steel-800/60 focus-visible:bg-steel-800 focus-visible:ring-1 focus-visible:ring-amber/60 ${
           expanded ? 'bg-steel-800/40' : ''
         }`}
       >
@@ -1851,6 +1917,35 @@ function AssetMatrix({ hosts }) {
   const [expanded, setExpanded] = useState(() => new Set());
   const [sort, setSort] = useState({ key: 'ip', dir: 'asc' });
 
+  // Global shortcut: "/" focuses the search box (unless already typing).
+  useEffect(() => {
+    const onKey = (e) => {
+      const t = e.target;
+      const typing = t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA'
+        || t.tagName === 'SELECT' || t.isContentEditable);
+      if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === '/') {
+        const s = document.querySelector('input[type="search"]');
+        if (s) { e.preventDefault(); s.focus(); }
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  // Arrow / j / k navigation between host rows (vim-friendly). Enter/Space on a
+  // focused row toggles it (handled by the row itself).
+  const onGridKey = useCallback((e) => {
+    if (!['ArrowDown', 'ArrowUp', 'j', 'k'].includes(e.key)) return;
+    const rows = [...e.currentTarget.querySelectorAll('[data-host-row]')];
+    if (!rows.length) return;
+    const idx = rows.indexOf(document.activeElement);
+    const down = e.key === 'ArrowDown' || e.key === 'j';
+    const next = idx < 0 ? 0 : Math.min(rows.length - 1, Math.max(0, idx + (down ? 1 : -1)));
+    e.preventDefault();
+    rows[next].focus();
+  }, []);
+
   // Distinct device types / OS families present, for the dropdown filters.
   const deviceOptions = useMemo(() => {
     const set = new Set();
@@ -1992,7 +2087,7 @@ function AssetMatrix({ hosts }) {
           {view === 'map' ? (
             <TopologyView hosts={visible} onScan={scanHostVulns} />
           ) : (
-            <div className="min-h-0 flex-1 overflow-auto">
+            <div className="min-h-0 flex-1 overflow-auto" onKeyDown={onGridKey}>
               <MatrixHeader
                 sort={sort}
                 onSort={onSort}
@@ -2121,6 +2216,127 @@ const SCRIPT_GROUPS = [
   },
 ];
 
+// Close a popover on the Escape key (accessibility). Bound only while `open`.
+function useEscapeToClose(open, close) {
+  useEffect(() => {
+    if (!open) return undefined;
+    const onKey = (e) => {
+      if (e.key === 'Escape') close();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [open, close]);
+}
+
+/**
+ * API-token control. The backend is unauthenticated by default (localhost dev).
+ * If the operator enables RBAC (`ENUMGRID_ADMIN_TOKEN`), this is where you paste
+ * the token — it's attached as `Authorization: Bearer …` to every request (and as
+ * `?token=` on the SSE stream, which can't carry headers). Persisted locally so
+ * it survives reloads. "Test" validates it against the auth-gated `/api/audit`.
+ */
+function ApiTokenButton() {
+  const { token, hasToken, setToken } = useApiToken();
+  const [open, setOpen] = useState(false);
+  const [input, setInput] = useState(token);
+  const [msg, setMsg] = useState('');
+  const [testing, setTesting] = useState(false);
+  useEscapeToClose(open, useCallback(() => setOpen(false), []));
+
+  const apply = () => {
+    setToken(input);
+    setMsg(input.trim() ? '✓ Token saved — attached to all requests.' : 'Token cleared.');
+  };
+
+  // Validate by calling a read-gated endpoint: 200 = accepted, 401 = rejected,
+  // and (in open mode) 200 with no token simply means auth isn't enabled.
+  const test = () => {
+    setToken(input); // test exactly what's typed
+    setTesting(true);
+    setMsg('');
+    authFetch('/api/audit?limit=1')
+      .then((r) => {
+        if (r.status === 401) setMsg('✗ Token rejected (401). Check ENUMGRID_ADMIN_TOKEN.');
+        else if (r.ok) setMsg(input.trim() ? '✓ Token accepted.' : '✓ Reachable — auth is not enabled (open mode).');
+        else setMsg(`Backend returned HTTP ${r.status}.`);
+      })
+      .catch(() => setMsg('✗ Backend unreachable — is it running?'))
+      .finally(() => setTesting(false));
+  };
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => { setOpen((o) => !o); setInput(token); setMsg(''); }}
+        title="API token — only needed if the backend has RBAC enabled (ENUMGRID_ADMIN_TOKEN). Off by default."
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        className={`inline-flex items-center gap-1 rounded-sm border px-1.5 py-0.5 text-[10px] font-semibold transition ${
+          hasToken
+            ? 'border-matrix/40 bg-matrix/10 text-matrix'
+            : 'border-slate-700 bg-steel-900 text-slate-400 hover:border-slate-500 hover:text-slate-200'
+        }`}
+      >
+        <Icon.Lock className="h-3 w-3" />
+        Auth: {hasToken ? 'on' : 'off'}
+      </button>
+
+      {open && (
+        <>
+          <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />
+          <div
+            role="dialog"
+            aria-label="API token settings"
+            className="absolute right-0 z-40 mt-1 w-[320px] rounded-md border border-slate-700 bg-steel-850 p-3 text-[11px] shadow-glow-amber"
+          >
+            <div className="mb-2 flex items-center gap-1.5 font-semibold uppercase tracking-wider text-slate-200">
+              <Icon.Lock className="h-3.5 w-3.5" /> API token (RBAC)
+            </div>
+            <p className="mb-2 leading-relaxed text-slate-400">
+              Only needed when the backend runs with a token
+              (<span className="font-mono text-slate-300">ENUMGRID_ADMIN_TOKEN</span>).
+              Left empty otherwise — the local dev server needs none. Stored in this
+              browser and sent as a <span className="font-mono text-slate-300">Bearer</span> header.
+            </p>
+            <div className="flex items-center gap-1.5">
+              <input
+                // eslint-disable-next-line jsx-a11y/no-autofocus
+                autoFocus
+                type="password"
+                value={input}
+                onChange={(e) => setInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && apply()}
+                placeholder="paste API token…"
+                aria-label="API token"
+                spellCheck={false}
+                className="w-full rounded border border-slate-700 bg-steel-900 px-2 py-1 font-mono text-slate-200 outline-none focus:border-amber/60"
+              />
+              <button
+                onClick={apply}
+                className="shrink-0 rounded border border-matrix/50 bg-matrix/10 px-2 py-1 font-semibold uppercase tracking-wider text-matrix transition hover:bg-matrix/20"
+              >
+                Save
+              </button>
+              <button
+                onClick={test}
+                disabled={testing}
+                className="shrink-0 rounded border border-slate-600 bg-steel-900 px-2 py-1 font-semibold uppercase tracking-wider text-slate-300 transition hover:border-slate-400 disabled:opacity-50"
+              >
+                {testing ? '…' : 'Test'}
+              </button>
+            </div>
+            {msg && <p className="mt-1.5 font-mono text-[10px] text-slate-300">{msg}</p>}
+            <p className="mt-2 border-t border-slate-700/70 pt-2 text-[10px] text-slate-500">
+              The token is held only in this browser&#39;s local storage. For a shared
+              machine, clear it (empty + Save) when you&#39;re done.
+            </p>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 /**
  * CVE / NVD API-key control. A free key from nvd.nist.gov raises the live-CVE
  * rate limit (5 → 50 req/30s). This makes it dead-simple: see the current
@@ -2134,9 +2350,10 @@ function NvdKeyButton() {
   const [keyInput, setKeyInput] = useState('');
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState('');
+  useEscapeToClose(open, useCallback(() => setOpen(false), []));
 
   const refresh = useCallback(() => {
-    fetch('/api/settings/nvd')
+    authFetch('/api/settings/nvd')
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => d && setStatus(d))
       .catch(() => {});
@@ -2147,7 +2364,7 @@ function NvdKeyButton() {
   const save = () => {
     setSaving(true);
     setMsg('');
-    fetch('/api/settings/nvd-key', {
+    authFetch('/api/settings/nvd-key', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ key: keyInput }),
@@ -2169,6 +2386,8 @@ function NvdKeyButton() {
       <button
         onClick={() => { setOpen((o) => !o); refresh(); }}
         title="CVE intelligence — set your free NVD API key for faster, higher-volume vulnerability lookups"
+        aria-haspopup="dialog"
+        aria-expanded={open}
         className={`inline-flex items-center gap-1 rounded-sm border px-1.5 py-0.5 text-[10px] font-semibold transition ${
           active
             ? 'border-matrix/40 bg-matrix/10 text-matrix'
@@ -2183,7 +2402,11 @@ function NvdKeyButton() {
         <>
           {/* click-away backdrop */}
           <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 z-40 mt-1 w-[320px] rounded-md border border-slate-700 bg-steel-850 p-3 text-[11px] shadow-glow-amber">
+          <div
+            role="dialog"
+            aria-label="NVD API key settings"
+            className="absolute right-0 z-40 mt-1 w-[320px] rounded-md border border-slate-700 bg-steel-850 p-3 text-[11px] shadow-glow-amber"
+          >
             <div className="mb-2 flex items-center gap-1.5 font-semibold uppercase tracking-wider text-amber">
               <Icon.Key className="h-3.5 w-3.5" /> NVD API key (CVE intelligence)
             </div>
@@ -2211,10 +2434,14 @@ function NvdKeyButton() {
 
             <div className="flex items-center gap-1.5">
               <input
+                // eslint-disable-next-line jsx-a11y/no-autofocus
+                autoFocus
                 type="password"
                 value={keyInput}
                 onChange={(e) => setKeyInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && !saving && keyInput.trim() && save()}
                 placeholder="paste NVD API key…"
+                aria-label="NVD API key"
                 spellCheck={false}
                 className="w-full rounded border border-slate-700 bg-steel-900 px-2 py-1 font-mono text-slate-200 outline-none focus:border-amber/60"
               />
@@ -2332,8 +2559,9 @@ function ScanConfigBar() {
           </span>
         )}
         <span className="hidden text-slate-500 lg:inline">{sel.desc}</span>
-        {/* CVE / NVD API key — pushed to the right; opens an easy settings panel. */}
-        <div className="ml-auto">
+        {/* Settings (pushed right): API token (RBAC) + NVD CVE key. */}
+        <div className="ml-auto flex items-center gap-1.5">
+          <ApiTokenButton />
           <NvdKeyButton />
         </div>
       </div>
