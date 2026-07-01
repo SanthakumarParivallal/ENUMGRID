@@ -61,6 +61,11 @@ def test_refine_router_device_type():
 def test_refine_mikrotik_routeros():
     out = refine_os("Network device / IoT", vendor="MikroTik", device_type="Router / Gateway")
     assert out == "MikroTik RouterOS"
+    # MikroTik's OUI is registered as "Routerboard.com" — must also map to RouterOS.
+    assert refine_os("Linux / macOS / Unix", vendor="Routerboard.com",
+                     device_type="Router / Gateway") == "MikroTik RouterOS"
+    assert refine_os("Linux / macOS / Unix", vendor="Fortinet Inc",
+                     device_type="Router / Gateway") == "FortiOS"
 
 
 def test_refine_printer():

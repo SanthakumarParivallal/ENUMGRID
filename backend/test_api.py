@@ -155,6 +155,15 @@ def test_history_diff_unavailable_then_changes():
     assert any(h["ip"] == "10.0.0.9" for h in diff["disappeared_hosts"])
 
 
+# --- security response headers --------------------------------------------- #
+def test_security_headers_present():
+    h = client.get("/api/health").headers
+    assert h.get("x-content-type-options") == "nosniff"
+    assert h.get("x-frame-options") == "DENY"
+    assert "frame-ancestors 'none'" in h.get("content-security-policy", "")
+    assert h.get("referrer-policy") == "no-referrer"
+
+
 # --- open-mode locality guard (anti LAN-exposure / DNS-rebinding) ----------- #
 def test_open_mode_blocks_rebinding_host_header():
     # In open (no-token) mode a request whose Host header is a rebound domain is
