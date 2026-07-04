@@ -638,7 +638,9 @@ function PrivilegeControl() {
       <button
         onClick={() => setOpen(true)}
         title={meta.note}
-        className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg border px-2.5 py-2 text-xs font-semibold transition ${tone} ${elevated ? 'eg-priv-live' : ''}`}
+        aria-label={`Scan privilege: ${meta.label}. Open elevation dialog`}
+        aria-haspopup="dialog"
+        className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg border px-2.5 py-2 text-xs font-semibold outline-none transition focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-1 focus-visible:ring-offset-steel-950 ${tone} ${elevated ? 'eg-priv-live' : ''}`}
       >
         <Ico className="h-4 w-4" />
         <span className="hidden sm:inline">{meta.label}</span>
@@ -670,6 +672,7 @@ function ExportMenu({ disabled, btnBase }) {
         disabled={disabled}
         aria-haspopup="menu"
         aria-expanded={open}
+        aria-label="Export scan results"
         title="Export the current scan — PDF report, CSV or JSON"
         className={`${btnBase} border-slate-700 bg-steel-900 text-slate-300 hover:border-slate-500 hover:text-slate-100 disabled:opacity-50`}
       >
@@ -718,6 +721,7 @@ function SettingsMenu({ btnBase }) {
         onClick={() => setOpen((o) => !o)}
         aria-haspopup="menu"
         aria-expanded={open}
+        aria-label="Settings"
         title="Settings — theme, density, API token, NVD key"
         className={`${btnBase} border-slate-700 bg-steel-900 text-slate-400 hover:border-slate-500 hover:text-slate-200`}
       >
@@ -793,8 +797,11 @@ function CommandBar({ onOpenNav }) {
     startScan(input, deepScan);
   };
 
+  // Every command-bar button shares this base. `focus:outline-none` drops the
+  // browser default; `focus-visible:ring-*` puts a clearly-visible keyboard
+  // focus ring back (WCAG 2.4.7) — sky reads on both the dark and light themes.
   const btnBase =
-    'inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-semibold transition focus:outline-none disabled:cursor-not-allowed';
+    'inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-1 focus-visible:ring-offset-steel-950 disabled:cursor-not-allowed';
 
   return (
     <header className="eg-glass sticky top-0 z-30 border-b border-slate-700/70">
@@ -832,7 +839,8 @@ function CommandBar({ onOpenNav }) {
         {!running ? (
           <button
             onClick={submit}
-            className={`${btnBase} border-matrix/50 bg-matrix/15 text-matrix hover:bg-matrix hover:text-steel-950 hover:shadow-glow-matrix focus:ring-1 focus:ring-matrix`}
+            aria-label="Start scan"
+            className={`${btnBase} border-matrix/50 bg-matrix/15 text-matrix hover:bg-matrix hover:text-steel-950 hover:shadow-glow-matrix`}
           >
             <Icon.Play className="h-4 w-4" />
             <span className="hidden sm:inline">Start Scan</span>
@@ -840,7 +848,8 @@ function CommandBar({ onOpenNav }) {
         ) : (
           <button
             onClick={stopScan}
-            className={`${btnBase} border-crimson/60 bg-crimson/15 text-crimson hover:bg-crimson hover:text-white hover:shadow-glow-crimson focus:ring-1 focus:ring-crimson`}
+            aria-label="Stop scan"
+            className={`${btnBase} border-crimson/60 bg-crimson/15 text-crimson hover:bg-crimson hover:text-white hover:shadow-glow-crimson`}
           >
             <Icon.Stop className="h-4 w-4" />
             <span className="hidden sm:inline">Stop</span>
@@ -852,6 +861,7 @@ function CommandBar({ onOpenNav }) {
           onClick={toggleDeep}
           disabled={running}
           aria-pressed={deepScan}
+          aria-label="Deep scan (NSE vuln scripts)"
           title="Deep Scan: run NSE vuln scripts (nmap --script vuln) for real CVE findings. Slower."
           className={`${btnBase} disabled:opacity-50 ${
             deepScan
@@ -867,6 +877,7 @@ function CommandBar({ onOpenNav }) {
         <button
           onClick={() => scanAll(false)}
           disabled={!unscanned}
+          aria-label={`Scan all discovered hosts${unscanned ? ` (${unscanned} pending)` : ''}`}
           title="Run an nmap service scan on every discovered host (ports, services, versions, OS)."
           className={`${btnBase} border-amber/50 bg-amber/10 text-amber hover:bg-amber hover:text-steel-950 disabled:border-slate-700 disabled:bg-steel-900 disabled:text-slate-600`}
         >
@@ -886,6 +897,7 @@ function CommandBar({ onOpenNav }) {
           <button
             onClick={toggleMonitor}
             aria-pressed={monitor}
+            aria-label="Monitor mode (auto re-scan on interval)"
             title="Monitor mode: automatically re-scan on an interval and alert on drift."
             className={`${btnBase} ${
               monitor
@@ -1293,6 +1305,8 @@ function FilterToolbar({
           <button
             key={key}
             onClick={() => setView(key)}
+            aria-label={`${label} view`}
+            aria-pressed={view === key}
             className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11px] font-semibold transition ${
               view === key ? 'bg-amber/15 text-amber' : 'text-slate-400 hover:text-slate-200'
             }`}
@@ -2063,7 +2077,7 @@ function ScanConfigPanel() {
         <div className="eg-drawer mt-2 space-y-2.5 rounded-lg border border-slate-700/70 bg-steel-900/60 p-3 text-xs">
           <div className="flex flex-wrap items-center gap-2">
             <span className="flex items-center gap-1.5 font-semibold uppercase tracking-widest text-amber"><Icon.Cpu className="h-3.5 w-3.5" /> Profile</span>
-            <select value={scanProfile} onChange={(e) => setScanProfile(e.target.value)} title="Scan profile — changes the actual nmap command" className={field}>
+            <select value={scanProfile} onChange={(e) => setScanProfile(e.target.value)} aria-label="Nmap scan profile" title="Scan profile — changes the actual nmap command" className={field}>
               {entries.map(([key, p]) => <option key={key} value={key}>{p.label}</option>)}
             </select>
             <button
@@ -2088,8 +2102,8 @@ function ScanConfigPanel() {
           )}
 
           <div className="flex flex-wrap items-center gap-2">
-            <input value={scanScripts} onChange={(e) => setScanScripts(e.target.value)} placeholder="extra NSE scripts — e.g. http-title,ssl-cert" spellCheck={false} title="Comma-separated NSE script names/categories (intrusive ones blocked server-side)" className={`${field} w-full sm:min-w-[170px] sm:flex-1`} />
-            <input value={scanPorts} onChange={(e) => setScanPorts(e.target.value)} placeholder="ports — e.g. 1-1024,3389" spellCheck={false} title="Explicit port spec" className={`${field} w-full sm:w-40`} />
+            <input value={scanScripts} onChange={(e) => setScanScripts(e.target.value)} placeholder="extra NSE scripts — e.g. http-title,ssl-cert" spellCheck={false} aria-label="Extra NSE scripts (comma-separated)" title="Comma-separated NSE script names/categories (intrusive ones blocked server-side)" className={`${field} w-full sm:min-w-[170px] sm:flex-1`} />
+            <input value={scanPorts} onChange={(e) => setScanPorts(e.target.value)} placeholder="ports — e.g. 1-1024,3389" spellCheck={false} aria-label="Port spec" title="Explicit port spec" className={`${field} w-full sm:w-40`} />
           </div>
 
           <div className="space-y-1">
