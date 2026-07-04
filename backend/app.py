@@ -42,8 +42,11 @@ from scanner import (
     PROFILE_META,
     SCAN_PROFILES,
     can_raw_scan,
+    drop_privileges,
+    elevate_sudo,
     is_privileged,
     nmap_available,
+    privilege_status,
     run_pipeline,
     scan_capability,
     scan_single_host,
@@ -144,6 +147,7 @@ def health() -> dict:
         # first two — i.e. real -sS/-sU/-O are available.
         "capability": scan_capability(),
         "can_raw": can_raw_scan(),
+        "can_elevate": privilege_status()["can_elevate"],
         "max_concurrent_scans": MAX_CONCURRENT_SCANS,
         "allow_public": ALLOW_PUBLIC,
         # Live CVE intelligence status (NVD feed + growing local cache).
@@ -287,7 +291,62 @@ def profiles() -> dict:
         "privileged": is_privileged(),
         "capability": scan_capability(),
         "can_raw": can_raw_scan(),
+        # Lets the dashboard offer one-click elevation (enter sudo password) when
+        # we're unprivileged but could raise to real -sS/-sU/-O.
+        **privilege_status(),
     }
+
+
+@app.get("/api/privilege")
+def privilege() -> dict:
+    """Current scan-privilege state for the dashboard's elevation control.
+
+    Lets the UI show whether real raw-socket scans (-sS/-sU/-O) are available and
+    whether the operator could elevate to them by entering a sudo password (see
+    POST /api/privilege/elevate) — no restart required.
+    """
+    return privilege_status()
+
+
+@app.post("/api/privilege/elevate")
+def privilege_elevate(
+    payload: dict = Body(...),
+    token: str | None = Query(None),
+    authorization: str | None = Header(None),
+) -> dict:
+    """Elevate this session to real raw-socket scans using a sudo password.
+
+    The password is validated against `sudo` and then held only in memory for
+    the process lifetime (never persisted, never logged, never returned). This
+    endpoint is reachable only by a local operator (open-mode guard) or an admin
+    token when RBAC is enabled. The password itself is deliberately kept out of
+    the audit log.
+    """
+    if not admin_ok(token, authorization):
+        raise HTTPException(status_code=401, detail="admin token required")
+    password = payload.get("password") or ""
+    if not isinstance(password, str):
+        raise HTTPException(status_code=422, detail="password must be a string")
+    ok, message = elevate_sudo(password)
+    audit.record("privilege_elevate", ok=ok)  # note the attempt, never the secret
+    status = privilege_status()
+    status.update({"ok": ok, "message": message})
+    return status
+
+
+@app.post("/api/privilege/drop")
+def privilege_drop(
+    token: str | None = Query(None),
+    authorization: str | None = Header(None),
+) -> dict:
+    """Drop any runtime-elevated privilege (forget the primed sudo credential)."""
+    if not admin_ok(token, authorization):
+        raise HTTPException(status_code=401, detail="admin token required")
+    drop_privileges()
+    audit.record("privilege_drop")
+    status = privilege_status()
+    status.update({"ok": True, "message": "dropped — scans run unprivileged again"})
+    return status
 
 
 @app.get("/api/settings/nvd")

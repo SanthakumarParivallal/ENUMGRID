@@ -161,6 +161,112 @@ input[type='number']::-webkit-inner-spin-button {
   margin: 0;
 }
 
+/* ==========================================================================
+ * Command-center design system (v2 redesign)
+ * Glassy surfaces, gradient accents, KPI tiles, animated brand mark and an
+ * elevation glow — all theme-aware via the CSS variables above.
+ * ======================================================================== */
+
+/* Frosted-glass surface used by the top command bar + sidebar. */
+.eg-glass {
+  background-color: rgb(var(--steel-950) / 0.72);
+  backdrop-filter: blur(14px) saturate(1.2);
+  -webkit-backdrop-filter: blur(14px) saturate(1.2);
+}
+
+/* Raised card — the base panel surface for the redesigned cockpit. */
+.eg-card {
+  background-color: rgb(var(--steel-900) / 0.85);
+  border: 1px solid rgb(var(--slate-700) / 0.7);
+  border-radius: 0.85rem;
+  box-shadow:
+    inset 0 1px 0 0 rgb(var(--slate-100) / 0.04),
+    0 1px 2px 0 rgb(0 0 0 / 0.25);
+}
+
+/* Ambient aurora backdrop behind the whole app — subtle, non-distracting. */
+.eg-aurora {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(60rem 40rem at 12% -10%, rgb(255 179 0 / 0.08), transparent 60%),
+    radial-gradient(50rem 40rem at 100% 0%, rgb(0 230 118 / 0.07), transparent 55%),
+    radial-gradient(60rem 50rem at 50% 120%, rgb(56 90 160 / 0.10), transparent 60%);
+}
+html[data-theme='light'] .eg-aurora {
+  background:
+    radial-gradient(60rem 40rem at 12% -10%, rgb(255 179 0 / 0.12), transparent 60%),
+    radial-gradient(50rem 40rem at 100% 0%, rgb(0 200 100 / 0.10), transparent 55%),
+    radial-gradient(60rem 50rem at 50% 120%, rgb(56 90 160 / 0.10), transparent 60%);
+}
+
+/* Gradient brand wordmark. */
+.eg-brand-gradient {
+  background: linear-gradient(92deg, #ffd166 0%, #ffb300 42%, #ff8f3f 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* KPI tile — subtle top-lit gradient + a slow diagonal sheen sweep. */
+.eg-kpi {
+  position: relative;
+  overflow: hidden;
+  border-radius: 0.85rem;
+  border: 1px solid rgb(var(--slate-700) / 0.7);
+  background:
+    linear-gradient(180deg, rgb(var(--steel-850) / 0.9), rgb(var(--steel-900) / 0.9));
+  transition: transform 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease;
+}
+.eg-kpi:hover {
+  transform: translateY(-2px);
+  border-color: rgb(var(--slate-600) / 0.9);
+  box-shadow: 0 8px 24px -12px rgb(0 0 0 / 0.6);
+}
+.eg-kpi::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -60%;
+  width: 40%;
+  height: 100%;
+  background: linear-gradient(100deg, transparent, rgb(var(--slate-100) / 0.06), transparent);
+  transform: skewX(-18deg);
+  transition: left 0.6s ease;
+}
+.eg-kpi:hover::after {
+  left: 130%;
+}
+
+/* Sidebar nav item. */
+.eg-nav {
+  transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+/* Elevation glow — the privilege control when running elevated. */
+@keyframes eg-priv-glow {
+  0%, 100% { box-shadow: 0 0 0 1px rgb(0 230 118 / 0.4), 0 0 14px -3px rgb(0 230 118 / 0.5); }
+  50% { box-shadow: 0 0 0 1px rgb(0 230 118 / 0.55), 0 0 20px -2px rgb(0 230 118 / 0.7); }
+}
+.eg-priv-live {
+  animation: eg-priv-glow 2.4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .eg-priv-live { animation: none; }
+  .eg-kpi::after { display: none; }
+}
+
+/* Slide-down for the advanced scan-config drawer. */
+@keyframes eg-drawer-in {
+  from { opacity: 0; transform: translateY(-8px); }
+  to { opacity: 1; transform: none; }
+}
+.eg-drawer {
+  animation: eg-drawer-in 0.2s ease-out;
+}
+
 /* ---- Boot splash animation (startup sequence) ------------------------------ */
 @keyframes eg-line-in {
   from { opacity: 0; transform: translateY(6px); }

@@ -44,6 +44,62 @@ def test_health():
     assert "can_raw" in body
 
 
+# --- runtime privilege elevation endpoints --------------------------------- #
+def test_privilege_status_endpoint():
+    r = client.get("/api/privilege")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["capability"] in ("root", "sudo", "unprivileged")
+    for key in ("can_raw", "is_root", "elevated", "sudo_available", "can_elevate"):
+        assert key in body
+
+
+def test_privilege_elevate_success(monkeypatch):
+    import app as app_module
+
+    monkeypatch.setattr(app_module, "elevate_sudo", lambda pw: (True, "elevated"))
+    monkeypatch.setattr(
+        app_module, "privilege_status",
+        lambda: {"capability": "sudo", "can_raw": True, "is_root": False,
+                 "elevated": True, "sudo_available": True, "can_elevate": True},
+    )
+    r = client.post("/api/privilege/elevate", json={"password": "x"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ok"] is True and body["capability"] == "sudo"
+    # The secret must never be echoed back.
+    assert "password" not in body
+
+
+def test_privilege_elevate_wrong_password(monkeypatch):
+    import app as app_module
+
+    monkeypatch.setattr(app_module, "elevate_sudo", lambda pw: (False, "sudo rejected the password"))
+    monkeypatch.setattr(
+        app_module, "privilege_status",
+        lambda: {"capability": "unprivileged", "can_raw": False, "is_root": False,
+                 "elevated": False, "sudo_available": True, "can_elevate": True},
+    )
+    r = client.post("/api/privilege/elevate", json={"password": "nope"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["ok"] is False and "rejected" in body["message"].lower()
+
+
+def test_privilege_drop(monkeypatch):
+    import app as app_module
+
+    called = {"drop": False}
+
+    def _drop():
+        called["drop"] = True
+
+    monkeypatch.setattr(app_module, "drop_privileges", _drop)
+    r = client.post("/api/privilege/drop")
+    assert r.status_code == 200
+    assert r.json()["ok"] is True and called["drop"] is True
+
+
 # --- NVD API key: status + runtime set (user-friendly settings) ------------ #
 def test_nvd_settings_status():
     r = client.get("/api/settings/nvd")

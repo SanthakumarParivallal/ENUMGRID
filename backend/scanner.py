@@ -312,6 +312,32 @@ def nmap_available() -> bool:
 _AUTO_SUDO = os.environ.get("ENUMGRID_AUTO_SUDO", "1").lower() not in ("0", "false", "no")
 _CAPABILITY: str | None = None
 
+# In-memory sudo credential primed at runtime from the dashboard ("Elevate").
+# ---------------------------------------------------------------------------
+# When the backend starts unprivileged, the operator can elevate to real
+# raw-socket scans (-sS/-sU/-O) *without restarting* by entering their sudo
+# password once. We hold it ONLY in this process's memory for the session:
+#   • never written to disk, never logged, never echoed back to any response;
+#   • cleared by drop_privileges() and lost when the process exits;
+#   • only settable over the local-only / admin-gated /api/privilege/elevate.
+# This mirrors how a desktop GUI prompts for privilege — the password primes
+# elevation, then every nmap call runs under `sudo -S` (see _sudo_scan).
+_SUDO_PASSWORD: str | None = None
+
+
+def sudo_available() -> bool:
+    """True when a `sudo` binary exists (so elevation is even possible)."""
+    return bool(shutil.which("sudo"))
+
+
+def can_elevate() -> bool:
+    """True when the dashboard could elevate us: not already root, sudo present.
+
+    (Auto-sudo can be disabled with ENUMGRID_AUTO_SUDO=0, which also disables
+    interactive elevation — the operator opted the process out of sudo entirely.)
+    """
+    return _AUTO_SUDO and not is_privileged() and sudo_available()
+
 
 def _probe_sudo() -> bool:
     """True iff `sudo -n nmap --version` runs without prompting (NOPASSWD/cached).
@@ -345,7 +371,10 @@ def scan_capability() -> str:
     if _CAPABILITY is None:
         if hasattr(os, "geteuid") and os.geteuid() == 0:
             _CAPABILITY = "root"
-        elif _probe_sudo():
+        # A password primed at runtime (dashboard "Elevate") counts as sudo even
+        # if the OS timestamp cache wouldn't answer `sudo -n` — _sudo_scan feeds
+        # the password on stdin, so raw-socket scans genuinely run.
+        elif _SUDO_PASSWORD is not None or _probe_sudo():
             _CAPABILITY = "sudo"
         else:
             _CAPABILITY = "unprivileged"
@@ -366,6 +395,72 @@ def is_privileged() -> bool:
 def can_raw_scan() -> bool:
     """True when we can run raw-socket scans (-sS/-sU/-O) — via root *or* sudo."""
     return scan_capability() in ("root", "sudo")
+
+
+def elevate_sudo(password: str) -> tuple[bool, str]:
+    """Validate a sudo password and, on success, elevate this session.
+
+    Runs ``sudo -k -S -p '' nmap --version`` feeding the password on stdin:
+    ``-k`` forces a real re-authentication (so a stale timestamp can't mask a
+    wrong password) and confirms this user may actually run nmap under sudo. On
+    success the password is held in memory (see _SUDO_PASSWORD) and the cached
+    capability is reset so every subsequent scan runs with real raw sockets.
+
+    Returns ``(ok, message)``; the password is never logged or returned.
+    """
+    global _SUDO_PASSWORD
+    if is_privileged():
+        return True, "already running as root"
+    if not _AUTO_SUDO:
+        return False, "sudo elevation is disabled (ENUMGRID_AUTO_SUDO=0)"
+    if not sudo_available():
+        return False, "sudo is not installed on this host"
+    if not password:
+        return False, "no password provided"
+    nmap_bin = shutil.which("nmap") or "nmap"
+    try:
+        proc = subprocess.run(  # noqa: S603 - fixed argv, password via stdin, no shell
+            ["sudo", "-k", "-S", "-p", "", nmap_bin, "--version"],
+            input=(password + "\n").encode(),
+            capture_output=True,
+            timeout=15,
+            check=False,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False, "could not invoke sudo"
+    if proc.returncode != 0:
+        # Wrong password, or this user isn't allowed to sudo nmap.
+        return False, "sudo rejected the password (or nmap is not permitted for this user)"
+    _SUDO_PASSWORD = password
+    _reset_capability_cache()
+    return True, "elevated — raw-socket scans (SYN/UDP/OS detection) are now available"
+
+
+def drop_privileges() -> None:
+    """Forget any primed sudo credential and invalidate the OS timestamp cache."""
+    global _SUDO_PASSWORD
+    _SUDO_PASSWORD = None
+    _reset_capability_cache()
+    if sudo_available():
+        try:
+            subprocess.run(  # noqa: S603 - fixed argv, no shell
+                ["sudo", "-k"], capture_output=True, timeout=5, check=False
+            )
+        except (OSError, subprocess.SubprocessError):
+            pass
+
+
+def privilege_status() -> dict:
+    """Machine-readable privilege state for the dashboard's elevation control."""
+    cap = scan_capability()
+    return {
+        "capability": cap,            # "root" | "sudo" | "unprivileged"
+        "can_raw": cap in ("root", "sudo"),
+        "is_root": is_privileged(),
+        "elevated": _SUDO_PASSWORD is not None,  # elevated at runtime via password
+        "sudo_available": sudo_available(),
+        "can_elevate": can_elevate(),  # a password prompt could raise us to sudo
+    }
 
 
 # Root-only scan-type flags → their best unprivileged equivalent.
@@ -450,10 +545,18 @@ def _sudo_scan(hosts: str, args: str) -> "nmap.PortScanner | None":
     fall back to the unprivileged path.
     """
     nmap_bin = shutil.which("nmap") or "nmap"
-    argv = ["sudo", "-n", nmap_bin, "-oX", "-", *shlex.split(args), hosts]
+    # With a password primed at runtime, authenticate via stdin (`sudo -S`); this
+    # works even where `sudo -n` (timestamp cache) wouldn't. Otherwise stay
+    # strictly non-interactive (`sudo -n`) so we can never block on a prompt.
+    if _SUDO_PASSWORD is not None:
+        argv = ["sudo", "-S", "-p", "", nmap_bin, "-oX", "-", *shlex.split(args), hosts]
+        stdin_data: bytes | None = (_SUDO_PASSWORD + "\n").encode()
+    else:
+        argv = ["sudo", "-n", nmap_bin, "-oX", "-", *shlex.split(args), hosts]
+        stdin_data = None
     try:
         proc = subprocess.run(  # noqa: S603 - argv built from validated tokens, no shell
-            argv, capture_output=True, timeout=HOST_SCAN_DEADLINE, check=False
+            argv, input=stdin_data, capture_output=True, timeout=HOST_SCAN_DEADLINE, check=False
         )
     except (OSError, subprocess.SubprocessError):
         return None
