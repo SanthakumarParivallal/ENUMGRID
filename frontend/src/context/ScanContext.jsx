@@ -145,6 +145,9 @@ const initialState = {
   privileged: false, // backend has root → real nmap -O OS detection
   capability: 'unprivileged', // 'root' | 'sudo' | 'unprivileged' (scan privilege tier)
   canRaw: false, // root OR passwordless sudo → real -sS/-sU/-O available
+  canElevate: false, // not root + sudo present → dashboard can elevate with a password
+  elevated: false, // raised to sudo at runtime via the dashboard (this session)
+  isRoot: false, // process itself runs as root
   scanProfile: 'default', // selected nmap profile for per-host + Scan All
   scanScripts: '', // optional extra NSE scripts (comma list)
   scanPorts: '', // optional explicit port spec
@@ -204,6 +207,20 @@ function reducer(state, action) {
         privileged: action.privileged,
         capability: action.capability || (action.privileged ? 'root' : 'unprivileged'),
         canRaw: action.canRaw != null ? action.canRaw : !!action.privileged,
+        canElevate: !!action.canElevate,
+        elevated: !!action.elevated,
+        isRoot: action.isRoot != null ? !!action.isRoot : !!action.privileged,
+      };
+
+    // Runtime privilege change (dashboard Elevate / Drop, or a refresh).
+    case 'SET_PRIVILEGE':
+      return {
+        ...state,
+        capability: action.capability || state.capability,
+        canRaw: action.canRaw != null ? action.canRaw : state.canRaw,
+        canElevate: action.canElevate != null ? action.canElevate : state.canElevate,
+        elevated: action.elevated != null ? action.elevated : state.elevated,
+        isRoot: action.isRoot != null ? action.isRoot : state.isRoot,
       };
 
     case 'SET_SCAN_PROFILE':
@@ -544,11 +561,63 @@ export function ScanProvider({ children }) {
             privileged: !!d.privileged,
             capability: d.capability,
             canRaw: !!d.can_raw,
+            canElevate: !!d.can_elevate,
+            elevated: !!d.elevated,
+            isRoot: !!d.is_root,
           });
         }
       })
       .catch(() => {});
   }, []);
+
+  // --- runtime privilege elevation ----------------------------------------- #
+  // Raise the backend from unprivileged to real raw-socket scans (-sS/-sU/-O)
+  // by validating a sudo password — no restart. The password is sent once over
+  // the local-only/admin-gated endpoint and never stored client-side.
+  const applyPrivilege = useCallback((d) => {
+    if (!d) return;
+    dispatch({
+      type: 'SET_PRIVILEGE',
+      capability: d.capability,
+      canRaw: d.can_raw,
+      canElevate: d.can_elevate,
+      elevated: d.elevated,
+      isRoot: d.is_root,
+    });
+  }, []);
+
+  const refreshPrivilege = useCallback(() => {
+    authFetch('/api/privilege')
+      .then((r) => (r.ok ? r.json() : null))
+      .then(applyPrivilege)
+      .catch(() => {});
+  }, [applyPrivilege]);
+
+  const elevatePrivilege = useCallback(
+    (password) =>
+      authFetch('/api/privilege/elevate', {
+        method: 'POST',
+        headers: authHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ password }),
+      })
+        .then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.status === 401 ? 'admin token required' : `HTTP ${r.status}`))))
+        .then((d) => {
+          applyPrivilege(d);
+          return d; // { ok, message, capability, ... }
+        }),
+    [applyPrivilege],
+  );
+
+  const dropPrivilege = useCallback(
+    () =>
+      authFetch('/api/privilege/drop', { method: 'POST', headers: authHeaders() })
+        .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+        .then((d) => {
+          applyPrivilege(d);
+          return d;
+        }),
+    [applyPrivilege],
+  );
 
   const setScanProfile = useCallback((profile) => dispatch({ type: 'SET_SCAN_PROFILE', profile }), []);
   const setScanScripts = useCallback((scripts) => dispatch({ type: 'SET_SCAN_SCRIPTS', scripts }), []);
@@ -777,6 +846,9 @@ export function ScanProvider({ children }) {
       downloadReport,
       exportCsv,
       exportJson,
+      elevatePrivilege,
+      dropPrivilege,
+      refreshPrivilege,
       shortId,
     }),
     [
@@ -797,6 +869,9 @@ export function ScanProvider({ children }) {
       downloadReport,
       exportCsv,
       exportJson,
+      elevatePrivilege,
+      dropPrivilege,
+      refreshPrivilege,
     ],
   );
 

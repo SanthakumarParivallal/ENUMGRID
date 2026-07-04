@@ -62,11 +62,19 @@ The two boundaries that matter most:
 | T16 | **DNS-rebinding / drive-by scanning** — a malicious web page resolves its domain to `127.0.0.1` and issues `GET /api/scan/stream?...` to make the local browser drive the scanner | In open mode the middleware also validates the **`Host` header** is local (a rebind sends `Host: evil.com`); state-changing JSON `POST`s are additionally CORS-preflight-gated to the dev origin | `app.py:_local_only_in_open_mode`, `security.host_header_local` |
 | T17 | **Inventory disclosure via history endpoints** — `/api/history*` returned the device/port inventory without auth even when tokens were configured | Both endpoints are now **RBAC-gated** (viewer/admin) like `/api/audit`; open when no tokens are set | `app.py:history_list/history_diff`, `security.token_ok` |
 | T18 | **Memory exhaustion via the PDF endpoint** — an oversized POST body to `/api/report/pdf` could blow up reportlab | The host list is **capped** (`MAX_REPORT_HOSTS`, well above the scan host cap) before rendering | `backend/report.py:build_pdf` |
+| T19 | **Sudo-password handling for runtime elevation** — `POST /api/privilege/elevate` accepts a sudo password to enable raw-socket scans without a restart; a mishandled secret could leak | The password is **admin-gated / local-only** (open-mode guard), validated via `sudo -k -S` (forced re-auth), then held **only in process memory** (`scanner._SUDO_PASSWORD`) — never persisted, logged, or echoed in a response; the audit records only that an attempt happened, never the secret. `POST /api/privilege/drop`, `ENUMGRID_AUTO_SUDO=0`, and process exit all clear it | `backend/scanner.py:elevate_sudo`, `app.py:privilege_elevate` |
 
 ## 5. Residual risk & guidance
 
 - **TTL-based OS detection** is a *heuristic family* (not authoritative); run with
-  `sudo` for nmap `-O`. The tool never presents a fabricated OS.
+  `sudo` for nmap `-O` — either at start-up (`./start.sh --accurate-os`) or on
+  demand via the dashboard's **Privilege → Elevate** control. The tool never
+  presents a fabricated OS.
+- **Runtime elevation on a shared host:** the sudo password primed via
+  **Elevate** lives only in the backend process memory for the session. On a
+  multi-user machine, click **Drop** (or restart the backend) when finished, or
+  disable elevation entirely with `ENUMGRID_AUTO_SUDO=0` and start elevated
+  instead. See T19.
 - **mDNS / SSDP / NBNS / SNMP** name resolution is best-effort (depends on what
   each device chooses to advertise); a blank name is reported as blank, never guessed.
 - **Dev-tooling advisories** (vitest/vite/esbuild) affect only the local dev

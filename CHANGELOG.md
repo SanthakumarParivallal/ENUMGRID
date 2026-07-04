@@ -27,6 +27,24 @@ All notable changes to **ENUMGRID: the Enumeration Platform**. Format based on
   pass) — and never a fabricated port.
 
 ### Added — web cockpit
+- **Runtime privilege elevation from the dashboard** — a new **Privilege** control
+  in the command bar lets the operator raise the backend from *unprivileged* to
+  real raw-socket scans (`-sS` SYN / `-sU` UDP / `-O` OS detection) by entering a
+  sudo password — **no restart, nothing to configure at start-up**. New backend
+  endpoints (`GET /api/privilege`, `POST /api/privilege/elevate`,
+  `POST /api/privilege/drop`) validate the password against `sudo` and hold it
+  **only in process memory** for the session (never written to disk, never logged,
+  never returned); `scan_capability()` then reports `sudo` and every scan runs
+  under `sudo -S`. "Drop" (or a restart) forgets it. Gated to the local operator
+  (open-mode guard) or an admin token when RBAC is on. Honest by design: a wrong
+  password fails with a clear message and never fakes elevation.
+- **Complete command-center redesign** — the cockpit was rebuilt around a
+  professional app shell: a fixed left **sidebar** (brand · scan pipeline · drift ·
+  sessions · engine status), a frosted-glass **command bar**, a SOC-style **KPI
+  strip** (Hosts · Ports · Services · Vulnerabilities · Critical), a **collapsible
+  "Nmap scan options"** drawer (profile/command/NSE picker tucked away by default),
+  and a consolidated **Settings** menu (theme · density · API token · NVD key).
+  Fully responsive (sidebar collapses to a drawer on mobile) and theme-aware.
 - **Light theme** — a "paper" light theme alongside the dark cockpit, toggled from
   the toolbar and persisted. Implemented with CSS variables (`index.css`) so a
   single `<html data-theme>` swap repaints the whole UI; opacity modifiers keep

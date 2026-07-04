@@ -34,8 +34,11 @@ forwards `/api/*` to this server, so the dashboard talks to it same-origin.
 
 | Method | Path | Description |
 | ------ | ---- | ----------- |
-| GET | `/api/health` | `{ status, nmap, privileged, max_concurrent_scans, allow_public }` |
+| GET | `/api/health` | `{ status, nmap, privileged, capability, can_raw, can_elevate, max_concurrent_scans, allow_public, cve }` |
 | GET | `/api/network` | best-effort `{ primary_ip, suggested_target }` (dashboard auto-fill / empty-target Start) |
+| GET | `/api/privilege` | `{ capability, can_raw, is_root, elevated, sudo_available, can_elevate }` — scan-privilege tier for the dashboard's **Elevate** control |
+| POST | `/api/privilege/elevate` | body `{ password }` → validate `sudo` and elevate this session to real `-sS`/`-sU`/`-O` (password held in memory only; admin-gated / local-only) |
+| POST | `/api/privilege/drop` | forget any runtime-elevated credential (`sudo -k`) → back to unprivileged |
 | GET | `/api/scan/stream?target=<t>&id=<id>&mode=<discover\|full>&deep=<0\|1>` | SSE stream of `ScanState` frames |
 | GET | `/api/host/scan?ip=<ip>&deep=<0\|1>&adaptive=<0\|1>` | nmap one host, returns its `Host` (per-row "Nmap Scan" + "Scan All"). `adaptive=1` (default profile only): after the top-1000 `-sV` scan, if an open port is found, sweep all 65535 on that host |
 | POST | `/api/report/pdf` | body = a `ScanState` snapshot → `application/pdf` download |
@@ -170,6 +173,17 @@ and a **curated offline reference**. Findings carry CVSS, an NVD link, and a
   `unprivileged`) and `can_raw`. Net effect: picking Stealth/UDP/Aggressive in the
   dashboard never errors. For full fidelity (real SYN/UDP/OS), run
   `./start.sh --accurate-os` or arrange passwordless `sudo` for nmap.
+- **Runtime elevation (no restart).** When unprivileged, the operator can raise the
+  session to real raw-socket scans by posting a `sudo` password to
+  `POST /api/privilege/elevate` (the dashboard's **Privilege** control). It's
+  validated with `sudo -k -S nmap --version`; on success `scan_capability()`
+  becomes `sudo` and `_sudo_scan()` runs every scan under `sudo -S`, feeding the
+  password on stdin (so it works even where `sudo -n` wouldn't). The password is
+  held **only in `scanner._SUDO_PASSWORD`** (process memory) — never written to
+  disk, never logged, never returned in a response. `POST /api/privilege/drop`
+  (and process exit) forgets it. Both endpoints are `admin_ok`-gated and, in open
+  mode, reachable only by the local operator; the elevation attempt is audited
+  (never the secret). Disable the whole mechanism with `ENUMGRID_AUTO_SUDO=0`.
 - **Unprivileged still derives a *specific* OS** by fusing TTL + OUI vendor +
   hostname + mDNS `model=` (no `sudo` needed).
 - **Scan profiles** (`GET /api/profiles`): 11 Zenmap-style presets —

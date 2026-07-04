@@ -67,3 +67,10 @@ Credentials supplied to ENUMGRID (SSH/AD passwords, cloud keys) are used
 persisted to an owner-only (`0600`), git-ignored file so it survives a restart —
 it is still never logged. The audit log records *that* an action happened, never
 the secret value.
+
+The **sudo password** used by the dashboard's *Privilege → Elevate* control
+(`POST /api/privilege/elevate`, admin-gated / local-only) follows the in-memory
+rule with no exception: it is validated against `sudo`, held only in the backend
+process for the session, and never written to disk, logged, or returned. *Drop*
+(`POST /api/privilege/drop`), a restart, or `ENUMGRID_AUTO_SUDO=0` clears/forbids
+it.

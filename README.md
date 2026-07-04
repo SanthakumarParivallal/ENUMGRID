@@ -194,7 +194,14 @@ Phase 2  Vertical deep-dive nmap -sV (+ NSE)   service / version / vuln detectio
   (auto-elevated per scan), or **unprivileged** — and in the last case rewrites
   root-only flags to safe equivalents (SYN/UDP→connect, drop `-O`, `-A`→`-sV -sC`)
   so the scan completes with real results and an honest note. No more "requires
-  root privileges. QUITTING!". Run `./start.sh --accurate-os` for full fidelity.
+  root privileges. QUITTING!".
+- **One-click privilege elevation from the dashboard (no restart).** Started the
+  backend unprivileged and want real SYN/UDP/OS-detection? Click the **Privilege**
+  control in the command bar and enter your `sudo` password once — the session
+  jumps to full raw-socket scans on the spot. The password is validated against
+  `sudo` and kept **only in the backend's memory** (never written to disk, never
+  logged, never returned); **Drop** or a restart forgets it. See
+  [Enabling privileged scans](#enabling-full-fidelity-privileged-scans).
 - **Automatic CVE intelligence (live, comprehensive, future-proof).** When
   version detection identifies a service, EnumGrid correlates it to CVEs from
   **three layered sources** so real-world coverage isn't limited to a hardcoded
@@ -253,6 +260,39 @@ See [`docs`-level detail in the code](purple_recon.py) and
 
 ---
 
+## Enabling full-fidelity (privileged) scans
+
+Nmap's most accurate techniques — **`-sS`** (SYN stealth), **`-sU`** (UDP) and
+**`-O`** (OS detection) — need raw sockets, i.e. root. EnumGrid always runs
+without them (auto-adapting, see above), but you can turn them on. Three ways,
+easiest first:
+
+1. **From the dashboard (recommended, no restart).** Click the **Privilege**
+   control in the command bar → enter your `sudo` password → **Elevate**. The
+   whole session immediately uses real SYN/UDP/OS scans. The password lives only
+   in the backend process memory for the session; **Drop** (or restarting the
+   backend) clears it. This is the zero-config path and works on macOS and Linux.
+   Disable it entirely with `ENUMGRID_AUTO_SUDO=0`.
+
+2. **Start elevated.** `./start.sh --accurate-os` (asks for your password once and
+   runs the backend under `sudo`), or arrange passwordless `sudo` for `nmap`
+   (a `NOPASSWD` sudoers entry) so scans elevate automatically with no prompt.
+
+3. **Linux only — grant nmap the capability once (permanent, no sudo per scan):**
+
+   ```bash
+   sudo setcap cap_net_raw,cap_net_admin+eip "$(command -v nmap)"
+   ```
+
+   After this an ordinary user's nmap can do SYN/UDP/OS scans forever. (macOS has
+   no `setcap`, so use option 1 or 2 there.)
+
+Whichever path you use, `GET /api/privilege` and the sidebar **Engine** panel show
+the live tier (`root` / `sudo` / `unprivileged`), so you always know exactly what
+your results were captured with — never a guess.
+
+---
+
 ## Security model
 
 The CLI's `ScopeValidator` is the single source of truth, and the **web backend
@@ -276,11 +316,11 @@ make test      # ruff lint + CLI pytest + backend pytest + frontend Vitest
 | Suite | Count | Scope |
 |---|---|---|
 | `test_purple_recon.py` | 84 | guardrails (incl. IPv6 scope), NDP/ARP/OUI parsing, discovery policy, reports, export, renderers, **fuzzing** |
-| `backend/test_*.py` | 336 | scope/**RBAC** (constant-time tokens), **11 scan profiles** + injection safety + **adaptive all-ports scan**, **privilege auto-adaptation** (root/sudo/unprivileged downgrade), **live NVD** (+ persisted API key) **+ offline CVE DB + OSV backport-aware**, **KEV+EPSS prioritization**, **credentialed SSH + package parsers**, **web-DAST audit** (TLS cert parse), **SNMP BER codec**, **AWS/LDAP parsers** (incl. IPv6 SG), **job-queue**, **outbound alerting + audit**, NSE/CVSS, **multi-signal OS fingerprinting** (hostname > vendor, honest random-MAC OS), device discovery + mDNS + **NBNS** + **SSDP** + **port probe**, history + drift, **PDF escaping**, **FastAPI integration**, **hypothesis fuzzing** |
-| `frontend/src/**/*.test.js` | 19 | schema coercion / null-safety + scan-state transients, CVE link + confidence + **KEV/EPSS risk-rank**, derived counters |
+| `backend/test_*.py` | 352 | scope/**RBAC** (constant-time tokens), **11 scan profiles** + injection safety + **adaptive all-ports scan**, **privilege auto-adaptation** (root/sudo/unprivileged downgrade) **+ runtime sudo elevation** (in-memory password, drop), **live NVD** (+ persisted API key) **+ offline CVE DB + OSV backport-aware**, **KEV+EPSS prioritization**, **credentialed SSH + package parsers**, **web-DAST audit** (TLS cert parse), **SNMP BER codec**, **AWS/LDAP parsers** (incl. IPv6 SG), **job-queue**, **outbound alerting + audit**, NSE/CVSS, **multi-signal OS fingerprinting** (hostname > vendor, honest random-MAC OS), device discovery + mDNS + **NBNS** + **SSDP** + **port probe**, history + drift, **PDF escaping**, **FastAPI integration**, **hypothesis fuzzing** |
+| `frontend/src/**/*.test.js` | 39 | schema coercion / null-safety + scan-state transients, CVE link + confidence + **KEV/EPSS risk-rank**, derived counters, **API-token helpers**, **CSV/JSON export** (formula-injection-safe), **privilege-tier badge logic** |
 | `evaluation/test_benchmark.py` | 7 | benchmark metric math (precision/recall/Jaccard) |
 
-**446 tests, all green.** Static analysis is clean: **ruff** 0 findings, **bandit**
+**482 tests, all green.** Static analysis is clean: **ruff** 0 findings, **bandit**
 SAST 0 high/medium, **pip-audit** 0 known CVEs, **npm audit** 0 (vite 8 / vitest 4).
 CI (`.github/workflows/ci.yml`)
 runs **5 jobs** — lint (ruff), **security** (bandit + pip-audit + npm audit), CLI

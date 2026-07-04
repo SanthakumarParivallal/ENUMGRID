@@ -445,3 +445,147 @@ def test_run_scan_sudo_falls_back_when_sudo_fails(monkeypatch):
     assert "-sT" in captured["args"].split() and "-sU" not in captured["args"].split()
     assert note  # the downgrade was reported
     scanner._reset_capability_cache()
+
+
+# --- runtime privilege elevation (dashboard "Elevate" — sudo password) ------ #
+# The backend can be raised from unprivileged to real raw-socket scans at
+# runtime by validating a sudo password, without a restart. These pin that the
+# password is validated, held only in memory, lifts capability to "sudo", and is
+# dropped cleanly — and is never required to run.
+
+
+class _Proc:
+    def __init__(self, returncode):
+        self.returncode = returncode
+        self.stdout = b""
+        self.stderr = b""
+
+
+def _reset_priv():
+    scanner._SUDO_PASSWORD = None
+    scanner._reset_capability_cache()
+
+
+def test_elevate_sudo_success_lifts_capability(monkeypatch):
+    _reset_priv()
+    monkeypatch.setattr(scanner.os, "geteuid", lambda: 1000, raising=False)
+    monkeypatch.setattr(scanner, "sudo_available", lambda: True)
+    monkeypatch.setattr(scanner, "_AUTO_SUDO", True)
+    seen = {}
+
+    def _fake_run(argv, **kw):
+        seen["argv"] = argv
+        seen["input"] = kw.get("input")
+        return _Proc(0)  # sudo accepted the password
+
+    monkeypatch.setattr(scanner.subprocess, "run", _fake_run)
+    ok, msg = scanner.elevate_sudo("s3cret")
+    assert ok is True
+    assert "-S" in seen["argv"] and "-k" in seen["argv"]  # stdin auth, forced re-auth
+    assert seen["input"] == b"s3cret\n"
+    # Capability now reports sudo even though _probe_sudo isn't consulted.
+    assert scanner.scan_capability() == "sudo"
+    assert scanner.can_raw_scan() is True
+    assert scanner.privilege_status()["elevated"] is True
+    _reset_priv()
+
+
+def test_elevate_sudo_rejects_wrong_password(monkeypatch):
+    _reset_priv()
+    monkeypatch.setattr(scanner.os, "geteuid", lambda: 1000, raising=False)
+    monkeypatch.setattr(scanner, "sudo_available", lambda: True)
+    monkeypatch.setattr(scanner, "_AUTO_SUDO", True)
+    monkeypatch.setattr(scanner.subprocess, "run", lambda argv, **kw: _Proc(1))
+    ok, msg = scanner.elevate_sudo("wrong")
+    assert ok is False and "rejected" in msg.lower()
+    assert scanner._SUDO_PASSWORD is None  # never retained on failure
+    _reset_priv()
+
+
+def test_elevate_sudo_no_sudo_binary(monkeypatch):
+    _reset_priv()
+    monkeypatch.setattr(scanner.os, "geteuid", lambda: 1000, raising=False)
+    monkeypatch.setattr(scanner, "sudo_available", lambda: False)
+    ok, msg = scanner.elevate_sudo("pw")
+    assert ok is False and "sudo" in msg.lower()
+    _reset_priv()
+
+
+def test_elevate_sudo_noop_when_root(monkeypatch):
+    _reset_priv()
+    monkeypatch.setattr(scanner.os, "geteuid", lambda: 0, raising=False)
+    ok, msg = scanner.elevate_sudo("ignored")
+    assert ok is True and "root" in msg.lower()
+    _reset_priv()
+
+
+def test_drop_privileges_forgets_password(monkeypatch):
+    _reset_priv()
+    monkeypatch.setattr(scanner.os, "geteuid", lambda: 1000, raising=False)
+    monkeypatch.setattr(scanner, "sudo_available", lambda: True)
+    monkeypatch.setattr(scanner, "_AUTO_SUDO", True)
+    monkeypatch.setattr(scanner.subprocess, "run", lambda argv, **kw: _Proc(0))
+    scanner.elevate_sudo("pw")
+    assert scanner.scan_capability() == "sudo"
+    scanner.drop_privileges()
+    assert scanner._SUDO_PASSWORD is None
+    monkeypatch.setattr(scanner, "_probe_sudo", lambda: False)
+    assert scanner.scan_capability() == "unprivileged"
+    _reset_priv()
+
+
+def test_sudo_scan_feeds_password_via_stdin(monkeypatch):
+    _reset_priv()
+    scanner._SUDO_PASSWORD = "pw"  # primed
+    seen = {}
+
+    def _fake_run(argv, **kw):
+        seen["argv"] = argv
+        seen["input"] = kw.get("input")
+        return _Proc(0)
+
+    # Parse path returns something non-None; stub PortScanner to a trivial object.
+    class _S:
+        def analyse_nmap_xml_scan(self, **kw):
+            pass
+
+    monkeypatch.setattr(scanner.subprocess, "run", _fake_run)
+    # Force stdout so _sudo_scan proceeds to parse.
+    monkeypatch.setattr(scanner.subprocess, "run", lambda argv, **kw: type(
+        "P", (), {"returncode": 0, "stdout": b"<xml/>", "stderr": b""})())
+    monkeypatch.setattr(scanner.nmap, "PortScanner", _S)
+    result = scanner._sudo_scan("192.168.0.1", "-sS -Pn")
+    assert result is not None
+    _reset_priv()
+
+
+def test_sudo_scan_password_argv_uses_S(monkeypatch):
+    _reset_priv()
+    scanner._SUDO_PASSWORD = "pw"
+    seen = {}
+
+    def _fake_run(argv, **kw):
+        seen["argv"] = argv
+        seen["input"] = kw.get("input")
+        return type("P", (), {"returncode": 1, "stdout": b"", "stderr": b""})()
+
+    monkeypatch.setattr(scanner.subprocess, "run", _fake_run)
+    scanner._sudo_scan("192.168.0.1", "-sS -Pn")
+    assert "-S" in seen["argv"] and "-n" not in seen["argv"]
+    assert seen["input"] == b"pw\n"
+    _reset_priv()
+
+
+def test_privilege_status_shape(monkeypatch):
+    _reset_priv()
+    monkeypatch.setattr(scanner.os, "geteuid", lambda: 1000, raising=False)
+    monkeypatch.setattr(scanner, "_probe_sudo", lambda: False)
+    monkeypatch.setattr(scanner, "sudo_available", lambda: True)
+    monkeypatch.setattr(scanner, "_AUTO_SUDO", True)
+    st = scanner.privilege_status()
+    assert set(st) >= {
+        "capability", "can_raw", "is_root", "elevated", "sudo_available", "can_elevate",
+    }
+    assert st["capability"] == "unprivileged"
+    assert st["can_elevate"] is True  # not root + sudo present → elevation offered
+    _reset_priv()
