@@ -18,7 +18,6 @@ export default class ErrorBoundary extends React.Component {
 
   componentDidCatch(error, info) {
     // Keep a console record for debugging; never crash to a blank screen.
-    // eslint-disable-next-line no-console
     console.error('[enumgrid] UI error:', error, info?.componentStack);
   }
 

@@ -10,7 +10,7 @@
  * reducer and every consumer stay exactly the same.
  */
 
-import React, {
+import {
   createContext,
   useCallback,
   useContext,
@@ -48,7 +48,6 @@ function notifyDrift(alert) {
       if (alert.appeared.length) parts.push(`+${alert.appeared.length} new`);
       if (alert.disappeared.length) parts.push(`-${alert.disappeared.length} gone`);
       if (alert.changed.length) parts.push(`${alert.changed.length} changed`);
-      // eslint-disable-next-line no-new
       new Notification('EnumGrid — network changed', {
         body: `${alert.target}: ${parts.join(' · ') || 'configuration drift'}`,
       });
@@ -391,8 +390,10 @@ export function ScanProvider({ children }) {
   stateRef.current = state;
 
   // Persist the scan whenever the results change, so it survives a reload.
+  // Read the full state through the ref (kept current above) so the effect only
+  // re-runs on the fields below, without ESLint flagging a missing `state` dep.
   useEffect(() => {
-    persist(state);
+    persist(stateRef.current);
   }, [state.hosts, state.phase, state.progress, state.scanId, state.sessions, state.target]);
 
   // Mock engine — used in mock mode and as the offline fallback. Its callbacks
@@ -417,7 +418,6 @@ export function ScanProvider({ children }) {
     engineRef.current.start(target, scanId, deep);
     activeRef.current = { stop: () => engineRef.current.stop() };
     if (asFallback) {
-      // eslint-disable-next-line no-console
       console.warn('[scan] live backend unavailable — using offline mock engine');
     }
   }, []);
@@ -780,8 +780,9 @@ export function ScanProvider({ children }) {
   // renderer and trigger a download. Stateless — report always matches screen.
   const downloadReport = useCallback(() => {
     const s = stateRef.current;
-    if (!s.hosts.length) return;
-    fetch('/api/report/pdf', {
+    if (!s.hosts.length) return Promise.reject(new Error('no hosts to report'));
+    // Returns the promise so callers can surface success/failure (e.g. a toast).
+    return fetch('/api/report/pdf', {
       method: 'POST',
       headers: authHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ target: s.target, hosts: s.hosts, profile: s.scanProfile }),
@@ -797,9 +798,9 @@ export function ScanProvider({ children }) {
         a.remove();
         URL.revokeObjectURL(url);
       })
-      .catch(() => {
-        // eslint-disable-next-line no-console
+      .catch((e) => {
         console.warn('[report] PDF generation needs the live backend running');
+        throw e; // let the caller show an error toast
       });
   }, []);
 
