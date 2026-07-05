@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/SanthakumarParivallal/ENUMGRID/actions/workflows/ci.yml/badge.svg)](https://github.com/SanthakumarParivallal/ENUMGRID/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-FFB300.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-501%20passing-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-512%20passing-brightgreen.svg)](#testing)
 [![Python](https://img.shields.io/badge/python-3.10%E2%80%933.14-blue.svg)](pyproject.toml)
 [![Node](https://img.shields.io/badge/node-%E2%89%A520-blue.svg)](frontend/package.json)
 [![SAST: bandit](https://img.shields.io/badge/SAST-bandit%200%20high%2Fmed-blue.svg)](#security)
@@ -101,6 +101,12 @@ servers, so you always get live data.
 > `./start.sh --accurate-os` (or the backend with `sudo`) to add nmap's
 > authoritative `-O` fingerprint with the exact build on top. The OS is never
 > fabricated: when no signal supports a claim it stays "Unknown".
+
+> ⌨️ **Operator ergonomics:** press **⌘K** (Ctrl-K) for a command palette of every
+> action, **`?`** for the keyboard-shortcut cheat-sheet, and **`/`** to jump to
+> search. Every action confirms with a toast, and the whole cockpit is
+> keyboard-operable, screen-reader-labelled (focus-trapped modals, visible focus
+> rings), and works in light or dark themes.
 
 ### Or just the CLI
 
@@ -315,12 +321,12 @@ make test      # ruff lint + CLI pytest + backend pytest + frontend Vitest
 
 | Suite | Count | Scope |
 |---|---|---|
-| `test_purple_recon.py` | 84 | guardrails (incl. IPv6 scope), NDP/ARP/OUI parsing, discovery policy, reports, export, renderers, **fuzzing** |
+| `test_purple_recon.py` | 89 | guardrails (incl. IPv6 scope, empty/delimiter-only specs), NDP/ARP/OUI parsing, discovery policy, reports, export, renderers, **fuzzing** |
 | `backend/test_*.py` | 352 | scope/**RBAC** (constant-time tokens), **11 scan profiles** + injection safety + **adaptive all-ports scan**, **privilege auto-adaptation** (root/sudo/unprivileged downgrade) **+ runtime sudo elevation** (in-memory password, drop), **live NVD** (+ persisted API key) **+ offline CVE DB + OSV backport-aware**, **KEV+EPSS prioritization**, **credentialed SSH + package parsers**, **web-DAST audit** (TLS cert parse), **SNMP BER codec**, **AWS/LDAP parsers** (incl. IPv6 SG), **job-queue**, **outbound alerting + audit**, NSE/CVSS, **multi-signal OS fingerprinting** (hostname > vendor, honest random-MAC OS), device discovery + mDNS + **NBNS** + **SSDP** + **port probe**, history + drift, **PDF escaping**, **FastAPI integration**, **hypothesis fuzzing** |
-| `frontend/src/**/*.test.js` | 53 | schema coercion / null-safety + scan-state transients, CVE link + confidence + **KEV/EPSS risk-rank**, derived counters, **API-token helpers**, **CSV/JSON export** (formula-injection-safe), **privilege-tier badge logic**, **modal focus-trap logic** (a11y), **toast tone/role mapping**, **keyboard-shortcut guard** |
+| `frontend/src/**/*.test.js` | 59 | schema coercion / null-safety + scan-state transients, CVE link + confidence + **KEV/EPSS risk-rank**, derived counters, **API-token helpers**, **CSV/JSON export** (formula-injection-safe), **privilege-tier badge logic**, **modal focus-trap logic** (a11y), **toast tone/role mapping**, **keyboard-shortcut guard**, **⌘K command-palette ranking** |
 | `evaluation/test_benchmark.py` | 12 | benchmark metric math (precision/recall/Jaccard) + **privileged (ARP) baseline** command/summary |
 
-**501 tests, all green.** Static analysis is clean: **ruff** 0 findings, **ESLint**
+**512 tests, all green.** Static analysis is clean: **ruff** 0 findings, **ESLint**
 0 (react-hooks + jsx-a11y accessibility rules), **bandit** SAST 0 high/medium,
 **pip-audit** 0 known CVEs, **npm audit** 0 (vite 8 / vitest 4). CI
 (`.github/workflows/ci.yml`) runs **5 jobs** — lint (ruff), **security** (bandit +

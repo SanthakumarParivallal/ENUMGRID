@@ -28,6 +28,7 @@ import { privMeta, rawScanAvailable, canOfferElevation } from './lib/privilege.j
 import { useFocusTrap } from './lib/useFocusTrap.js';
 import { useToast } from './lib/toast.jsx';
 import { SHORTCUTS, isEditableTarget } from './lib/shortcuts.js';
+import { filterCommands } from './lib/commandFilter.js';
 import {
   ScanPhase,
   HostStatus,
@@ -660,6 +661,12 @@ function PrivilegeDialog({ onClose }) {
 function PrivilegeControl() {
   const { capability, elevated, canElevate } = useScan();
   const [open, setOpen] = useState(false);
+  // Let the command palette (or any component) open this dialog via an event.
+  useEffect(() => {
+    const openEvt = () => setOpen(true);
+    window.addEventListener('eg:open-privilege', openEvt);
+    return () => window.removeEventListener('eg:open-privilege', openEvt);
+  }, []);
   const meta = privMeta(capability, elevated);
   const Ico = privIcon(meta);
   const offerElevate = canOfferElevation(capability, canElevate);
@@ -2257,6 +2264,161 @@ function BootSplash({ onDone }) {
  * Root
  * ========================================================================== */
 
+/**
+ * ⌘K / Ctrl-K command palette — a searchable launcher for every top action.
+ * Owns its own open state, binds the shortcut + an `eg:open-command-palette`
+ * event, and is fully keyboard-driven (type to filter, ↑/↓ to move, ↵ to run).
+ */
+function CommandPalette() {
+  const scan = useScan();
+  const { toggleTheme, toggleDensity } = usePreferences();
+  const { toast } = useToast();
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const [active, setActive] = useState(0);
+  const inputRef = useRef(null);
+  const listRef = useRef(null);
+  const dialogRef = useFocusTrap({ active: open, initialFocus: inputRef });
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.metaKey || e.ctrlKey) && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault();
+        setOpen((o) => !o);
+      }
+    };
+    const openEvt = () => setOpen(true);
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('eg:open-command-palette', openEvt);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('eg:open-command-palette', openEvt);
+    };
+  }, []);
+
+  // Fresh query + selection each time it opens.
+  useEffect(() => {
+    if (open) {
+      setQuery('');
+      setActive(0);
+    }
+  }, [open]);
+
+  const runExport = useCallback((fn, okMsg) => {
+    try {
+      const r = fn();
+      if (r && typeof r.then === 'function') {
+        r.then(() => toast(okMsg, { type: 'success' })).catch(() => toast('Export failed — is the backend running?', { type: 'error' }));
+      } else {
+        toast(okMsg, { type: 'success' });
+      }
+    } catch {
+      toast('Export failed.', { type: 'error' });
+    }
+  }, [toast]);
+
+  const {
+    running, target, deepScan, monitor, hosts,
+    startScan, stopScan, toggleDeep, toggleMonitor, scanAll,
+    downloadReport, exportCsv, exportJson,
+  } = scan;
+  const unscanned = hosts.filter((h) => h.status === HostStatus.UP && !h.scanned).length;
+  const hasHosts = hosts.length > 0;
+
+  const commands = useMemo(() => {
+    const list = [];
+    if (running) list.push({ id: 'stop', label: 'Stop scan', Icon: Icon.Stop, keywords: ['halt', 'cancel'], run: stopScan });
+    else list.push({ id: 'start', label: 'Start scan', Icon: Icon.Play, keywords: ['run', 'go'], run: () => startScan(target, deepScan) });
+    if (unscanned) list.push({ id: 'scanall', label: `Scan all live hosts (${unscanned})`, Icon: Icon.Cpu, keywords: ['enumerate', 'services', 'ports'], run: () => scanAll(false) });
+    list.push({ id: 'deep', label: `${deepScan ? 'Disable' : 'Enable'} deep scan (NSE vuln)`, Icon: Icon.Shield, keywords: ['cve', 'vulnerability'], run: toggleDeep });
+    list.push({ id: 'monitor', label: `${monitor ? 'Stop' : 'Start'} monitor mode`, Icon: Icon.Activity, keywords: ['watch', 'drift', 'interval'], run: toggleMonitor });
+    list.push({ id: 'priv', label: 'Scan privilege / elevate…', Icon: Icon.Bolt, keywords: ['sudo', 'root', 'raw socket'], run: () => window.dispatchEvent(new Event('eg:open-privilege')) });
+    if (hasHosts) {
+      list.push({ id: 'pdf', label: 'Export PDF report', Icon: Icon.Download, keywords: ['download', 'report'], run: () => runExport(downloadReport, 'PDF report downloaded.') });
+      list.push({ id: 'csv', label: 'Export CSV inventory', Icon: Icon.Server, keywords: ['download', 'spreadsheet'], run: () => runExport(exportCsv, 'CSV inventory exported.') });
+      list.push({ id: 'json', label: 'Export JSON snapshot', Icon: Icon.Terminal, keywords: ['download', 'data'], run: () => runExport(exportJson, 'JSON snapshot exported.') });
+    }
+    list.push({ id: 'search', label: 'Focus search', Icon: Icon.Search, keywords: ['find', 'filter'], run: () => document.querySelector('input[type="search"]')?.focus() });
+    list.push({ id: 'theme', label: 'Toggle light / dark theme', Icon: Icon.Moon, keywords: ['dark', 'light', 'appearance'], run: toggleTheme });
+    list.push({ id: 'density', label: 'Toggle compact / cozy density', Icon: Icon.Rows, keywords: ['spacing', 'layout'], run: toggleDensity });
+    list.push({ id: 'help', label: 'Keyboard shortcuts', Icon: Icon.Terminal, keywords: ['keys', 'cheatsheet'], run: () => window.dispatchEvent(new Event('eg:open-help')) });
+    return list;
+  }, [running, target, deepScan, monitor, unscanned, hasHosts, startScan, stopScan, toggleDeep, toggleMonitor, scanAll, downloadReport, exportCsv, exportJson, toggleTheme, toggleDensity, runExport]);
+
+  const filtered = filterCommands(commands, query);
+  const safeActive = filtered.length ? Math.min(active, filtered.length - 1) : 0;
+
+  // Keep the highlighted row in view as the selection moves.
+  useEffect(() => {
+    listRef.current?.querySelector('[data-active="true"]')?.scrollIntoView({ block: 'nearest' });
+  }, [safeActive, query]);
+
+  const runCmd = (cmd) => {
+    if (!cmd) return;
+    setOpen(false);
+    cmd.run();
+  };
+
+  const onInputKey = (e) => {
+    if (e.key === 'ArrowDown') { e.preventDefault(); setActive((a) => Math.min(a + 1, filtered.length - 1)); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setActive((a) => Math.max(a - 1, 0)); }
+    else if (e.key === 'Enter') { e.preventDefault(); runCmd(filtered[safeActive]); }
+    else if (e.key === 'Escape') { e.preventDefault(); setOpen(false); }
+  };
+
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-[85] flex items-start justify-center p-4 pt-[12vh]" role="dialog" aria-modal="true" aria-label="Command palette">
+      <Backdrop onClose={() => setOpen(false)} className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+      <div ref={dialogRef} tabIndex={-1} className="eg-card relative z-10 w-full max-w-lg overflow-hidden p-0 outline-none">
+        <div className="flex items-center gap-2 border-b border-slate-700/60 px-3">
+          <Icon.Search className="h-4 w-4 shrink-0 text-slate-500" />
+          <input
+            ref={inputRef}
+            value={query}
+            onChange={(e) => { setQuery(e.target.value); setActive(0); }}
+            onKeyDown={onInputKey}
+            placeholder="Type a command…"
+            aria-label="Command palette search"
+            spellCheck={false}
+            className="w-full bg-transparent py-3 font-mono text-sm text-slate-100 outline-none placeholder:text-slate-500"
+          />
+          <kbd className="hidden shrink-0 rounded border border-slate-600 bg-steel-900 px-1.5 py-0.5 font-mono text-[10px] text-slate-400 sm:block">esc</kbd>
+        </div>
+        <ul ref={listRef} className="max-h-[50vh] overflow-y-auto p-1.5" role="listbox" aria-label="Commands">
+          {filtered.length === 0 ? (
+            <li className="px-3 py-6 text-center font-mono text-xs text-slate-500">{'// no matching command'}</li>
+          ) : (
+            filtered.map((cmd, i) => {
+              const isActive = i === safeActive;
+              const Ico = cmd.Icon;
+              return (
+                <li key={cmd.id}>
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={isActive}
+                    data-active={isActive ? 'true' : undefined}
+                    onMouseEnter={() => setActive(i)}
+                    onClick={() => runCmd(cmd)}
+                    className={`flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-xs transition ${
+                      isActive ? 'bg-amber/15 text-amber' : 'text-slate-300 hover:bg-steel-800'
+                    }`}
+                  >
+                    {Ico && <Ico className={`h-4 w-4 shrink-0 ${isActive ? 'text-amber' : 'text-slate-500'}`} />}
+                    <span className="flex-1">{cmd.label}</span>
+                    {isActive && <Icon.Chevron className="h-3.5 w-3.5 opacity-70" />}
+                  </button>
+                </li>
+              );
+            })
+          )}
+        </ul>
+      </div>
+    </div>
+  );
+}
+
 /** Modal cheat-sheet of the global keyboard shortcuts (opened with "?"). */
 function HelpOverlay({ onClose }) {
   useEscapeToClose(true, onClose);
@@ -2358,6 +2520,7 @@ function ScanToasts() {
 
 export default function IndustrialDashboard() {
   const { hosts, phase } = useScan();
+  const { toast } = useToast();
   const [view, setView] = useState('table'); // matrix | topology (shared with toolbar)
   const [navOpen, setNavOpen] = useState(false);
   const [booting, setBooting] = useState(
@@ -2372,10 +2535,25 @@ export default function IndustrialDashboard() {
     document.title = phase === ScanPhase.IDLE ? 'ENUMGRID: the Enumeration Platform' : `ENUMGRID // ${PHASE_META[phase]?.short || phase}`;
   }, [phase]);
 
+  // First-ever visit: point the operator at the command palette + shortcuts, once.
+  // localStorage (set when it fires) is the idempotency guard — no ref guard, so
+  // React StrictMode's mount→unmount→remount still leaves exactly one live timer.
+  useEffect(() => {
+    if (typeof localStorage === 'undefined' || localStorage.getItem('eg_welcomed')) return undefined;
+    const timer = setTimeout(() => {
+      toast('Press ⌘K for the command palette · ? for all keyboard shortcuts.', {
+        type: 'info', title: 'Welcome to ENUMGRID', duration: 9000,
+      });
+      try { localStorage.setItem('eg_welcomed', '1'); } catch { /* private mode */ }
+    }, 2800); // after the boot splash
+    return () => clearTimeout(timer);
+  }, [toast]);
+
   return (
     <div className="relative flex h-screen overflow-hidden text-slate-200">
       <ScanToasts />
       <ShortcutsLayer />
+      <CommandPalette />
       <div className="eg-aurora" />
       {booting && <BootSplash onDone={finishBoot} />}
       <Sidebar mobileOpen={navOpen} onClose={() => setNavOpen(false)} />

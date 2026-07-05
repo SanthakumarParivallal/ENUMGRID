@@ -69,6 +69,38 @@ All notable changes to **ENUMGRID: the Enumeration Platform**. Format based on
   ports, the grid explains the likely *real* cause (host firewalls / Wi-Fi client
   isolation — visible via ARP at L2, unreachable over TCP at L3) instead of leaving
   it ambiguous. It never invents ports.
+- **Action-feedback toasts** (`frontend/src/lib/toast.jsx`) — every operation (scan
+  start/stop/complete, privilege elevate/drop, PDF/CSV/JSON export, and failures)
+  raises a concise, auto-dismissing toast. Errors use `role="alert"` (assertive),
+  the rest `role="status"` (polite); reduced-motion aware. Scan toasts key off state
+  transitions, so a scan restored from `localStorage` never fires a spurious
+  "complete" on page load.
+- **⌘K command palette** (`frontend/src/lib/commandFilter.js`) — a searchable
+  launcher for every top action (scan · deep · monitor · elevate · exports ·
+  theme/density · focus search · shortcuts) with fuzzy ranking, arrow-key navigation
+  and full focus management.
+- **Keyboard shortcuts + `?` help** (`frontend/src/lib/shortcuts.js`) — `/` focus
+  search · `t` theme · `d` density · `?` help · `Esc` close, plus ⌘K for the palette.
+  A focus-trapped help overlay lists them and the Settings menu links to it.
+  Deliberately no scan-triggering key, so a stray keystroke can never start a scan.
+- **First-run welcome** — a one-time toast points new operators at ⌘K and `?`.
+- **Accessibility pass** (WCAG 2.4.3 / 2.4.7 / 4.1.2) — every modal (Privilege,
+  shortcuts, command palette, token/NVD popovers) traps keyboard focus and restores
+  it to the trigger on close (`frontend/src/lib/useFocusTrap.js`); every command-bar
+  control gained a keyboard-only `focus-visible` ring and an `aria-label`, so
+  icon-only/label-collapsing buttons are named for screen readers.
+
+### Added — tooling & evaluation
+- **Frontend ESLint** (`frontend/eslint.config.js`) — flat config with `react`,
+  `react-hooks`, and `jsx-a11y`; wired into CI and `npm run lint`. Fixed the 27
+  findings it surfaced (unused imports/directives, a hooks `exhaustive-deps` bug,
+  static-element interactions).
+- **Privileged benchmark baseline** (`evaluation/benchmark.py --privileged`) — the
+  harness can now also run `sudo nmap -sn` (ARP) and report how closely root-nmap
+  agrees with EnumGrid, turning the "privileged nmap would tie" caveat into a
+  measured, reproducible result (see `docs/EVALUATION.md`).
+- **CI** now tests **Python 3.14** (matrix 3.10–3.14) and runs ESLint in the
+  frontend job; safe within-major frontend dep bumps (vite/vitest/plugin-react).
 
 ### Changed
 - **NVD API key now persists across restarts** (`backend/cve.py`) — a key entered

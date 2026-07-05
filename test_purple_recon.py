@@ -47,6 +47,14 @@ def test_scope_rejects_forbidden(target):
         pr.ScopeValidator().validate(target)
 
 
+@pytest.mark.parametrize("spec", ["", "   ", ",", ", , ,", " , "])
+def test_scope_rejects_empty_or_delimiter_only_spec(spec):
+    # Whitespace-only trips the "no target" guard; a comma-only spec parses to
+    # zero entries and must be refused too (not silently treated as no scope).
+    with pytest.raises(pr.ScopeError):
+        pr.ScopeValidator().validate(spec)
+
+
 def test_scope_cidr_excludes_network_and_broadcast():
     scope = pr.ScopeValidator().validate("192.168.1.0/30")
     assert scope.hosts == ["192.168.1.1", "192.168.1.2"]
