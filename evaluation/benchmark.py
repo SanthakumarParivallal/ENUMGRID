@@ -16,6 +16,7 @@ Usage:
     python evaluation/benchmark.py 192.168.0.0/24
     python evaluation/benchmark.py 192.168.0.0/24 --ground-truth 192.168.0.1,192.168.0.2
     python evaluation/benchmark.py 192.168.0.0/24 --json out.json --md out.md
+    python evaluation/benchmark.py 192.168.0.0/24 --privileged   # add sudo nmap -sn (ARP) baseline
 
 No raw tracebacks; honest output only — nothing is fabricated.
 """
@@ -47,13 +48,22 @@ def _ips_from_nmap(text: str) -> set[str]:
     return out
 
 
-def run_nmap_sn(target: str) -> tuple[set[str], float]:
-    """`nmap -sn` host discovery (ARP/ICMP/TCP ping). Returns (hosts, seconds)."""
+def _nmap_sn_cmd(target: str, privileged: bool = False) -> list[str]:
+    """The `nmap -sn` argv. `privileged` prefixes sudo so nmap can use ARP ping on
+    a local subnet — the fair, root-equivalent baseline for EnumGrid's ARP pass."""
+    base = ["nmap", "-sn", "-T4", target]
+    return ["sudo", *base] if privileged else base
+
+
+def run_nmap_sn(target: str, privileged: bool = False) -> tuple[set[str], float]:
+    """`nmap -sn` host discovery (ARP/ICMP/TCP ping). Returns (hosts, seconds).
+    With `privileged=True` it runs under sudo (ARP ping); this may prompt for a
+    password on the controlling terminal, so it is opt-in via `--privileged`."""
     if not shutil.which("nmap"):
         return set(), 0.0
     t0 = time.monotonic()
     proc = subprocess.run(  # nosec B603 B607 - fixed args, target is operator-supplied
-        ["nmap", "-sn", "-T4", target],
+        _nmap_sn_cmd(target, privileged),
         capture_output=True, text=True, check=False,
     )
     return _ips_from_nmap(proc.stdout), time.monotonic() - t0
@@ -128,12 +138,61 @@ def render_md(result: dict) -> str:
     ])
 
 
+def privileged_summary(pr_hosts: set[str], priv_hosts: set[str], reference: set[str]) -> dict:
+    """Compare EnumGrid against a *privileged* `sudo nmap -sn` (ARP) baseline.
+
+    This answers the honest "but root nmap would tie" question head-on: with ARP
+    ping, privileged nmap should recover the ICMP-silent devices too, so the
+    interesting output is the *agreement* with EnumGrid and any host either tool
+    still misses."""
+    union = pr_hosts | priv_hosts
+    return {
+        "count": len(priv_hosts),
+        "metrics": _prf(priv_hosts, reference),
+        "jaccard_vs_enumgrid": len(pr_hosts & priv_hosts) / len(union) if union else 0.0,
+        "enumgrid_only": sorted(pr_hosts - priv_hosts),
+        "privileged_only": sorted(priv_hosts - pr_hosts),
+    }
+
+
+def render_privileged_md(seconds: float, summary: dict) -> str:
+    agree = not summary["enumgrid_only"] and not summary["privileged_only"]
+    if summary["count"] == 0:
+        # A privileged scan that found nothing means sudo was denied or nmap is
+        # unavailable — not a real comparison. Say so rather than claim a "tie".
+        note = (
+            "- `sudo nmap -sn` returned no hosts — sudo was likely denied or nmap is "
+            "unavailable; re-run with working sudo to compare."
+        )
+    elif agree:
+        note = (
+            "- With root, `nmap -sn` closes the gap via ARP — the two agree exactly, "
+            "confirming EnumGrid delivers that same coverage **without** privilege."
+        )
+    else:
+        note = "- Even with root, the tools differ on the hosts above (timing / responsiveness)."
+    return "\n".join([
+        "",
+        f"**Privileged baseline** — `sudo nmap -sn` (ARP ping): "
+        f"found **{summary['count']}** hosts in {seconds:.1f}s, "
+        f"recall {summary['metrics']['recall']:.2f}, "
+        f"Jaccard vs EnumGrid **{summary['jaccard_vs_enumgrid']:.2f}**.",
+        f"- EnumGrid-only vs privileged nmap: `{', '.join(summary['enumgrid_only']) or 'none'}`",
+        f"- privileged-nmap-only: `{', '.join(summary['privileged_only']) or 'none'}`",
+        note,
+    ])
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="EnumGrid vs nmap discovery benchmark")
     ap.add_argument("target", help="CIDR / IP / comma-list")
     ap.add_argument("--ground-truth", help="comma-separated known-live IPs (true precision/recall)")
     ap.add_argument("--json", help="write the full result as JSON to this path")
     ap.add_argument("--md", help="append the markdown table to this path")
+    ap.add_argument(
+        "--privileged", action="store_true",
+        help="also run `sudo nmap -sn` (ARP) as a fair privileged baseline (may prompt for sudo)",
+    )
     args = ap.parse_args(argv)
 
     truth = {ip.strip() for ip in args.ground_truth.split(",")} if args.ground_truth else None
@@ -152,6 +211,15 @@ def main(argv: list[str] | None = None) -> int:
     }
 
     md = render_md(result)
+
+    if args.privileged:
+        print(f"» sudo nmap -sn {args.target} … (privileged / ARP)", file=sys.stderr)
+        priv_hosts, priv_s = run_nmap_sn(args.target, privileged=True)
+        reference = truth if truth else (pr_hosts | nmap_hosts | priv_hosts)
+        summary = privileged_summary(pr_hosts, priv_hosts, reference)
+        result["privileged_nmap"] = {**summary, "seconds": round(priv_s, 2)}
+        md += "\n" + render_privileged_md(priv_s, summary)
+
     print("\n" + md + "\n")
     if args.json:
         with open(args.json, "w", encoding="utf-8") as fh:

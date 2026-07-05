@@ -94,7 +94,7 @@ jobs:
           --cov-report=term --cov-fail-under=60
 
   frontend:
-    name: Frontend (Vitest + build)
+    name: Frontend (ESLint + Vitest + build)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -110,6 +110,8 @@ jobs:
         run: npm ci
       - name: Audit shipped dependencies (dev tooling excluded)
         run: npm audit --omit=dev
+      - name: Lint (ESLint — react-hooks + jsx-a11y)
+        run: npm run lint
       - name: Unit tests
         run: npm test
       - name: Production build

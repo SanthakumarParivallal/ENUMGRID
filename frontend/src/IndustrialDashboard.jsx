@@ -20,11 +20,14 @@
  * PrivilegeControl → /api/privilege/elevate).
  */
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useScan } from './context/ScanContext.jsx';
 import { usePreferences, colWidth, COL_DEFAULTS } from './lib/preferences.js';
 import { authFetch, useApiToken } from './lib/auth.js';
 import { privMeta, rawScanAvailable, canOfferElevation } from './lib/privilege.js';
+import { useFocusTrap } from './lib/useFocusTrap.js';
+import { useToast } from './lib/toast.jsx';
+import { SHORTCUTS, isEditableTarget } from './lib/shortcuts.js';
 import {
   ScanPhase,
   HostStatus,
@@ -443,6 +446,18 @@ function Tag({ children, className = '' }) {
   );
 }
 
+/**
+ * Full-screen click-catcher that dismisses the overlay it backs. Presentational
+ * and aria-hidden: every overlay using it is also closable via Escape and/or an
+ * in-view Close control, so the scrim is deliberately kept out of the tab order
+ * (a focusable full-screen element would be an accessibility anti-pattern).
+ */
+function Backdrop({ onClose, className }) {
+  // aria-hidden keeps the scrim out of the a11y tree, so click-only is correct
+  // (the overlay is closable via Escape / an in-view Close control).
+  return <div className={className} onClick={onClose} aria-hidden="true" />;
+}
+
 const SOURCE_BADGE = {
   live: { label: 'Live', dot: 'bg-matrix', text: 'text-matrix' },
   mock: { label: 'Demo', dot: 'bg-amber', text: 'text-amber' },
@@ -474,10 +489,15 @@ const privIcon = (meta) => (meta.raw ? Icon.ShieldCheck : Icon.Shield);
 /** The elevation dialog — enter a sudo password to unlock raw-socket scans. */
 function PrivilegeDialog({ onClose }) {
   const { capability, canElevate, elevated, isRoot, elevatePrivilege, dropPrivilege } = useScan();
+  const { toast } = useToast();
   const [pw, setPw] = useState('');
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState(null); // { ok, text }
   useEscapeToClose(true, onClose);
+  // Trap keyboard focus inside the modal; prefer the password field on open and
+  // hand focus back to the trigger (the Privilege pill) on close.
+  const pwRef = useRef(null);
+  const dialogRef = useFocusTrap({ initialFocus: pwRef });
 
   const raw = rawScanAvailable(capability);
 
@@ -488,9 +508,20 @@ function PrivilegeDialog({ onClose }) {
     elevatePrivilege(pw)
       .then((d) => {
         setPw('');
-        setMsg({ ok: !!d.ok, text: d.message || (d.ok ? 'Elevated.' : 'Failed.') });
+        if (d.ok) {
+          // Close on success — the pill updates to "Elevated" and the toast
+          // confirms; this also hands focus cleanly back to the trigger.
+          toast(d.message || 'Raw-socket scans (SYN/UDP/OS) enabled.', { type: 'success', title: 'Privilege elevated' });
+          onClose();
+        } else {
+          setMsg({ ok: false, text: d.message || 'Failed.' });
+          toast(d.message || 'Elevation failed.', { type: 'error' });
+        }
       })
-      .catch((e) => setMsg({ ok: false, text: e.message || 'Elevation failed.' }))
+      .catch((e) => {
+        setMsg({ ok: false, text: e.message || 'Elevation failed.' });
+        toast(e.message || 'Elevation failed.', { type: 'error' });
+      })
       .finally(() => setBusy(false));
   };
 
@@ -498,15 +529,21 @@ function PrivilegeDialog({ onClose }) {
     setBusy(true);
     setMsg(null);
     dropPrivilege()
-      .then((d) => setMsg({ ok: true, text: d.message || 'Dropped to unprivileged.' }))
-      .catch((e) => setMsg({ ok: false, text: e.message || 'Failed.' }))
+      .then((d) => {
+        toast(d.message || 'Dropped to unprivileged.', { type: 'info' });
+        onClose();
+      })
+      .catch((e) => {
+        setMsg({ ok: false, text: e.message || 'Failed.' });
+        toast(e.message || 'Failed to drop privileges.', { type: 'error' });
+      })
       .finally(() => setBusy(false));
   };
 
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Scan privilege">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
-      <div className="eg-card relative z-10 w-full max-w-md p-5">
+      <Backdrop onClose={onClose} className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+      <div ref={dialogRef} tabIndex={-1} className="eg-card relative z-10 w-full max-w-md p-5 outline-none">
         {/* header */}
         <div className="mb-3 flex items-start justify-between gap-3">
           <div className="flex items-center gap-2.5">
@@ -573,8 +610,7 @@ function PrivilegeDialog({ onClose }) {
             </p>
             <div className="flex items-center gap-2">
               <input
-                // eslint-disable-next-line jsx-a11y/no-autofocus
-                autoFocus
+                ref={pwRef}
                 type="password"
                 value={pw}
                 onChange={(e) => setPw(e.target.value)}
@@ -657,13 +693,26 @@ function PrivilegeControl() {
 
 function ExportMenu({ disabled, btnBase }) {
   const { downloadReport, exportCsv, exportJson } = useScan();
+  const { toast } = useToast();
   const [open, setOpen] = useState(false);
   useEscapeToClose(open, useCallback(() => setOpen(false), []));
   const item =
     'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs text-slate-300 transition hover:bg-steel-800 hover:text-slate-100';
-  const run = (fn) => () => {
-    fn();
+  // Handles both sync exports (CSV/JSON) and the async PDF, toasting the outcome.
+  const run = (fn, okMsg) => () => {
     setOpen(false);
+    try {
+      const result = fn();
+      if (result && typeof result.then === 'function') {
+        result
+          .then(() => toast(okMsg, { type: 'success' }))
+          .catch(() => toast('Export failed — is the backend running?', { type: 'error' }));
+      } else {
+        toast(okMsg, { type: 'success' });
+      }
+    } catch {
+      toast('Export failed.', { type: 'error' });
+    }
   };
   return (
     <div className="relative">
@@ -682,15 +731,15 @@ function ExportMenu({ disabled, btnBase }) {
       </button>
       {open && (
         <>
-          <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />
+          <Backdrop onClose={() => setOpen(false)} className="fixed inset-0 z-30" />
           <div role="menu" aria-label="Export format" className="eg-card absolute right-0 z-40 mt-1.5 w-48 p-1.5">
-            <button role="menuitem" onClick={run(downloadReport)} className={item}>
+            <button role="menuitem" onClick={run(downloadReport, 'PDF report downloaded.')} className={item}>
               <Icon.Download className="h-3.5 w-3.5 text-crimson" /> PDF report
             </button>
-            <button role="menuitem" onClick={run(exportCsv)} className={item}>
+            <button role="menuitem" onClick={run(exportCsv, 'CSV inventory exported.')} className={item}>
               <Icon.Server className="h-3.5 w-3.5 text-matrix" /> CSV (inventory)
             </button>
-            <button role="menuitem" onClick={run(exportJson)} className={item}>
+            <button role="menuitem" onClick={run(exportJson, 'JSON snapshot exported.')} className={item}>
               <Icon.Terminal className="h-3.5 w-3.5 text-amber" /> JSON (full snapshot)
             </button>
           </div>
@@ -729,7 +778,7 @@ function SettingsMenu({ btnBase }) {
       </button>
       {open && (
         <>
-          <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />
+          <Backdrop onClose={() => setOpen(false)} className="fixed inset-0 z-30" />
           <div role="menu" aria-label="Settings" className="eg-card absolute right-0 z-40 mt-1.5 w-[280px] p-2">
             <div className="mb-1 px-1 text-[10px] font-semibold uppercase tracking-widest text-slate-500">Appearance</div>
             <div className={row}>
@@ -752,6 +801,14 @@ function SettingsMenu({ btnBase }) {
               <ApiTokenButton />
               <NvdKeyButton />
             </div>
+            <div className="my-2 border-t border-slate-700/60" />
+            <button
+              onClick={() => { setOpen(false); window.dispatchEvent(new Event('eg:open-help')); }}
+              className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-xs text-slate-300 outline-none transition hover:bg-steel-800 hover:text-slate-100 focus-visible:ring-2 focus-visible:ring-sky-400"
+            >
+              <span className="flex items-center gap-1.5"><Icon.Terminal className="h-3.5 w-3.5" /> Keyboard shortcuts</span>
+              <kbd className="rounded border border-slate-600 bg-steel-900 px-1.5 py-0.5 font-mono text-[10px] text-slate-400">?</kbd>
+            </button>
           </div>
         </>
       )}
@@ -1229,7 +1286,7 @@ function Sidebar({ mobileOpen, onClose }) {
   return (
     <>
       {/* mobile scrim */}
-      {mobileOpen && <div className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm lg:hidden" onClick={onClose} />}
+      {mobileOpen && <Backdrop onClose={onClose} className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm lg:hidden" />}
       <aside
         className={`fixed inset-y-0 left-0 z-50 flex w-[272px] shrink-0 flex-col gap-3 overflow-y-auto border-r border-slate-800 bg-steel-950/95 p-3 transition-transform duration-200 lg:static lg:z-0 lg:w-[264px] lg:translate-x-0 lg:bg-steel-950/50 ${
           mobileOpen ? 'translate-x-0' : '-translate-x-full'
@@ -1408,6 +1465,9 @@ function ColResizeHandle({ col, onResize, onReset }) {
   };
   return (
     <span
+      // Pointer-only column-resize grip (decorative to AT): columns have sensible
+      // default widths, so there is no keyboard resize to expose.
+      aria-hidden="true"
       onPointerDown={onPointerDown}
       onDoubleClick={(e) => { e.stopPropagation(); onReset(col); }}
       onClick={(e) => e.stopPropagation()}
@@ -1844,10 +1904,13 @@ function AssetMatrix({ hosts, view, setView }) {
           {view === 'map' ? (
             <TopologyView hosts={visible} onScan={scanHostVulns} />
           ) : (
+            // Delegated arrow-key navigation between the focusable asset rows (the
+            // rows are the real interactive elements); the container only forwards keys.
+            // eslint-disable-next-line jsx-a11y/no-static-element-interactions
             <div className="min-h-0 flex-1 overflow-auto" onKeyDown={onGridKey}>
               <MatrixHeader sort={sort} onSort={onSort} allExpanded={allExpanded} onToggleAll={toggleAll} template={template} onResize={setColWidth} onResetCol={(col) => setColWidth(col, COL_DEFAULTS[col])} />
               {visible.length === 0 ? (
-                <div className="px-6 py-16 text-center font-mono text-sm text-slate-500">// no hosts match the active search / filters</div>
+                <div className="px-6 py-16 text-center font-mono text-sm text-slate-500">{'// no hosts match the active search / filters'}</div>
               ) : (
                 <div className="divide-y divide-slate-800/80">
                   {visible.map((host) => (
@@ -1945,7 +2008,7 @@ function ApiTokenButton() {
       </button>
       {open && (
         <>
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <Backdrop onClose={() => setOpen(false)} className="fixed inset-0 z-40" />
           <div role="dialog" aria-label="API token settings" className="eg-card absolute right-0 z-50 mt-1 w-[300px] p-3 text-[11px]">
             <div className="mb-2 flex items-center gap-1.5 font-semibold uppercase tracking-wider text-slate-200"><Icon.Lock className="h-3.5 w-3.5" /> API token (RBAC)</div>
             <p className="mb-2 leading-relaxed text-slate-400">Only needed when the backend runs with a token (<span className="font-mono text-slate-300">ENUMGRID_ADMIN_TOKEN</span>). Sent as a <span className="font-mono text-slate-300">Bearer</span> header, stored in this browser.</p>
@@ -2002,7 +2065,7 @@ function NvdKeyButton() {
       </button>
       {open && (
         <>
-          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <Backdrop onClose={() => setOpen(false)} className="fixed inset-0 z-40" />
           <div role="dialog" aria-label="NVD API key settings" className="eg-card absolute right-0 z-50 mt-1 w-[300px] p-3 text-[11px]">
             <div className="mb-2 flex items-center gap-1.5 font-semibold uppercase tracking-wider text-amber"><Icon.Key className="h-3.5 w-3.5" /> NVD API key</div>
             <p className="mb-2 leading-relaxed text-slate-400">A <b>free</b> key raises the live-CVE limit from <b>5</b> to <b>50</b> req/30s. Current: <span className="font-mono text-slate-200">{status?.rate_limit || '—'}</span>.</p>
@@ -2069,7 +2132,7 @@ function ScanConfigPanel() {
 
       {open && entries.length === 0 && (
         <div className="eg-drawer mt-2 rounded-lg border border-slate-700/70 bg-steel-900/60 px-3 py-2 font-mono text-[11px] text-slate-500">
-          // scan profiles unavailable — backend offline
+          {'// scan profiles unavailable — backend offline'}
         </div>
       )}
 
@@ -2157,7 +2220,14 @@ function BootSplash({ onDone }) {
     return () => { timers.forEach(clearTimeout); clearTimeout(out); clearTimeout(done); };
   }, [onDone]);
   return (
-    <div onClick={onDone} role="status" aria-label="ENUMGRID starting" className={`fixed inset-0 z-[80] flex cursor-pointer flex-col items-center justify-center bg-steel-950 transition-opacity duration-500 ${leaving ? 'opacity-0' : 'opacity-100'}`}>
+    <div
+      onClick={onDone}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ' || e.key === 'Escape') onDone(); }}
+      role="button"
+      tabIndex={0}
+      aria-label="Skip the intro animation"
+      className={`fixed inset-0 z-[80] flex cursor-pointer flex-col items-center justify-center bg-steel-950 transition-opacity duration-500 ${leaving ? 'opacity-0' : 'opacity-100'}`}
+    >
       <div className="relative mb-6 h-28 w-28">
         <span className="eg-ring absolute inset-0 rounded-full border border-matrix/40" />
         <span className="eg-ring absolute inset-0 rounded-full border border-matrix/30" style={{ animationDelay: '0.6s' }} />
@@ -2187,6 +2257,105 @@ function BootSplash({ onDone }) {
  * Root
  * ========================================================================== */
 
+/** Modal cheat-sheet of the global keyboard shortcuts (opened with "?"). */
+function HelpOverlay({ onClose }) {
+  useEscapeToClose(true, onClose);
+  const ref = useFocusTrap();
+  return (
+    <div className="fixed inset-0 z-[75] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts">
+      <Backdrop onClose={onClose} className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+      <div ref={ref} tabIndex={-1} className="eg-card relative z-10 w-full max-w-sm p-5 outline-none">
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-100">
+            <Icon.Terminal className="h-4 w-4 text-amber" /> Keyboard shortcuts
+          </h2>
+          <button onClick={onClose} aria-label="Close" className="rounded p-1 text-slate-500 outline-none transition hover:bg-steel-800 hover:text-slate-200 focus-visible:ring-2 focus-visible:ring-sky-400">
+            <Icon.X className="h-4 w-4" />
+          </button>
+        </div>
+        <ul className="divide-y divide-slate-800/70">
+          {SHORTCUTS.map((s) => (
+            <li key={s.keys} className="flex items-center justify-between gap-4 py-2 text-xs">
+              <span className="text-slate-300">{s.label}</span>
+              <kbd className="shrink-0 rounded border border-slate-600 bg-steel-900 px-2 py-0.5 font-mono text-[11px] text-slate-200">{s.keys}</kbd>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Binds the safe global shortcuts (search focus, theme, density, help) and owns
+ * the help overlay. Single-key shortcuts are suppressed while typing in a field.
+ * Also opens on a window `eg:open-help` event so the Settings menu can trigger it.
+ */
+function ShortcutsLayer() {
+  const { toggleTheme, toggleDensity } = usePreferences();
+  const [helpOpen, setHelpOpen] = useState(false);
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === 'Escape') { setHelpOpen(false); return; }
+      if (isEditableTarget(e.target)) return;
+      if (e.key === '/') { e.preventDefault(); document.querySelector('input[type="search"]')?.focus(); }
+      else if (e.key === '?') { e.preventDefault(); setHelpOpen((o) => !o); }
+      else if (e.key === 't') { e.preventDefault(); toggleTheme(); }
+      else if (e.key === 'd') { e.preventDefault(); toggleDensity(); }
+    };
+    const openHelp = () => setHelpOpen(true);
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('eg:open-help', openHelp);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('eg:open-help', openHelp);
+    };
+  }, [toggleTheme, toggleDensity]);
+
+  return helpOpen ? <HelpOverlay onClose={() => setHelpOpen(false)} /> : null;
+}
+
+/**
+ * Fires action-feedback toasts on meaningful scan-state transitions. Renders
+ * nothing — a pure watcher, so scan state stays a plain data concern.
+ */
+function ScanToasts() {
+  const { phase, scanId, target, hosts, statusMessage } = useScan();
+  const { toast } = useToast();
+  const prev = useRef(null);
+  useEffect(() => {
+    // First run: adopt current state as the baseline so a scan restored from
+    // localStorage on page load doesn't fire spurious "started/complete" toasts.
+    if (prev.current === null) {
+      prev.current = { phase, scanId };
+      return;
+    }
+    const p = prev.current;
+    if (scanId && scanId !== p.scanId) {
+      toast(`Scanning ${target}…`, { type: 'info', title: 'Scan started', id: 'eg-scan-status' });
+    }
+    if (phase !== p.phase) {
+      if (phase === ScanPhase.COMPLETE) {
+        const up = hosts.filter((h) => h.status === HostStatus.UP).length;
+        const openPorts = hosts.reduce((n, h) => n + countOpenPorts(h), 0);
+        toast(`${up} host${up === 1 ? '' : 's'} up · ${openPorts} open port${openPorts === 1 ? '' : 's'}`, {
+          type: 'success', title: 'Scan complete', id: 'eg-scan-status',
+        });
+      } else if (phase === ScanPhase.HALTED) {
+        toast('Scan stopped.', { type: 'warn', id: 'eg-scan-status' });
+      } else if (phase === ScanPhase.ERROR) {
+        toast(statusMessage || 'The scan failed — check the backend and target.', {
+          type: 'error', title: 'Scan error', id: 'eg-scan-status',
+        });
+      }
+    }
+    prev.current = { phase, scanId };
+  }, [phase, scanId, target, hosts, statusMessage, toast]);
+  return null;
+}
+
 export default function IndustrialDashboard() {
   const { hosts, phase } = useScan();
   const [view, setView] = useState('table'); // matrix | topology (shared with toolbar)
@@ -2205,6 +2374,8 @@ export default function IndustrialDashboard() {
 
   return (
     <div className="relative flex h-screen overflow-hidden text-slate-200">
+      <ScanToasts />
+      <ShortcutsLayer />
       <div className="eg-aurora" />
       {booting && <BootSplash onDone={finishBoot} />}
       <Sidebar mobileOpen={navOpen} onClose={() => setNavOpen(false)} />
