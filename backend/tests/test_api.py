@@ -300,6 +300,28 @@ def test_copilot_model_and_pull_require_admin(monkeypatch, _copilot_isolated):
                        json={"provider": "ollama", "model": "llama3.1"}).status_code == 200
 
 
+def test_copilot_summary_is_honest_without_provider(monkeypatch, _copilot_isolated):
+    import copilot
+    monkeypatch.setattr(copilot, "_HAVE_OPENAI", False)
+    monkeypatch.setattr(copilot, "_HAVE_ANTHROPIC", False)
+    r = client.post("/api/copilot/summary",
+                    json={"context": {"target": "x", "hosts": []}, "provider": "openai"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["available"] is False and body["error"]     # honest, no fabricated summary
+
+
+def test_report_pdf_embeds_ai_summary_when_requested(monkeypatch, _copilot_isolated):
+    import copilot
+    monkeypatch.setattr(copilot, "summarize_scan",
+                        lambda *a, **k: {"available": True, "summary": "Top risk is the router.",
+                                         "provider": "ollama", "error": None})
+    r = client.post("/api/report/pdf",
+                    json={"target": "10.0.0.0/24", "hosts": [{"ip": "10.0.0.1"}],
+                          "include_ai_summary": True})
+    assert r.status_code == 200 and r.content[:5] == b"%PDF-"
+
+
 def test_network_suggestion():
     r = client.get("/api/network")
     assert r.status_code == 200

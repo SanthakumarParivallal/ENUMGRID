@@ -48,6 +48,29 @@ All notable changes to **ENUMGRID: the Enumeration Platform**. Format based on
   the normal scope-vetted scan. A security tool never scans without the operator.
 - **Streaming** — replies stream token-by-token over SSE (`POST /api/copilot/chat`).
   Opens from a floating launcher, the ⌘K palette, or the Settings menu.
+- **Readable replies + chat niceties** — copilot answers render as **Markdown**
+  (headings, lists, bold, inline/fenced code, links) via a dependency-free,
+  HTML-escaping renderer (`frontend/src/lib/markdown.js`) that allow-lists link
+  schemes and autolinks **CVE ids to NVD** — XSS-tested. A **Stop** button aborts a
+  streaming reply (partial text kept), the **conversation persists** across
+  panel close/reopen (local only), and a **New chat** button clears it.
+- **Grounded, factual by default** — the copilot runs at a low temperature (0.2) and
+  **only arms the `propose_scan` tool when the operator actually asks to scan**
+  (`wants_scan`). This fixed a real issue found in live testing: small local models
+  (Llama 3.2 3B) would otherwise call the tool — or emit fake tool-call JSON as text —
+  instead of answering an analytical question. Now analytical questions get clean
+  prose; "run a scan on X" still gets the agentic proposal.
+- **AI executive summary in the PDF report** — the export menu's *PDF + AI summary*
+  (or `include_ai_summary` on `POST /api/report/pdf`) prepends a grounded,
+  copilot-written executive summary (`copilot.summarize_scan`, tools disabled). The
+  model's text is HTML-escaped into the report; a copilot failure never blocks it.
+- **Copilot evaluation harness** (`evaluation/copilot_eval.py`) — measures the
+  copilot's **grounding** (fraction of answers that invent nothing — including *novel*
+  fabricated CVE ids, not just pre-listed traps) and **coverage** (expected facts hit)
+  over a fixed scan, in the style of `benchmark.py`. Deterministic, unit-tested scoring;
+  real numbers when a provider is configured, `--self-test` fixtures otherwise. It
+  never fabricates a score. A live run of the free Llama 3.2 scored perfect grounding
+  once temperature was lowered, and caught a real CVE hallucination before that fix.
 
 ### Added — passive discovery, scheduling & campaigns
 - **Passive (zero-packet) discovery** (`backend/passive.py`, `POST /api/passive`,

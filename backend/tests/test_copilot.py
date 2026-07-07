@@ -161,6 +161,30 @@ def test_pull_model_rejects_bad_name(state):
     assert events[-1] == {"type": "done"}
 
 
+# --- executive summary (for the PDF report) ---------------------------------- #
+def test_summarize_scan_unavailable_without_provider(state, monkeypatch):
+    monkeypatch.setattr(copilot, "_HAVE_OPENAI", False)
+    monkeypatch.setattr(copilot, "_HAVE_ANTHROPIC", False)
+    r = copilot.summarize_scan({"target": "x", "hosts": []}, provider="openai")
+    assert r["available"] is False and r["summary"] == "" and r["error"]
+
+
+def test_summarize_scan_collects_text_and_disables_tools(state, monkeypatch):
+    seen = {}
+
+    def fake_stream(messages, context=None, *, provider=None, model=None, allow_tools=True):
+        seen["allow_tools"] = allow_tools
+        yield {"type": "delta", "text": "Exposure is "}
+        yield {"type": "delta", "text": "moderate; patch the router."}
+        yield {"type": "done"}
+
+    monkeypatch.setattr(copilot, "stream_reply", fake_stream)
+    r = copilot.summarize_scan({"target": "x", "hosts": []}, provider="ollama")
+    assert r["available"] is True
+    assert r["summary"] == "Exposure is moderate; patch the router."
+    assert seen["allow_tools"] is False       # a summary must never propose a scan
+
+
 # --- key storage ------------------------------------------------------------- #
 def test_key_save_load_clear(state):
     assert copilot.has_key("anthropic") is False
@@ -277,6 +301,21 @@ def test_sanitize_action_rejects_bad_target():
     assert copilot.sanitize_action("nope") is None
 
 
+def test_wants_scan_intent_gate():
+    assert copilot.wants_scan([{"role": "user", "content": "please scan 10.0.0.1"}])
+    assert copilot.wants_scan([{"role": "user", "content": "enumerate the subnet"}])
+    assert copilot.wants_scan([{"role": "user", "content": "run a port scan on the gateway"}])
+    # analytical questions about existing results must NOT arm the tool
+    assert not copilot.wants_scan([{"role": "user", "content": "which host is most exposed?"}])
+    assert not copilot.wants_scan([{"role": "user", "content": "summarise the open services"}])
+    # only the latest user turn decides
+    assert not copilot.wants_scan([
+        {"role": "user", "content": "scan it"},
+        {"role": "assistant", "content": "ok"},
+        {"role": "user", "content": "thanks — what did you find?"},
+    ])
+
+
 def test_scan_tool_schemas():
     a = copilot.scan_tool_anthropic()
     assert a["name"] == "propose_scan" and "input_schema" in a
@@ -309,14 +348,15 @@ def test_stream_reply_ollama_passes_key_gate_and_routes_local(state, monkeypatch
     monkeypatch.setattr(copilot, "_HAVE_OPENAI", True)
     seen = {}
 
-    def fake_stream(key, model, system, turns, base_url=None):
-        seen.update(key=key, model=model, base_url=base_url)
+    def fake_stream(key, model, system, turns, base_url=None, tools_on=True):
+        seen.update(key=key, model=model, base_url=base_url, tools_on=tools_on)
         yield {"type": "delta", "text": "ok"}
 
     monkeypatch.setattr(copilot, "_stream_openai", fake_stream)
     events = _collect(copilot.stream_reply([{"role": "user", "content": "hi"}], provider="ollama"))
     assert seen["base_url"] == copilot._BASE_URLS["ollama"]   # routed to the local server
     assert seen["key"] == "ollama" and seen["model"] == "llama3.1"
+    assert seen["tools_on"] is False                          # "hi" has no scan intent
     assert {"type": "delta", "text": "ok"} in events
     assert events[-1] == {"type": "done"}
 
@@ -326,13 +366,15 @@ def test_stream_reply_gemini_routes_to_base_url(state, monkeypatch):
     copilot.save_key("gemini", "AIza-testkey-123456")
     seen = {}
 
-    def fake_stream(key, model, system, turns, base_url=None):
-        seen.update(base_url=base_url, model=model)
+    def fake_stream(key, model, system, turns, base_url=None, tools_on=True):
+        seen.update(base_url=base_url, model=model, tools_on=tools_on)
         yield {"type": "delta", "text": "hi"}
 
     monkeypatch.setattr(copilot, "_stream_openai", fake_stream)
-    events = _collect(copilot.stream_reply([{"role": "user", "content": "hi"}], provider="gemini"))
+    events = _collect(copilot.stream_reply(
+        [{"role": "user", "content": "please scan 10.0.0.1"}], provider="gemini"))
     assert seen["base_url"] == copilot._BASE_URLS["gemini"] and seen["model"] == "gemini-2.0-flash"
+    assert seen["tools_on"] is True                           # explicit scan intent → tool armed
     assert events[-1] == {"type": "done"}
 
 
