@@ -76,6 +76,27 @@ did so **faster** every trial. Every EnumGrid host is ARP/mDNS-corroborated, so
 (`nmap -sn` found nothing EnumGrid missed). The wide swing in `nmap -sn`'s own
 timing (1.9–22.4 s, ARP-cache dependent) is exactly why we report multiple trials.
 
+## Multi-run statistics — busy `/24` (`172.16.2.0/24`, 3 runs/tool, 2026-07-06)
+
+Run with the publication-grade harness (`--runs 3 --plot`), which reports
+**mean ± 95 % CI** across repetitions rather than a single trial. Reference =
+union of both tools' finds (**15** hosts).
+
+| Tool | Runs | Hosts found | Recall | Precision | Time (s) |
+|---|---:|---:|---:|---:|---:|
+| **EnumGrid** (unprivileged) | 3 | 14.67 ± 0.65 | **0.98 ± 0.04** | 1.00 ± 0.00 | **22.8 ± 0.2** |
+| `nmap -sn` (unprivileged) | 3 | 1.00 ± 0.00 | **0.07 ± 0.00** | 1.00 ± 0.00 | 49.2 ± 13.7 |
+
+![EnumGrid vs nmap -sn — recall and discovery time, mean ± 95 % CI](screenshots/benchmark_multirun_172-16-2.png)
+
+On a busy, populated subnet the gap is decisive and **statistically stable**:
+unprivileged EnumGrid recovers ~15/15 hosts (recall **0.98**, tight CI) while
+unprivileged `nmap -sn` sees just the scanning host (recall **0.07**) — a ~15×
+device count — and EnumGrid is also **~2× faster** with far lower time variance.
+Precision is **1.00** for both (no false positives). `arp-scan`, `netdiscover` and
+`masscan` were not installed on this host and are reported as such (never counted
+as "found nothing"); install them to widen the baseline field.
+
 ## Reproduce it
 
 ```bash
@@ -86,12 +107,37 @@ python evaluation/benchmark.py 192.168.0.0/24
 # reports how closely root-nmap agrees with EnumGrid (prompts for sudo):
 python evaluation/benchmark.py 192.168.0.0/24 --privileged
 
+# Publication-grade multi-run statistics: repeat each tool N times and report
+# mean ± 95% CI for recall / precision / time, against a field of real baselines
+# (nmap -sn, arp-scan, netdiscover, masscan — whichever are installed), plus a
+# recall/time bar chart for the paper:
+python evaluation/benchmark.py 192.168.0.0/24 --runs 5 \
+    --baselines nmap-sn,arp-scan,netdiscover,masscan --plot bench.png
+
 # Against the deterministic docker testbed (true ground truth):
 cd evaluation && docker compose up -d
 python benchmark.py 172.28.0.0/24 \
     --ground-truth 172.28.0.10,172.28.0.11,172.28.0.12,172.28.0.13
 docker compose down
 ```
+
+### Multi-run statistics & baselines (what reviewers ask for)
+
+`--runs N` repeats every tool N times and reports **mean ± 95 % CI** for recall,
+precision and time — so the published numbers carry variance, not a single lucky
+run. `--baselines` positions EnumGrid against a real field of discovery tools
+(**arp-scan, netdiscover, masscan** alongside `nmap -sn`); any tool that isn't
+installed is reported as *not installed* rather than silently counted as "found
+nothing". `--plot` writes a paper-ready recall/time bar chart (needs matplotlib).
+rustscan is deliberately **not** a baseline — it's a port scanner, not a
+host-discovery tool, so comparing recall would be unfair.
+
+### Reproducibility manifest
+
+Every EnumGrid report (CLI JSON via `build_report`, the backend `/api/health`, and
+exported PDFs) embeds a **provenance block** — tool + version, the exact **git
+commit**, **nmap version**, Python runtime, OS, and timestamp — so a result is
+reproducible by itself. Unknowns (e.g. no git checkout) are labelled, never faked.
 
 The testbed (`evaluation/docker-compose.yml`) brings up four service containers at
 fixed IPs (nginx, apache, an SSH server, redis) — a known-live set for measuring

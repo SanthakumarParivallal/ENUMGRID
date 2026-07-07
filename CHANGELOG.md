@@ -5,6 +5,80 @@ All notable changes to **ENUMGRID: the Enumeration Platform**. Format based on
 
 ## [Unreleased]
 
+### Changed — project layout & tooling
+- **Repository restructure** — moved the test suites out of the source
+  directories (`backend/test_*.py` → `backend/tests/`, root
+  `test_purple_recon.py` → `tests/`) and consolidated `pytest.ini` + `ruff.toml`
+  into `pyproject.toml` (one config source; `pythonpath` lets the relocated tests
+  resolve their flat imports from any CWD). Purged build/artifact clutter from the
+  working tree. CI, `Makefile`, `.dockerignore`, and docs updated in lockstep;
+  `uvicorn app:app` and `python purple_recon.py` entrypoints unchanged, all 582
+  tests green.
+
+### Fixed
+- **`POST /api/schedules` 500 on array `days`** — `schedule.parse_days` assumed a
+  comma-separated string and raised `AttributeError` when a client sent `days` as
+  a JSON array (e.g. `["mon","wed"]`). It now accepts both the array and the
+  comma-string (what the cockpit UI already sends), so the endpoint returns the
+  created rule instead of a 500. Found via live end-to-end testing; regression-tested.
+
+### Added — AI copilot (multi-provider, scan-grounded, agentic)
+- **In-cockpit AI copilot** (`backend/copilot.py`, `frontend/src/CopilotPanel.jsx`,
+  `/api/copilot*`) — a security-analyst chatbot embedded in the dashboard that is
+  **grounded in the live scan** (it answers about *your* hosts / ports / CVEs, and
+  says so honestly when the context doesn't contain the answer — never fabricates).
+- **Two providers, switchable in the dashboard** — Anthropic Claude (default,
+  `claude-opus-4-8`) and OpenAI. Each SDK is optional; a missing SDK or key returns
+  `available:false` with a reason instead of a fake reply. The operator pastes their
+  own key **directly in the panel** (persisted `0600`, gitignored, never logged),
+  mirroring the NVD-key pattern — plus `POST /api/copilot/key` / `/provider`.
+- **Agentic, human-in-the-loop** — the model can call a `propose_scan` tool; the
+  backend never runs it, it surfaces the proposal as a confirm button that launches
+  the normal scope-vetted scan. A security tool never scans without the operator.
+- **Streaming** — replies stream token-by-token over SSE (`POST /api/copilot/chat`).
+  Opens from a floating launcher, the ⌘K palette, or the Settings menu.
+
+### Added — passive discovery, scheduling & campaigns
+- **Passive (zero-packet) discovery** (`backend/passive.py`, `POST /api/passive`,
+  runnable standalone) — a stealth discovery mode that **sends nothing on the
+  wire**: it listens for the broadcast/multicast chatter hosts emit on their own
+  (ARP, DHCP, mDNS, LLMNR, NetBIOS) and reports who is talking. Invisible to an
+  IDS watching for scans, and a clean research contrast to active discovery. scapy
+  is an optional dependency and capture needs raw-socket privilege; when either is
+  missing the endpoint returns `available:false` with a reason (never fabricates
+  hosts). The aggregation/classification core is pure + unit-tested.
+- **Cron-style scheduled scans** (`backend/schedule.py`, `/api/schedules` CRUD) —
+  unattended, time-of-day recurring scans ("sweep 192.168.0.0/24 every weekday at
+  02:00") that fire even with no browser open. A background ticker enqueues a
+  headless `network_scan` job (the same pipeline the UI drives), so results land
+  in history + drift automatically. Rules are scope-validated on creation, persist
+  across restarts, and the recurrence math (`due`/`next_run`) is pure + tested.
+- **Multi-subnet campaign view** (`backend/campaign.py`, `GET /api/campaign`) —
+  rolls the *latest* stored scan of several subnets into one estate-wide picture:
+  total unique hosts, open ports, a merged inventory, and mixed device / service /
+  severity rollups. Unscanned subnets are shown honestly rather than dropped.
+- **Operations panel** (web) — one accessible, focus-trapped modal (⌘K → "Operations",
+  or Settings ▸ Operations) with **Passive**, **Schedules** and **Campaign** tabs
+  surfacing all three capabilities in the cockpit.
+- **SMB share enumeration** — the Recon profile now includes the info-level
+  `smb-enum-shares` NSE script (lists shares; not brute/exploit), deepening
+  internal enumeration without changing the safe-by-construction posture.
+
+### Added — evaluation & reproducibility
+- **Multi-run benchmark statistics** (`evaluation/benchmark.py --runs N`) — repeats
+  each tool N times and reports **mean ± 95 % CI** for recall, precision and time
+  (previously single-run, no variance). Adds a field of real, install-gated
+  baselines — **arp-scan, netdiscover, masscan** — alongside `nmap -sn`
+  (`--baselines`), and an optional **recall/time bar chart** (`--plot`, matplotlib).
+  Baselines that aren't installed are reported as such, never counted as "found
+  nothing". (rustscan is intentionally excluded — it's a port scanner, not a
+  host-discovery tool, so a recall comparison would be unfair.)
+- **Reproducibility manifest** — every CLI JSON report (`build_report`) and the
+  backend (`/api/health` + exported PDF) now embed a provenance block: tool +
+  version, exact **git commit**, **nmap version**, Python runtime, OS, and
+  timestamp — so a result reproduces by itself. Best-effort and honest (unknowns
+  are labelled, never fabricated).
+
 ### Added — discovery
 - **SSDP / UPnP discovery** (`backend/ssdp.py`) — a new unprivileged name source
   that fills the hostname/model gap for devices that don't answer mDNS or NBNS

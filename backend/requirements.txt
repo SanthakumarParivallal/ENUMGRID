@@ -13,3 +13,6 @@ paramiko>=3.4    # optional: authenticated (SSH) credentialed host scans (exact 
 # Optional integrations (install only if you use them):
 #   boto3>=1.34   # AWS cloud asset discovery  (GET /api/cloud/aws)
 #   ldap3>=2.9    # Active Directory enumeration (POST /api/ad/enum)
+#   scapy>=2.5    # passive (zero-packet) discovery  (POST /api/passive) — needs raw-socket privilege
+#   anthropic>=0.40  # AI copilot via Anthropic Claude  (POST /api/copilot/chat)
+#   openai>=1.40     # AI copilot via OpenAI            (POST /api/copilot/chat)

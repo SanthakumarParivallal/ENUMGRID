@@ -54,6 +54,36 @@ enumgrid = "purple_recon:cli"
 [tool.setuptools]
 py-modules = ["purple_recon"]
 
+# Pytest. Tests live in per-component `tests/` dirs (repo-root `tests/` for the
+# CLI, `backend/tests/` for the FastAPI service). `pythonpath` puts the repo root
+# and `backend/` on sys.path so those tests resolve the flat imports
+# (`import purple_recon`, `import scanner`) regardless of the invocation dir —
+# `pytest`, `cd backend && pytest tests/...`, and the CI matrix all just work.
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+pythonpath = [".", "backend"]
+
+# Ruff (lint + import order). Correctness-focused and low-noise: gate on the rules
+# that catch real bugs (undefined names, unused imports/vars, syntax) plus import
+# ordering — not stylistic bikeshedding — so the CI lint signal stays meaningful.
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+extend-exclude = [".venv", "frontend", "dist", "build"]
+
+[tool.ruff.lint]
+select = [
+    "E9",   # syntax / runtime errors
+    "F63",  # invalid comparisons / assert tuples
+    "F7",   # statement misuse (break/continue/return outside scope)
+    "F82",  # undefined name
+    "F401", # unused import
+    "F811", # redefinition of unused name
+    "F841", # unused local variable
+    "I",    # import sorting (isort)
+]
+
 # Bandit (SAST). The skips below are *reviewed and accepted*, with rationale:
 #   B404/B603/B607 — a network-enumeration tool must shell out to ping/arp/ndp/
 #     nmap. Every call uses list-form args (never shell=True), and the only

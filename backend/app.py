@@ -22,13 +22,18 @@ from datetime import datetime
 
 import adscan
 import audit
+import campaign
 import cloudscan
+import copilot
 import credscan
 import cve
 import history
 import jobs
 import notify
 import osv
+import passive
+import provenance
+import schedule
 import security
 import threatintel
 import webscan
@@ -156,6 +161,9 @@ def health() -> dict:
             "nvd_api_key": bool(cve.API_KEY),
             "cached_services": cve.cache_count(),
         },
+        # Reproducibility: tool/git/nmap/runtime build info (cached — no per-call
+        # subprocess). Same manifest is embedded in exported PDF reports.
+        "provenance": provenance.build_info(),
     }
 
 
@@ -389,6 +397,78 @@ def set_nvd_key(
     })
 
 
+# --- AI copilot: status, in-dashboard key upload, provider switch, chat ------- #
+@app.get("/api/copilot")
+def copilot_status(
+    token: str | None = Query(None),
+    authorization: str | None = Header(None),
+) -> dict:
+    """Copilot availability for the dashboard: which providers have an SDK + key,
+    which is active, and whether it's ready. Never returns key values."""
+    if not token_ok(token, authorization):
+        raise HTTPException(status_code=401, detail="unauthorized")
+    return copilot.status()
+
+
+@app.post("/api/copilot/key")
+def copilot_set_key(
+    payload: dict = Body(...),
+    token: str | None = Query(None),
+    authorization: str | None = Header(None),
+) -> JSONResponse:
+    """Save (or clear) a provider API key from the dashboard — persisted 0600,
+    gitignored, never logged. Admin-gated; the key value is never echoed back."""
+    if not admin_ok(token, authorization):
+        raise HTTPException(status_code=401, detail="admin token required")
+    provider = str(payload.get("provider") or "").strip()
+    if not copilot.valid_provider(provider):
+        return JSONResponse({"error": "unknown provider"}, status_code=400)
+    key_set = copilot.save_key(provider, str(payload.get("key") or ""))
+    audit.record("copilot_key_set", provider=provider, active=key_set)  # never the key
+    return JSONResponse({"ok": True, "provider": provider, "key_set": key_set,
+                         "status": copilot.status()})
+
+
+@app.post("/api/copilot/provider")
+def copilot_set_provider(
+    payload: dict = Body(...),
+    token: str | None = Query(None),
+    authorization: str | None = Header(None),
+) -> JSONResponse:
+    """Choose the active copilot provider (anthropic | openai). Admin-gated."""
+    if not admin_ok(token, authorization):
+        raise HTTPException(status_code=401, detail="admin token required")
+    try:
+        copilot.set_active_provider(str(payload.get("provider") or "").strip())
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    audit.record("copilot_provider_set", provider=payload.get("provider"))
+    return JSONResponse({"ok": True, "status": copilot.status()})
+
+
+@app.post("/api/copilot/chat")
+def copilot_chat(
+    payload: dict = Body(...),
+    token: str | None = Query(None),
+    authorization: str | None = Header(None),
+):
+    """Stream one copilot turn as Server-Sent Events. Grounded in the posted scan
+    ``context``; may emit an ``action`` event proposing a scan the operator can
+    confirm and run. Read-gated (it spends the operator's own key). Provider/SDK/
+    key problems arrive as honest ``error`` events, never a fabricated answer."""
+    if not token_ok(token, authorization):
+        raise HTTPException(status_code=401, detail="unauthorized")
+    messages = payload.get("messages")
+    context = payload.get("context") if isinstance(payload.get("context"), dict) else None
+    provider = payload.get("provider") if copilot.valid_provider(payload.get("provider")) else None
+
+    def event_source():
+        for event in copilot.stream_reply(messages, context, provider=provider):
+            yield f"data: {json.dumps(event)}\n\n"
+
+    return StreamingResponse(event_source(), media_type="text/event-stream", headers=_SSE_HEADERS)
+
+
 @app.get("/api/host/scan")
 async def host_scan(
     ip: str = Query(..., description="IP of an already-discovered host"),
@@ -540,6 +620,37 @@ def history_list(
     return {"scans": history.list_scans(target, limit)}
 
 
+def _latest_snapshot(target: str) -> tuple[dict | None, str | None]:
+    """The newest stored snapshot for ``target`` (and when it finished), or None."""
+    scans = history.list_scans(target, limit=1)
+    if not scans:
+        return None, None
+    row = history.get_scan(scans[0]["id"])
+    if not row:
+        return None, None
+    return (row.get("snapshot") or {}), scans[0].get("finished_at")
+
+
+@app.get("/api/campaign")
+def campaign_view(
+    targets: str = Query(..., description="comma-separated subnet targets to aggregate"),
+    token: str | None = Query(None),
+    authorization: str | None = Header(None),
+) -> dict:
+    """Roll up the latest stored scan of each subnet into one campaign view.
+
+    Read-gated like history (it exposes inventory + open ports). Unscanned subnets
+    are included and flagged ``scanned: false`` rather than dropped."""
+    if not token_ok(token, authorization):
+        raise HTTPException(status_code=401, detail="unauthorized")
+    names = [t.strip() for t in targets.split(",") if t.strip()]
+    subnets = []
+    for name in names[:32]:  # bounded fan-out
+        snapshot, finished_at = _latest_snapshot(name)
+        subnets.append({"target": name, "scanned_at": finished_at, "snapshot": snapshot})
+    return campaign.aggregate_campaign(subnets)
+
+
 @app.get("/api/history/diff")
 def history_diff(
     target: str = Query(..., description="target to compute drift for"),
@@ -619,6 +730,25 @@ def ad_enum(
     return JSONResponse(result)
 
 
+@app.post("/api/passive")
+def passive_discover(
+    seconds: int = Query(15, ge=1, le=300, description="listen window in seconds"),
+    iface: str | None = Query(None, description="capture interface (default: auto)"),
+    token: str | None = Query(None),
+    authorization: str | None = Header(None),
+) -> dict:
+    """Passive, zero-packet host discovery — listens for ARP / DHCP / mDNS / LLMNR
+    / NBNS chatter and reports who announced themselves. Sends **nothing** on the
+    wire (stealth). Needs scapy + raw-socket privilege; returns ``available:false``
+    with a reason when either is missing (never fabricates hosts)."""
+    if not admin_ok(token, authorization):
+        raise HTTPException(status_code=401, detail="admin token required")
+    result = passive.discover_passive(seconds, iface)
+    audit.record("passive", seconds=result.get("seconds"),
+                 available=result.get("available"), hosts=result.get("count", 0))
+    return result
+
+
 # --------------------------------------------------------------------------- #
 # Job queue — submit scans as background jobs, poll for results (scale).
 # --------------------------------------------------------------------------- #
@@ -634,18 +764,70 @@ def _job_host_scan(params: dict) -> dict:
     return host.model_dump()
 
 
-_JOB_HANDLERS = {"host_scan": _job_host_scan}
+def _job_network_scan(params: dict) -> dict:
+    """Worker handler: run a full headless network scan and save it to history.
+
+    Drives the *same* pipeline the SSE stream uses (discover / full), consumes it
+    to completion, then persists the final snapshot so scheduled scans populate
+    history + drift with no browser attached."""
+    target = str(params.get("target") or "")
+    vet_target(target)  # scope guard inside the worker too
+    mode = "full" if params.get("mode") == "full" else "discover"
+    deep = bool(params.get("deep", False))
+
+    async def _run() -> dict | None:
+        final: dict | None = None
+        stream = run_pipeline(target, None, deep) if mode == "full" else run_discovery(target, None)
+        async for snapshot in stream:
+            final = snapshot.model_dump(mode="json")
+        if final is not None and final.get("phase") == ScanPhase.COMPLETE.value:
+            try:
+                history.save_scan(final, mode=mode)
+            except Exception:  # noqa: BLE001 - history is best-effort
+                pass
+        return final
+
+    final = asyncio.run(_run())
+    if not final:
+        return {"ok": False, "target": target, "error": "no result"}
+    return {"ok": True, "target": target, "mode": mode,
+            "hosts": len(final.get("hosts", [])), "phase": final.get("phase")}
+
+
+_JOB_HANDLERS = {"host_scan": _job_host_scan, "network_scan": _job_network_scan}
 _job_stop = asyncio.Event()
+
+# Cron-style scheduled scans: a persisted rule store + a background ticker that
+# enqueues a `network_scan` job whenever a rule is due (see schedule.py).
+_schedules = schedule.ScheduleStore(schedule.default_path())
+_sched_stop = asyncio.Event()
+
+
+async def _scheduler_loop() -> None:
+    """Every ~30s, enqueue a job for each schedule rule that is due right now."""
+    while not _sched_stop.is_set():
+        try:
+            for rule in _schedules.due_now(datetime.now()):
+                jobs.enqueue("network_scan", {"target": rule.target, "mode": rule.mode, "deep": rule.deep})
+                audit.record("schedule_fire", schedule_id=rule.id, target=rule.target, mode=rule.mode)
+        except Exception:  # noqa: BLE001 - a bad rule must never kill the ticker
+            pass
+        try:
+            await asyncio.wait_for(_sched_stop.wait(), timeout=30)
+        except asyncio.TimeoutError:
+            pass
 
 
 @app.on_event("startup")
 async def _start_workers() -> None:
     asyncio.create_task(jobs.run_workers(_JOB_HANDLERS, _job_stop))
+    asyncio.create_task(_scheduler_loop())
 
 
 @app.on_event("shutdown")
 async def _stop_workers() -> None:
     _job_stop.set()
+    _sched_stop.set()
 
 
 @app.post("/api/jobs/submit")
@@ -698,6 +880,83 @@ def jobs_get(
     if not job:
         return JSONResponse({"error": "not found"}, status_code=404)
     return JSONResponse(job)
+
+
+# --------------------------------------------------------------------------- #
+# Scheduled scans — cron-style recurring rules (fire even with no browser open).
+# --------------------------------------------------------------------------- #
+@app.get("/api/schedules")
+def schedules_list(
+    token: str | None = Query(None),
+    authorization: str | None = Header(None),
+) -> dict:
+    """All schedule rules (read-gated like history — it exposes target scopes)."""
+    if not token_ok(token, authorization):
+        raise HTTPException(status_code=401, detail="unauthorized")
+    return {"schedules": [s.to_dict() for s in _schedules.list()]}
+
+
+@app.post("/api/schedules")
+def schedules_create(
+    payload: dict = Body(...),
+    token: str | None = Query(None),
+    authorization: str | None = Header(None),
+) -> JSONResponse:
+    """Create a recurring scan. Body: ``{target, at:"HH:MM", days?, mode?, deep?}``.
+
+    The target is vetted through the same `ScopeValidator` as a live scan, so a
+    rule can never be scheduled against an out-of-scope range."""
+    if not admin_ok(token, authorization):
+        raise HTTPException(status_code=401, detail="admin token required")
+    target = str(payload.get("target") or "").strip()
+    if not target:
+        return JSONResponse({"error": "target required"}, status_code=400)
+    try:
+        vet_target(target)
+    except ScopeRejected as exc:
+        return JSONResponse({"error": exc.reason}, status_code=400)
+    try:
+        rule = _schedules.add(
+            target=target, at=str(payload.get("at", "")), days=payload.get("days"),
+            mode=str(payload.get("mode", "discover")), deep=bool(payload.get("deep", False)),
+            enabled=bool(payload.get("enabled", True)),
+        )
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    audit.record("schedule_create", schedule_id=rule.id, target=target, mode=rule.mode)
+    return JSONResponse(rule.to_dict(), status_code=201)
+
+
+@app.delete("/api/schedules/{sched_id}")
+def schedules_delete(
+    sched_id: str,
+    token: str | None = Query(None),
+    authorization: str | None = Header(None),
+) -> JSONResponse:
+    """Remove a schedule rule."""
+    if not admin_ok(token, authorization):
+        raise HTTPException(status_code=401, detail="admin token required")
+    if not _schedules.remove(sched_id):
+        return JSONResponse({"error": "not found"}, status_code=404)
+    audit.record("schedule_delete", schedule_id=sched_id)
+    return JSONResponse({"ok": True})
+
+
+@app.post("/api/schedules/{sched_id}/toggle")
+def schedules_toggle(
+    sched_id: str,
+    enabled: bool = Query(True),
+    token: str | None = Query(None),
+    authorization: str | None = Header(None),
+) -> JSONResponse:
+    """Enable/disable a rule without deleting it."""
+    if not admin_ok(token, authorization):
+        raise HTTPException(status_code=401, detail="admin token required")
+    rule = _schedules.toggle(sched_id, enabled)
+    if rule is None:
+        return JSONResponse({"error": "not found"}, status_code=404)
+    audit.record("schedule_toggle", schedule_id=sched_id, enabled=enabled)
+    return JSONResponse(rule.to_dict())
 
 
 @app.get("/")

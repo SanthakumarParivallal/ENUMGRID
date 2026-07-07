@@ -87,8 +87,8 @@ jobs:
         working-directory: backend
         run: >
           python -m pytest -v
-          test_scanner.py test_security.py test_history.py test_fingerprint.py
-          test_report.py test_mdns.py test_osfp.py test_api.py test_fuzz.py
+          tests/test_scanner.py tests/test_security.py tests/test_history.py tests/test_fingerprint.py
+          tests/test_report.py tests/test_mdns.py tests/test_osfp.py tests/test_api.py tests/test_fuzz.py
           --cov=app --cov=scanner --cov=discovery --cov=security --cov=history
           --cov=report --cov=fingerprint --cov=mdns --cov=osfp --cov=models
           --cov-report=term --cov-fail-under=60

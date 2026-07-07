@@ -1293,6 +1293,55 @@ def run_headless(state: SharedState, orchestrator: Orchestrator, console: Consol
 # --------------------------------------------------------------------------- #
 # Reporting & export
 # --------------------------------------------------------------------------- #
+def _git_commit(root: str | None = None) -> str | None:
+    """Short git SHA of this working tree, or None when run outside a checkout."""
+    try:
+        out = subprocess.run(  # nosec B603 B607 - fixed args, no user input
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=root or os.path.dirname(os.path.abspath(__file__)),
+            capture_output=True, text=True, check=False, timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    sha = out.stdout.strip()
+    return sha or None
+
+
+def _nmap_version() -> str | None:
+    """nmap's reported version (e.g. ``7.95``), or None if nmap is not installed."""
+    try:
+        out = subprocess.run(  # nosec B603 B607 - fixed args, no user input
+            ["nmap", "--version"],
+            capture_output=True, text=True, check=False, timeout=5,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    match = re.search(r"Nmap version\s+(\S+)", out.stdout)
+    return match.group(1) if match else None
+
+
+def reproducibility_manifest(
+    *,
+    git_commit: str | None = None,
+    nmap_version: str | None = None,
+) -> dict:
+    """Provenance block embedded in every report so a result reproduces by itself.
+
+    Captures *what produced the numbers*: tool + version, the exact git commit,
+    the nmap build, the Python runtime and OS, and when it ran. Pure given its two
+    keyword arguments (defaults probe git/nmap best-effort), so it is deterministic
+    under test — nothing here is fabricated; unknowns are reported as such."""
+    return {
+        "tool": APP_NAME,
+        "tool_version": VERSION,
+        "git_commit": git_commit if git_commit is not None else (_git_commit() or "unknown"),
+        "nmap_version": nmap_version if nmap_version is not None else (_nmap_version() or "not found"),
+        "python_version": platform.python_version(),
+        "platform": platform.platform(),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
 def build_report(
     state: SharedState,
     scope: SimpleNamespace,
@@ -1312,6 +1361,8 @@ def build_report(
         "started_at": started.isoformat(),
         "finished_at": finished.isoformat(),
         "duration_seconds": round((finished - started).total_seconds(), 2),
+        # Reproducibility: who/what/where produced this report (see the manifest).
+        "provenance": reproducibility_manifest(),
         "summary": {
             "candidates": scope.n_hosts,
             "live_hosts": len(hosts),
