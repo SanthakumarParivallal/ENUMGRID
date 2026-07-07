@@ -778,14 +778,18 @@ export function ScanProvider({ children }) {
 
   // One-click PDF report: POST the exact on-screen snapshot to the backend
   // renderer and trigger a download. Stateless — report always matches screen.
-  const downloadReport = useCallback(() => {
+  const downloadReport = useCallback((opts) => {
     const s = stateRef.current;
     if (!s.hosts.length) return Promise.reject(new Error('no hosts to report'));
+    // `opts.aiSummary` asks the backend to prepend a grounded, copilot-written
+    // executive summary (best-effort — the report renders regardless).
+    const body = { target: s.target, hosts: s.hosts, profile: s.scanProfile };
+    if (opts && opts.aiSummary) body.include_ai_summary = true;
     // Returns the promise so callers can surface success/failure (e.g. a toast).
     return fetch('/api/report/pdf', {
       method: 'POST',
       headers: authHeaders({ 'Content-Type': 'application/json' }),
-      body: JSON.stringify({ target: s.target, hosts: s.hosts, profile: s.scanProfile }),
+      body: JSON.stringify(body),
     })
       .then((r) => (r.ok ? r.blob() : Promise.reject(new Error('report failed'))))
       .then((blob) => {

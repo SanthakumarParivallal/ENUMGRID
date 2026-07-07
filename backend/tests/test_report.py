@@ -27,6 +27,23 @@ def test_missing_fields_do_not_crash():
     assert _is_pdf(pdf)
 
 
+def test_ai_summary_is_rendered_and_escaped():
+    # A copilot-written summary (with markup + special chars) must render as an
+    # escaped Executive Summary section, never crash, and add content.
+    base = build_pdf({"target": "10.0.0.0/24", "hosts": [{"ip": "10.0.0.1"}]})
+    with_summary = build_pdf({
+        "target": "10.0.0.0/24", "hosts": [{"ip": "10.0.0.1"}],
+        "ai_summary": "Top risk: 10.0.0.1 <b>router</b> & CVE-2021-44228. <script>x</script>",
+    })
+    assert _is_pdf(with_summary)
+    assert len(with_summary) > len(base)      # the summary section added real content
+
+
+def test_blank_ai_summary_is_ignored():
+    pdf = build_pdf({"target": "x", "hosts": [{"ip": "10.0.0.1"}], "ai_summary": "   "})
+    assert _is_pdf(pdf)
+
+
 def test_rich_snapshot_renders():
     payload = {
         "target": "192.168.0.0/24",

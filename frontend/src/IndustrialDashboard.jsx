@@ -747,6 +747,14 @@ function ExportMenu({ disabled, btnBase }) {
             <button role="menuitem" onClick={run(downloadReport, 'PDF report downloaded.')} className={item}>
               <Icon.Download className="h-3.5 w-3.5 text-crimson" /> PDF report
             </button>
+            <button
+              role="menuitem"
+              onClick={run(() => downloadReport({ aiSummary: true }), 'PDF report (with AI summary) downloaded.')}
+              className={item}
+              title="Adds a grounded, copilot-written executive summary (needs a copilot provider)"
+            >
+              <Icon.Activity className="h-3.5 w-3.5 text-matrix" /> PDF + AI summary
+            </button>
             <button role="menuitem" onClick={run(exportCsv, 'CSV inventory exported.')} className={item}>
               <Icon.Server className="h-3.5 w-3.5 text-matrix" /> CSV (inventory)
             </button>

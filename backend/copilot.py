@@ -95,6 +95,10 @@ _ENV_KEYS = {
 _MAX_TOKENS = 4096          # a chat reply; streaming means no HTTP-timeout worry
 _MAX_MESSAGES = 24          # keep the request bounded (drop the oldest turns)
 _MAX_MSG_CHARS = 8000       # clamp any single message
+# A security analyst should be factual, not creative. A low temperature keeps the
+# copilot grounded and consistent (Ollama's default ~0.8 makes small models ramble
+# and invent). Tunable, but low by default.
+_TEMPERATURE = float(os.environ.get("ENUMGRID_COPILOT_TEMPERATURE", "0.2"))
 
 # Curated Ollama models the dashboard offers as one-click downloads. All three
 # support tool use (needed for the propose_scan action). Ordered lightest-first so
@@ -120,11 +124,17 @@ SYSTEM_PROMPT = (
     "versions.\n"
     "- Be practical and specific: explain findings, prioritise by real risk "
     "(exploitability + exposure, not just CVSS), and suggest concrete next steps.\n"
+    "- ALWAYS answer the question directly in text, using the SCAN CONTEXT. NEVER "
+    "call a tool instead of answering. For any question about the existing results "
+    "(which host is exposed, what's running, what are the risks), just answer in "
+    "prose — do not call `propose_scan`.\n"
+    "- Only call `propose_scan` when the operator explicitly asks to scan/enumerate "
+    "something, or when answering truly needs data on a host not yet in the context — "
+    "and even then, give your text answer first. It suggests a scan the operator "
+    "confirms; it never runs one.\n"
     "- Authorized use only. Only ever discuss or propose scanning the operator's own "
     "in-scope networks. Never help with unauthorized access, exploitation, evasion, "
     "or attacking third parties.\n"
-    "- When a scan would genuinely help answer the request, call the `propose_scan` "
-    "tool. It does not run the scan — it suggests one the operator can confirm.\n"
     "- Keep replies tight. Lead with the answer; use short lists over long prose."
 )
 
@@ -204,7 +214,9 @@ def ollama_probe(timeout: float = 0.6) -> dict:
         return {"up": False, "models": []}
     try:
         with urllib.request.urlopen(f"{_ollama_root()}/api/tags", timeout=timeout) as resp:
-            data = json.loads(resp.read().decode("utf-8", "replace") or "{}")
+            # Cap the read: a hostile process squatting on the port shouldn't be able
+            # to balloon memory. A real tags listing is tiny.
+            data = json.loads(resp.read(2_000_000).decode("utf-8", "replace") or "{}")
         models = [m.get("name") for m in (data.get("models") or [])
                   if isinstance(m, dict) and m.get("name")]
         return {"up": True, "models": models}
@@ -452,6 +464,24 @@ def scan_tool_openai() -> dict:
         "parameters": _SCAN_PARAMS}}
 
 
+# Only offer the propose_scan tool when the operator's latest message actually
+# expresses scan intent. Small local models (e.g. Llama 3.2 3B) get confused when a
+# tool is always present — they call it, or emit fake tool-call JSON as their text —
+# so analytical questions ("which host is exposed?") should run tool-free and just
+# answer. Bigger models are unaffected; this only removes spurious tool calls.
+_SCAN_INTENT_RE = re.compile(
+    r"\b(scan|enumerat\w*|nmap|probe|recon\w*|discover\w*|sweep|fingerprint|"
+    r"port[\s-]?scan|pentest|brute\w*)\b", re.I)
+
+
+def wants_scan(turns) -> bool:
+    """True if the most recent user turn asks to scan/enumerate something."""
+    for m in reversed(turns or []):
+        if isinstance(m, dict) and m.get("role") == "user":
+            return bool(_SCAN_INTENT_RE.search(str(m.get("content", ""))))
+    return False
+
+
 def sanitize_action(raw) -> dict | None:
     """Validate a model-proposed scan into a safe, minimal action dict, or None.
 
@@ -474,12 +504,14 @@ def _unavailable(reason: str):
     yield {"type": "done"}
 
 
-def stream_reply(messages, context=None, *, provider: str | None = None, model: str | None = None):
+def stream_reply(messages, context=None, *, provider: str | None = None,
+                 model: str | None = None, allow_tools: bool = True):
     """Yield copilot events for one turn: ``{'type':'delta','text':...}`` chunks,
     an optional ``{'type':'action','action':{...}}`` proposal, ``error``, ``done``.
 
     Provider- and SDK-agnostic; degrades to an honest error event when a provider,
-    SDK, or key is missing (never a fake answer)."""
+    SDK, or key is missing (never a fake answer). ``allow_tools=False`` forces a
+    pure text reply (used for report summaries)."""
     provider = provider or active_provider()
     if not valid_provider(provider):
         yield from _unavailable(f"unknown provider '{provider}'"); return
@@ -494,11 +526,14 @@ def stream_reply(messages, context=None, *, provider: str | None = None, model: 
         yield from _unavailable("no message to send"); return
     model = model or active_model(provider)
     system = SYSTEM_PROMPT + "\n\n" + build_context_block(context)
+    # Only arm propose_scan when tools are allowed AND the operator asks to scan.
+    tools_on = allow_tools and wants_scan(turns)
     try:
         if provider == "anthropic":
-            yield from _stream_anthropic(key, model, system, turns)
+            yield from _stream_anthropic(key, model, system, turns, tools_on=tools_on)
         else:
-            yield from _stream_openai(key, model, system, turns, base_url=_BASE_URLS.get(provider))
+            yield from _stream_openai(key, model, system, turns,
+                                      base_url=_BASE_URLS.get(provider), tools_on=tools_on)
     except Exception as exc:  # noqa: BLE001 - surface any provider error honestly
         reason = " ".join(str(exc).split()).strip() or type(exc).__name__
         # Ollama is local: the usual failure is "server not started" — say so plainly.
@@ -509,12 +544,13 @@ def stream_reply(messages, context=None, *, provider: str | None = None, model: 
     yield {"type": "done"}
 
 
-def _stream_anthropic(key: str, model: str, system: str, turns: list[dict]):
+def _stream_anthropic(key: str, model: str, system: str, turns: list[dict], tools_on: bool = True):
     client = anthropic.Anthropic(api_key=key)
-    with client.messages.stream(
-        model=model, max_tokens=_MAX_TOKENS, system=system,
-        tools=[scan_tool_anthropic()], messages=turns,
-    ) as stream:
+    kwargs = {"model": model, "max_tokens": _MAX_TOKENS, "system": system,
+              "messages": turns, "temperature": _TEMPERATURE}
+    if tools_on:
+        kwargs["tools"] = [scan_tool_anthropic()]
+    with client.messages.stream(**kwargs) as stream:
         for text in stream.text_stream:
             if text:
                 yield {"type": "delta", "text": text}
@@ -527,16 +563,18 @@ def _stream_anthropic(key: str, model: str, system: str, turns: list[dict]):
             break
 
 
-def _stream_openai(key: str, model: str, system: str, turns: list[dict], base_url: str | None = None):
+def _stream_openai(key: str, model: str, system: str, turns: list[dict],
+                   base_url: str | None = None, tools_on: bool = True):
     # `base_url` lets the same OpenAI SDK drive Gemini and a local Ollama server.
     client = openai.OpenAI(api_key=key, base_url=base_url) if base_url else openai.OpenAI(api_key=key)
     messages = [{"role": "system", "content": system}, *turns]
     tool_args: dict[int, str] = {}
     tool_seen = False
-    stream = client.chat.completions.create(
-        model=model, messages=messages, tools=[scan_tool_openai()],
-        stream=True, max_tokens=_MAX_TOKENS,
-    )
+    kwargs = {"model": model, "messages": messages, "stream": True,
+              "max_tokens": _MAX_TOKENS, "temperature": _TEMPERATURE}
+    if tools_on:
+        kwargs["tools"] = [scan_tool_openai()]
+    stream = client.chat.completions.create(**kwargs)
     for chunk in stream:
         choice = (chunk.choices or [None])[0]
         delta = getattr(choice, "delta", None)
@@ -611,3 +649,34 @@ def pull_model(name: str, timeout: float = 120.0):
             reason = f"Can't reach Ollama at {_ollama_root()} — start it first (`ollama serve`)."
         yield {"type": "error", "message": reason[:300]}
         yield {"type": "done"}
+
+
+# --- one-shot executive summary (for the PDF report) -------------------------- #
+_SUMMARY_PROMPT = (
+    "Write a concise executive summary of this network scan for a security report. "
+    "Cover: overall exposure, the most at-risk hosts and why, the notable "
+    "vulnerabilities, and the top 2-3 recommended actions. 120-180 words of plain "
+    "prose — no markdown headings, no bullet lists. Use ONLY the scan context above; "
+    "do not invent hosts, ports, or CVEs."
+)
+
+
+def summarize_scan(context, *, provider: str | None = None, model: str | None = None) -> dict:
+    """Generate a plain-text executive summary of a scan (for embedding in the PDF).
+
+    Reuses the grounded, provider-agnostic pipeline with tools disabled (a summary
+    is never a scan proposal). Honest: returns ``available: False`` + a reason when
+    no provider is ready, and never fabricates."""
+    provider = provider or active_provider()
+    parts: list[str] = []
+    err = None
+    for ev in stream_reply([{"role": "user", "content": _SUMMARY_PROMPT}], context,
+                           provider=provider, model=model, allow_tools=False):
+        kind = ev.get("type")
+        if kind == "delta":
+            parts.append(ev.get("text", ""))
+        elif kind == "error":
+            err = ev.get("message")
+    text = "".join(parts).strip()
+    return {"available": bool(text) and not err, "summary": text,
+            "provider": provider, "error": err}

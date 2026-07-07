@@ -511,6 +511,22 @@ def copilot_chat(
     return StreamingResponse(event_source(), media_type="text/event-stream", headers=_SSE_HEADERS)
 
 
+@app.post("/api/copilot/summary")
+def copilot_summary(
+    payload: dict = Body(...),
+    token: str | None = Query(None),
+    authorization: str | None = Header(None),
+) -> JSONResponse:
+    """A one-shot, grounded executive summary of the posted scan (for the PDF
+    report). Read-gated. Honest: ``available:false`` + reason when no provider is
+    ready — never a fabricated summary."""
+    if not token_ok(token, authorization):
+        raise HTTPException(status_code=401, detail="unauthorized")
+    context = payload.get("context") if isinstance(payload.get("context"), dict) else None
+    provider = payload.get("provider") if copilot.valid_provider(payload.get("provider")) else None
+    return JSONResponse(copilot.summarize_scan(context, provider=provider))
+
+
 @app.get("/api/host/scan")
 async def host_scan(
     ip: str = Query(..., description="IP of an already-discovered host"),
@@ -630,8 +646,18 @@ def report_pdf(payload: dict = Body(...)) -> Response:
     """Render the supplied ScanState snapshot into a downloadable PDF report.
 
     The dashboard POSTs exactly what it's showing, so the report can never drift
-    from the screen. Stateless: the server holds no scan, it just formats.
+    from the screen. Stateless: the server holds no scan, it just formats. Pass
+    ``include_ai_summary: true`` to prepend a grounded, copilot-written executive
+    summary (best-effort — a copilot failure never blocks the report).
     """
+    if payload.get("include_ai_summary") and not payload.get("ai_summary"):
+        try:
+            context = {"target": payload.get("target"), "hosts": payload.get("hosts") or []}
+            result = copilot.summarize_scan(context)
+            if result.get("available"):
+                payload["ai_summary"] = result["summary"]
+        except Exception:  # noqa: BLE001 - the report must render even if the copilot errors
+            pass
     pdf = build_pdf(payload)
     raw = str(payload.get("target") or "scan")
     safe = "".join(c if c.isalnum() else "-" for c in raw).strip("-")[:40] or "scan"

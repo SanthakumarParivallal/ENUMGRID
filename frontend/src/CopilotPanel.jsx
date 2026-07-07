@@ -17,6 +17,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { useScan } from './context/ScanContext.jsx';
 import { authFetch } from './lib/auth.js';
+import { renderMarkdown } from './lib/markdown.js';
 import {
   OLLAMA_RECOMMENDED,
   PROVIDER_HINTS,
@@ -381,21 +382,36 @@ function ConnectCard({ status, onSaved, onRefresh }) {
   );
 }
 
-function Bubble({ role, children }) {
-  const mine = role === 'user';
+function Bubble({ who, children, html }) {
+  const mine = who === 'user';
   return (
     <div className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
       <div
-        className={`max-w-[85%] whitespace-pre-wrap rounded-lg px-3 py-2 text-xs leading-relaxed ${
+        className={`max-w-[85%] rounded-lg px-3 py-2 text-xs leading-relaxed ${
           mine
-            ? 'bg-sky-500/15 text-sky-100 border border-sky-500/30'
-            : 'bg-steel-900/70 text-slate-200 border border-slate-700/70'
+            ? 'whitespace-pre-wrap border border-sky-500/30 bg-sky-500/15 text-sky-100'
+            : 'border border-slate-700/70 bg-steel-900/70 text-slate-200'
         }`}
       >
-        {children}
+        {/* Assistant replies are Markdown → safe HTML (lib/markdown.js escapes first). */}
+        {html != null ? <div dangerouslySetInnerHTML={{ __html: html }} /> : children}
       </div>
     </div>
   );
+}
+
+// Conversation persistence: survive closing/reopening the panel (the layer
+// unmounts the panel on close). Kept small and local — never leaves the browser.
+const HISTORY_KEY = 'eg:copilot:history';
+const HISTORY_MAX = 50;
+
+function loadHistory() {
+  try {
+    const arr = JSON.parse(localStorage.getItem(HISTORY_KEY) || '[]');
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
 }
 
 function CopilotPanel({ onClose }) {
@@ -408,9 +424,30 @@ function CopilotPanel({ onClose }) {
 
   const [status, setStatus] = useState(null);
   const [showConnect, setShowConnect] = useState(false);
-  const [messages, setMessages] = useState([]);
+  const [messages, setMessages] = useState(loadHistory);
   const [input, setInput] = useState('');
   const [streaming, setStreaming] = useState(false);
+
+  // Persist the conversation (capped) whenever it changes, but not mid-stream —
+  // wait until streaming settles so we store complete turns.
+  useEffect(() => {
+    if (streaming) return;
+    try {
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(messages.slice(-HISTORY_MAX)));
+    } catch {
+      /* ignore quota / private-mode errors */
+    }
+  }, [messages, streaming]);
+
+  const stop = useCallback(() => {
+    if (abortRef.current) abortRef.current.abort();
+  }, []);
+
+  const clearChat = useCallback(() => {
+    if (abortRef.current) abortRef.current.abort();
+    setMessages([]);
+    try { localStorage.removeItem(HISTORY_KEY); } catch { /* ignore */ }
+  }, []);
 
   // Escape to close.
   useEffect(() => {
@@ -531,6 +568,15 @@ function CopilotPanel({ onClose }) {
             </div>
           </div>
           <div className="flex items-center gap-1">
+            {messages.length > 0 && (
+              <button
+                type="button" aria-label="New chat" title="Clear conversation"
+                onClick={clearChat}
+                className="rounded-md p-1.5 text-slate-400 outline-none transition hover:bg-steel-800 hover:text-slate-100 focus-visible:ring-2 focus-visible:ring-sky-400"
+              >
+                <svg viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6" /><path d="M10 11v6M14 11v6" /></svg>
+              </button>
+            )}
             <button
               type="button" aria-label="Copilot settings" title="API key & provider"
               onClick={() => setShowConnect((v) => !v)}
@@ -573,9 +619,13 @@ function CopilotPanel({ onClose }) {
           {messages.map((m, i) => (
             <div key={i} className="space-y-2">
               {(m.content || (m.role === 'assistant' && streaming && i === messages.length - 1)) && (
-                <Bubble role={m.role}>
-                  {m.content || <span className="text-slate-500">…</span>}
-                </Bubble>
+                m.role === 'assistant' && m.content
+                  ? <Bubble who="assistant" html={renderMarkdown(m.content)} />
+                  : (
+                    <Bubble who={m.role}>
+                      {m.content || <span className="text-slate-500">…</span>}
+                    </Bubble>
+                  )
               )}
               {m.error && (
                 <div className="rounded-md border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-[11px] text-rose-300">
@@ -610,13 +660,22 @@ function CopilotPanel({ onClose }) {
               aria-label="Message the copilot"
               className={`${fieldCls} max-h-28 resize-none disabled:opacity-60`}
             />
-            <button
-              type="button" onClick={send} disabled={!ready || streaming || !input.trim()}
-              aria-label="Send"
-              className="shrink-0 rounded-md border border-matrix/50 bg-matrix/10 px-3 py-2 text-xs font-semibold text-matrix transition hover:bg-matrix hover:text-steel-950 disabled:opacity-40"
-            >
-              {streaming ? '…' : 'Send'}
-            </button>
+            {streaming ? (
+              <button
+                type="button" onClick={stop} aria-label="Stop generating"
+                className="shrink-0 rounded-md border border-rose-500/50 bg-rose-500/10 px-3 py-2 text-xs font-semibold text-rose-300 transition hover:bg-rose-500 hover:text-steel-950"
+              >
+                ◼ Stop
+              </button>
+            ) : (
+              <button
+                type="button" onClick={send} disabled={!ready || !input.trim()}
+                aria-label="Send"
+                className="shrink-0 rounded-md border border-matrix/50 bg-matrix/10 px-3 py-2 text-xs font-semibold text-matrix transition hover:bg-matrix hover:text-steel-950 disabled:opacity-40"
+              >
+                Send
+              </button>
+            )}
           </div>
           <p className="mt-1.5 text-[10px] text-slate-600">
             Grounded in your current scan{scan && scan.hosts ? ` (${scan.hosts.length} host${scan.hosts.length === 1 ? '' : 's'})` : ''}. Authorized use only.
