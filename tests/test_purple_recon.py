@@ -5,7 +5,7 @@ guardrails, host expansion, report build/write, the differential analysis and
 the renderer.  They perform **no network I/O**, so they are safe and
 reproducible in CI and for the project write-up.
 
-Run:  python3 -m pytest            (uses pytest.ini)
+Run:  python3 -m pytest            (config in pyproject.toml)
       python3 -m pytest -v
 """
 
@@ -293,6 +293,34 @@ def test_build_report_structure():
     assert report["summary"]["total_open_ports"] == 1
     assert report["hosts"][0]["ip"] == "192.168.1.1"
     assert report["hosts"][0]["ports"][0]["port"] == 80
+
+
+def test_reproducibility_manifest_injected_values_are_deterministic():
+    m = pr.reproducibility_manifest(git_commit="deadbee", nmap_version="7.95")
+    assert m["tool"] == pr.APP_NAME
+    assert m["tool_version"] == pr.VERSION
+    assert m["git_commit"] == "deadbee"          # injected, not probed
+    assert m["nmap_version"] == "7.95"
+    assert m["python_version"]                    # real runtime, always present
+    assert m["platform"]
+    assert m["generated_at"].endswith("+00:00")   # UTC ISO-8601
+
+
+def test_reproducibility_manifest_reports_unknowns_honestly():
+    # When git/nmap can't be resolved, say so — never fabricate a value.
+    m = pr.reproducibility_manifest(git_commit="", nmap_version="")
+    assert m["git_commit"] == ""     # explicit empty injection passes through
+    assert m["nmap_version"] == ""
+
+
+def test_build_report_embeds_provenance():
+    now = datetime.now(timezone.utc)
+    report = pr.build_report(_sample_state(), _sample_scope(), now, now)
+    prov = report["provenance"]
+    assert prov["tool"] == pr.APP_NAME
+    assert prov["tool_version"] == pr.VERSION
+    assert "git_commit" in prov and "nmap_version" in prov
+    assert prov["python_version"] == __import__("platform").python_version()
 
 
 def test_write_report_is_atomic_and_mode_600(tmp_path):

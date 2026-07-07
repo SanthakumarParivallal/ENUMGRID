@@ -82,7 +82,7 @@ VULN_ARGS = os.environ.get("NMAP_VULN_ARGS", "--script vuln,vulners --script-tim
 # brute/exploit/DoS risk. Server-defined, so they're trusted by construction.
 _RECON_SCRIPTS = (
     "banner,http-title,http-headers,http-server-header,http-methods,"
-    "ssl-cert,ssh-hostkey,smb-os-discovery,smb-security-mode,"
+    "ssl-cert,ssh-hostkey,smb-os-discovery,smb-security-mode,smb-enum-shares,"
     "dns-service-discovery,nbstat,rpcinfo"
 )
 

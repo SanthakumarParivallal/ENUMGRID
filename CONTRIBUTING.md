@@ -30,7 +30,7 @@ Backend lives in `backend/` (FastAPI + python-nmap), the CLI is the single-file
 .venv/bin/ruff check backend purple_recon.py
 .venv/bin/bandit -r purple_recon.py backend/ -c pyproject.toml
 .venv/bin/pip-audit -r backend/requirements.txt -r requirements-dev.txt
-.venv/bin/python -m pytest backend test_purple_recon.py evaluation
+.venv/bin/python -m pytest tests backend/tests evaluation
 
 # Frontend: tests + build + audit
 cd frontend && npm test && npm run build && npm audit

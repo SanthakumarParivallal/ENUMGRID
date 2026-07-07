@@ -114,3 +114,106 @@ def test_render_privileged_md_flags_a_failed_privileged_scan_instead_of_a_fake_t
     md = bm.render_privileged_md(0.1, s)
     assert "no hosts" in md.lower()
     assert "without" not in md.lower()  # must not claim the no-privilege coverage win
+
+
+# --------------------------------------------------------------------------- #
+# Multi-run statistics + baseline parsers (the publication-grade path).
+# --------------------------------------------------------------------------- #
+def test_summarize_two_values_mean_stdev_ci():
+    import math
+    s = bm.summarize([2.0, 4.0])
+    assert s["n"] == 2
+    assert s["mean"] == 3.0
+    assert round(s["stdev"], 6) == round(math.sqrt(2), 6)  # sample stdev of {2,4}
+    assert round(s["ci95"], 6) == round(1.96 * math.sqrt(2) / math.sqrt(2), 6)
+    assert s["min"] == 2.0 and s["max"] == 4.0
+
+
+def test_summarize_single_value_has_zero_spread():
+    s = bm.summarize([5.0])
+    assert s == {"n": 1, "mean": 5.0, "stdev": 0.0, "ci95": 0.0, "min": 5.0, "max": 5.0}
+
+
+def test_summarize_empty_is_zero_not_crash():
+    s = bm.summarize([])
+    assert s["n"] == 0 and s["mean"] == 0.0 and s["ci95"] == 0.0
+
+
+def test_ips_with_mac_parses_arpscan_output():
+    text = (
+        "Interface: en0, type: EN10MB, MAC: aa:aa:aa:aa:aa:aa\n"
+        "Starting arp-scan 1.10\n"
+        "192.168.0.1\t00:11:22:33:44:55\tNetgear\n"
+        "192.168.0.42   de:ad:be:ef:00:01   Apple, Inc.\n"
+        "\n"
+        "5 packets received by filter, 0 packets dropped\n"
+    )
+    assert bm._ips_with_mac(text) == {"192.168.0.1", "192.168.0.42"}
+
+
+def test_ips_with_mac_parses_netdiscover_output():
+    text = (
+        "192.168.1.1     00:11:22:33:44:55      3      180  Netgear\n"
+        "192.168.1.7     aa:bb:cc:dd:ee:ff      1       60  Apple\n"
+    )
+    assert bm._ips_with_mac(text) == {"192.168.1.1", "192.168.1.7"}
+
+
+def test_ips_from_masscan_list_format():
+    text = (
+        "#masscan\n"
+        "open icmp 0 192.168.0.1 1720000000\n"
+        "open icmp 0 192.168.0.9 1720000001\n"
+        "# end\n"
+    )
+    assert bm._ips_from_masscan(text) == {"192.168.0.1", "192.168.0.9"}
+
+
+def test_baseline_cmd_builders_and_sudo_prefix():
+    assert bm._arp_scan_cmd("10.0.0.0/24") == ["arp-scan", "10.0.0.0/24"]
+    assert bm._arp_scan_cmd("10.0.0.0/24", privileged=True)[0] == "sudo"
+    assert bm._netdiscover_cmd("10.0.0.0/24") == ["netdiscover", "-P", "-N", "-r", "10.0.0.0/24"]
+    assert bm._masscan_cmd("10.0.0.0/24") == ["masscan", "10.0.0.0/24", "--ping", "-oL", "-"]
+
+
+def test_run_baseline_reports_none_when_tool_missing(monkeypatch):
+    monkeypatch.setattr(bm.shutil, "which", lambda _name: None)
+    hosts, secs = bm.run_baseline("arp-scan", "10.0.0.0/24")
+    assert hosts is None and secs == 0.0  # None => "unavailable", not "found nothing"
+
+
+def test_aggregate_tool_recall_across_runs():
+    # Two runs: first finds {a,b}, second finds {a,b,c}; reference {a,b,c,d}.
+    ref = {"a", "b", "c", "d"}
+    agg = bm.aggregate_tool([{"a", "b"}, {"a", "b", "c"}], [1.0, 2.0], ref)
+    assert agg["available"] is True
+    assert agg["runs"] == 2
+    assert round(agg["recall"]["mean"], 3) == round((0.5 + 0.75) / 2, 3)
+    assert agg["time"]["mean"] == 1.5
+    assert agg["union_found"] == ["a", "b", "c"]
+
+
+def test_multi_run_marks_missing_baseline_unavailable(monkeypatch):
+    # enumgrid finds hosts; the baseline binary is absent.
+    monkeypatch.setattr(bm, "run_enumgrid", lambda _t: ({"192.168.0.1"}, 1.0))
+    monkeypatch.setattr(bm, "run_baseline", lambda *_a, **_k: (None, 0.0))
+    res = bm.multi_run("10.0.0.0/24", ["enumgrid", "arp-scan"], runs=2)
+    assert res["tools"]["enumgrid"]["available"] is True
+    assert res["tools"]["enumgrid"]["runs"] == 2
+    assert res["tools"]["arp-scan"]["available"] is False
+    assert res["reference_count"] == 1  # only enumgrid's find seeds the union
+
+
+def test_render_multirun_md_table_and_unavailable_row():
+    res = {
+        "reference": "union (proxy)", "reference_count": 3,
+        "tools": {
+            "enumgrid": bm.aggregate_tool([{"a", "b", "c"}], [1.0], {"a", "b", "c"}),
+            "arp-scan": {"available": False, "runs": 0},
+        },
+    }
+    md = bm.render_multirun_md("10.0.0.0/24", "now", res, runs=1)
+    assert "Multi-run benchmark" in md
+    assert "mean ± 95 % CI" in md
+    assert "| EnumGrid |" in md
+    assert "not installed" in md  # the unavailable baseline is shown honestly

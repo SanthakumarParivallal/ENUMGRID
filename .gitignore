@@ -33,6 +33,9 @@ enumgrid_*.csv
 *.sqlite
 *.sqlite3
 
+# ---- Scheduled-scan rules (local operator data) ----
+backend/schedules.json
+
 # ---- OUI cache (large, downloadable) ----
 oui.csv
 oui.txt
@@ -42,6 +45,10 @@ oui.txt
 .certs/
 # NVD API key persisted from the dashboard (owner-only file, never committed)
 .enumgrid_nvd_key
+# Copilot LLM keys + provider choice, persisted from the dashboard (owner-only)
+.enumgrid_anthropic_key
+.enumgrid_openai_key
+.enumgrid_copilot_provider
 
 # ---- runtime logs + local intel caches (operator data) ----
 *.log

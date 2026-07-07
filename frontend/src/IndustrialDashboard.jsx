@@ -27,8 +27,12 @@ import { authFetch, useApiToken } from './lib/auth.js';
 import { privMeta, rawScanAvailable, canOfferElevation } from './lib/privilege.js';
 import { useFocusTrap } from './lib/useFocusTrap.js';
 import { useToast } from './lib/toast.jsx';
+import CopilotLayer from './CopilotPanel.jsx';
 import { SHORTCUTS, isEditableTarget } from './lib/shortcuts.js';
 import { filterCommands } from './lib/commandFilter.js';
+import {
+  DAY_OPTIONS, describeSchedule, splitTargets, validateScheduleForm, severityTone,
+} from './lib/operations.js';
 import {
   ScanPhase,
   HostStatus,
@@ -809,6 +813,20 @@ function SettingsMenu({ btnBase }) {
               <NvdKeyButton />
             </div>
             <div className="my-2 border-t border-slate-700/60" />
+            <button
+              onClick={() => { setOpen(false); window.dispatchEvent(new Event('eg:open-operations')); }}
+              className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-xs text-slate-300 outline-none transition hover:bg-steel-800 hover:text-slate-100 focus-visible:ring-2 focus-visible:ring-sky-400"
+            >
+              <span className="flex items-center gap-1.5"><Icon.Radar className="h-3.5 w-3.5" /> Operations</span>
+              <span className="text-[10px] text-slate-500">passive · schedules · campaign</span>
+            </button>
+            <button
+              onClick={() => { setOpen(false); window.dispatchEvent(new Event('eg:open-copilot')); }}
+              className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-xs text-slate-300 outline-none transition hover:bg-steel-800 hover:text-slate-100 focus-visible:ring-2 focus-visible:ring-sky-400"
+            >
+              <span className="flex items-center gap-1.5"><Icon.Activity className="h-3.5 w-3.5" /> AI Copilot</span>
+              <span className="text-[10px] text-slate-500">chat · Claude / OpenAI</span>
+            </button>
             <button
               onClick={() => { setOpen(false); window.dispatchEvent(new Event('eg:open-help')); }}
               className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-xs text-slate-300 outline-none transition hover:bg-steel-800 hover:text-slate-100 focus-visible:ring-2 focus-visible:ring-sky-400"
@@ -2332,6 +2350,8 @@ function CommandPalette() {
     if (unscanned) list.push({ id: 'scanall', label: `Scan all live hosts (${unscanned})`, Icon: Icon.Cpu, keywords: ['enumerate', 'services', 'ports'], run: () => scanAll(false) });
     list.push({ id: 'deep', label: `${deepScan ? 'Disable' : 'Enable'} deep scan (NSE vuln)`, Icon: Icon.Shield, keywords: ['cve', 'vulnerability'], run: toggleDeep });
     list.push({ id: 'monitor', label: `${monitor ? 'Stop' : 'Start'} monitor mode`, Icon: Icon.Activity, keywords: ['watch', 'drift', 'interval'], run: toggleMonitor });
+    list.push({ id: 'ops', label: 'Operations — passive · schedules · campaign…', Icon: Icon.Radar, keywords: ['passive', 'sniff', 'stealth', 'schedule', 'cron', 'campaign', 'subnet', 'aggregate'], run: () => window.dispatchEvent(new Event('eg:open-operations')) });
+    list.push({ id: 'copilot', label: 'Ask the AI Copilot…', Icon: Icon.Activity, keywords: ['ai', 'copilot', 'assistant', 'chat', 'claude', 'openai', 'gpt', 'explain', 'advise'], run: () => window.dispatchEvent(new Event('eg:open-copilot')) });
     list.push({ id: 'priv', label: 'Scan privilege / elevate…', Icon: Icon.Bolt, keywords: ['sudo', 'root', 'raw socket'], run: () => window.dispatchEvent(new Event('eg:open-privilege')) });
     if (hasHosts) {
       list.push({ id: 'pdf', label: 'Export PDF report', Icon: Icon.Download, keywords: ['download', 'report'], run: () => runExport(downloadReport, 'PDF report downloaded.') });
@@ -2479,6 +2499,378 @@ function ShortcutsLayer() {
   return helpOpen ? <HelpOverlay onClose={() => setHelpOpen(false)} /> : null;
 }
 
+/* ========================================================================== *
+ * Operations panel — passive discovery · scheduled scans · multi-subnet campaign
+ * One modal that surfaces the three headless / aggregate backend capabilities.
+ * Opened from the command palette or Settings menu via `eg:open-operations`.
+ * ========================================================================== */
+
+const OPS_TABS = [
+  { id: 'passive', label: 'Passive', Icon: Icon.Radar },
+  { id: 'schedules', label: 'Schedules', Icon: Icon.Activity },
+  { id: 'campaign', label: 'Campaign', Icon: Icon.Layers },
+];
+
+const opsField =
+  'w-full rounded-lg border border-slate-700 bg-steel-900 px-3 py-2 text-sm text-slate-100 outline-none transition focus:border-sky-500 focus-visible:ring-2 focus-visible:ring-sky-400';
+const opsBtn =
+  'inline-flex items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold outline-none transition focus-visible:ring-2 focus-visible:ring-sky-400 disabled:opacity-50';
+
+/** Passive (zero-packet) discovery — listen for ARP/DHCP/mDNS/LLMNR/NBNS chatter. */
+function PassiveTab() {
+  const { toast } = useToast();
+  const [seconds, setSeconds] = useState(15);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState(null);
+
+  const run = () => {
+    setBusy(true);
+    setResult(null);
+    authFetch(`/api/passive?seconds=${seconds}`, { method: 'POST' })
+      .then((r) => r.json())
+      .then((d) => {
+        setResult(d);
+        if (d.available) toast(`Heard ${d.count} host${d.count === 1 ? '' : 's'} in ${d.seconds}s.`, { type: 'success', title: 'Passive listen complete' });
+        else toast(d.reason || 'Passive capture unavailable.', { type: 'warn', title: 'Passive unavailable' });
+      })
+      .catch((e) => {
+        setResult({ available: false, reason: e.message || 'request failed', hosts: [], count: 0 });
+        toast('Passive request failed.', { type: 'error' });
+      })
+      .finally(() => setBusy(false));
+  };
+
+  return (
+    <div className="space-y-3">
+      <p className="text-[11px] leading-relaxed text-slate-400">
+        Listens for the broadcast/multicast traffic hosts emit on their own (ARP, DHCP, mDNS, LLMNR,
+        NetBIOS) and reports who is talking. <span className="text-matrix">Sends nothing on the wire</span> —
+        stealthy, and a clean contrast to active discovery. Needs <code className="text-slate-300">scapy</code> +
+        raw-socket privilege.
+      </p>
+      <div className="flex items-end gap-2">
+        <label className="flex-1">
+          <span className="mb-1 block text-[10px] font-semibold uppercase tracking-widest text-slate-500">Listen window</span>
+          <select className={opsField} value={seconds} onChange={(e) => setSeconds(Number(e.target.value))} disabled={busy}>
+            {[10, 15, 30, 60].map((s) => <option key={s} value={s}>{s} seconds</option>)}
+          </select>
+        </label>
+        <button onClick={run} disabled={busy} className={`${opsBtn} border-matrix/45 bg-matrix/10 text-matrix hover:bg-matrix/20`}>
+          <Icon.Radar className="h-4 w-4" />{busy ? 'Listening…' : 'Start passive listen'}
+        </button>
+      </div>
+
+      {result && !result.available && (
+        <div className="flex items-start gap-2 rounded-lg border border-amber/40 bg-amber/10 p-3 text-xs text-amber">
+          <Icon.Info className="mt-0.5 h-4 w-4 shrink-0" />
+          <span>Passive capture unavailable: {result.reason}</span>
+        </div>
+      )}
+      {result && result.available && (
+        <div className="rounded-lg border border-slate-700/70">
+          <div className="border-b border-slate-800 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+            {result.count} host{result.count === 1 ? '' : 's'} heard
+          </div>
+          {result.count === 0 ? (
+            <p className="px-3 py-4 text-center text-xs text-slate-500">No chatter observed in the window — try a longer listen.</p>
+          ) : (
+            <div className="max-h-56 overflow-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="sticky top-0 bg-steel-900 text-[10px] uppercase tracking-wider text-slate-500">
+                  <tr><th className="px-3 py-1.5">IP</th><th className="px-3 py-1.5">MAC</th><th className="px-3 py-1.5">Via</th><th className="px-3 py-1.5">Hostname</th></tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/70">
+                  {result.hosts.map((h) => (
+                    <tr key={h.ip}>
+                      <td className="px-3 py-1.5 font-mono text-slate-200">{h.ip}</td>
+                      <td className="px-3 py-1.5 font-mono text-slate-500">{h.mac || '—'}</td>
+                      <td className="px-3 py-1.5 text-slate-400">{(h.methods || []).join(', ')}</td>
+                      <td className="px-3 py-1.5 text-slate-400">{h.hostname || '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Cron-style scheduled scans — create/list/toggle/delete recurring rules. */
+function SchedulesTab() {
+  const { toast } = useToast();
+  const { target: currentTarget } = useScan();
+  const [rules, setRules] = useState(null); // null = loading
+  const [target, setTarget] = useState(currentTarget || '');
+  const [at, setAt] = useState('02:00');
+  const [days, setDays] = useState(new Set());
+  const [mode, setMode] = useState('discover');
+  const [busy, setBusy] = useState(false);
+
+  const load = useCallback(() => {
+    authFetch('/api/schedules')
+      .then((r) => (r.ok ? r.json() : { schedules: [] }))
+      .then((d) => setRules(d.schedules || []))
+      .catch(() => setRules([]));
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const toggleDay = (d) => setDays((prev) => {
+    const next = new Set(prev);
+    if (next.has(d)) next.delete(d); else next.add(d);
+    return next;
+  });
+
+  const add = () => {
+    const check = validateScheduleForm({ target, at });
+    if (!check.ok) { toast(check.error, { type: 'error' }); return; }
+    setBusy(true);
+    const daySpec = days.size ? DAY_OPTIONS.filter((o) => days.has(o.value)).map((o) => o.value).join(',') : '*';
+    authFetch('/api/schedules', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target: target.trim(), at, days: daySpec, mode }),
+    })
+      .then(async (r) => {
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) throw new Error(d.error || 'Could not create schedule.');
+        toast('Schedule created.', { type: 'success' });
+        setDays(new Set());
+        load();
+      })
+      .catch((e) => toast(e.message, { type: 'error' }))
+      .finally(() => setBusy(false));
+  };
+
+  const setEnabled = (rule, enabled) => {
+    authFetch(`/api/schedules/${rule.id}/toggle?enabled=${enabled}`, { method: 'POST' })
+      .then((r) => { if (!r.ok) throw new Error(); load(); })
+      .catch(() => toast('Could not update schedule.', { type: 'error' }));
+  };
+
+  const remove = (rule) => {
+    authFetch(`/api/schedules/${rule.id}`, { method: 'DELETE' })
+      .then((r) => { if (!r.ok) throw new Error(); toast('Schedule removed.', { type: 'info' }); load(); })
+      .catch(() => toast('Could not remove schedule.', { type: 'error' }));
+  };
+
+  return (
+    <div className="space-y-3">
+      <p className="text-[11px] leading-relaxed text-slate-400">
+        Unattended, time-of-day scans that fire even with no browser open. Each rule enqueues the same
+        pipeline the dashboard uses, so results land in history &amp; drift automatically.
+      </p>
+
+      <div className="rounded-lg border border-slate-700/70 p-3">
+        <div className="grid grid-cols-2 gap-2">
+          <label className="col-span-2">
+            <span className="mb-1 block text-[10px] font-semibold uppercase tracking-widest text-slate-500">Target</span>
+            <input className={`${opsField} font-mono`} value={target} onChange={(e) => setTarget(e.target.value)} placeholder="192.168.0.0/24" />
+          </label>
+          <label>
+            <span className="mb-1 block text-[10px] font-semibold uppercase tracking-widest text-slate-500">Time (HH:MM)</span>
+            <input className={`${opsField} font-mono`} value={at} onChange={(e) => setAt(e.target.value)} placeholder="02:00" />
+          </label>
+          <label>
+            <span className="mb-1 block text-[10px] font-semibold uppercase tracking-widest text-slate-500">Mode</span>
+            <select className={opsField} value={mode} onChange={(e) => setMode(e.target.value)}>
+              <option value="discover">Discovery (fast)</option>
+              <option value="full">Full (nmap -sV)</option>
+            </select>
+          </label>
+        </div>
+        <div className="mt-2">
+          <span className="mb-1 block text-[10px] font-semibold uppercase tracking-widest text-slate-500">Days (none = every day)</span>
+          <div className="flex flex-wrap gap-1.5">
+            {DAY_OPTIONS.map((o) => (
+              <button
+                key={o.value}
+                onClick={() => toggleDay(o.value)}
+                aria-pressed={days.has(o.value)}
+                className={`rounded-md border px-2 py-1 text-[11px] font-semibold transition ${days.has(o.value) ? 'border-sky-500/50 bg-sky-500/10 text-sky-300' : 'border-slate-700 bg-steel-900 text-slate-400 hover:text-slate-200'}`}
+              >{o.label}</button>
+            ))}
+          </div>
+        </div>
+        <button onClick={add} disabled={busy} className={`${opsBtn} mt-3 w-full border-sky-500/45 bg-sky-500/10 text-sky-300 hover:bg-sky-500/20`}>
+          {busy ? 'Adding…' : 'Add schedule'}
+        </button>
+      </div>
+
+      <div className="rounded-lg border border-slate-700/70">
+        <div className="border-b border-slate-800 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+          Active rules
+        </div>
+        {rules === null ? (
+          <p className="px-3 py-4 text-center text-xs text-slate-500">Loading…</p>
+        ) : rules.length === 0 ? (
+          <p className="px-3 py-4 text-center text-xs text-slate-500">No schedules yet — add one above.</p>
+        ) : (
+          <ul className="divide-y divide-slate-800/70">
+            {rules.map((r) => (
+              <li key={r.id} className="flex items-center justify-between gap-2 px-3 py-2">
+                <div className="min-w-0">
+                  <div className="truncate font-mono text-xs text-slate-200">{r.target}</div>
+                  <div className="text-[11px] text-slate-500">{describeSchedule(r)}</div>
+                </div>
+                <div className="flex shrink-0 items-center gap-1.5">
+                  <button
+                    onClick={() => setEnabled(r, !r.enabled)}
+                    aria-pressed={r.enabled}
+                    className={`rounded-md border px-2 py-1 text-[10px] font-semibold transition ${r.enabled ? 'border-matrix/45 bg-matrix/10 text-matrix' : 'border-slate-700 bg-steel-900 text-slate-500'}`}
+                  >{r.enabled ? 'On' : 'Off'}</button>
+                  <button onClick={() => remove(r)} aria-label={`Remove schedule for ${r.target}`} className="rounded-md border border-slate-700 p-1 text-slate-500 transition hover:border-crimson/50 hover:text-crimson focus-visible:ring-2 focus-visible:ring-sky-400">
+                    <Icon.X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Multi-subnet campaign — roll up the latest scan of several subnets into one view. */
+function CampaignTab() {
+  const { toast } = useToast();
+  const { target: currentTarget } = useScan();
+  const [input, setInput] = useState(currentTarget || '');
+  const [busy, setBusy] = useState(false);
+  const [data, setData] = useState(null);
+
+  const run = () => {
+    const targets = splitTargets(input);
+    if (!targets.length) { toast('Enter one or more subnet targets.', { type: 'error' }); return; }
+    setBusy(true);
+    authFetch(`/api/campaign?targets=${encodeURIComponent(targets.join(','))}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error('request failed'))))
+      .then((d) => { setData(d); toast(`Aggregated ${d.totals.scanned_subnets}/${d.totals.subnets} subnets.`, { type: 'success', title: 'Campaign built' }); })
+      .catch(() => toast('Could not build campaign view.', { type: 'error' }))
+      .finally(() => setBusy(false));
+  };
+
+  const tiles = data ? [
+    { k: 'Subnets', v: `${data.totals.scanned_subnets}/${data.totals.subnets}` },
+    { k: 'Hosts', v: data.totals.hosts },
+    { k: 'Open ports', v: data.totals.open_ports },
+  ] : [];
+  const sevEntries = data ? Object.entries(data.severity).filter(([, n]) => n > 0) : [];
+
+  return (
+    <div className="space-y-3">
+      <p className="text-[11px] leading-relaxed text-slate-400">
+        Combine the <span className="text-slate-200">latest stored scan</span> of several subnets into one
+        estate-wide picture. Enter targets (comma / space / newline separated); unscanned subnets are shown too.
+      </p>
+      <div className="flex items-end gap-2">
+        <label className="flex-1">
+          <span className="mb-1 block text-[10px] font-semibold uppercase tracking-widest text-slate-500">Subnets</span>
+          <input className={`${opsField} font-mono`} value={input} onChange={(e) => setInput(e.target.value)} placeholder="192.168.0.0/24, 10.0.0.0/24" />
+        </label>
+        <button onClick={run} disabled={busy} className={`${opsBtn} border-sky-500/45 bg-sky-500/10 text-sky-300 hover:bg-sky-500/20`}>
+          <Icon.Layers className="h-4 w-4" />{busy ? 'Building…' : 'Aggregate'}
+        </button>
+      </div>
+
+      {data && (
+        <div className="space-y-3">
+          <div className="grid grid-cols-3 gap-2">
+            {tiles.map((t) => (
+              <div key={t.k} className="rounded-lg border border-slate-700/70 bg-steel-900 px-3 py-2 text-center">
+                <div className="text-lg font-bold text-slate-100">{t.v}</div>
+                <div className="text-[10px] uppercase tracking-widest text-slate-500">{t.k}</div>
+              </div>
+            ))}
+          </div>
+
+          {sevEntries.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {sevEntries.map(([sev, n]) => (
+                <span key={sev} className={`rounded-md border px-2 py-0.5 text-[11px] font-semibold ${severityTone(sev)}`}>{n} {sev}</span>
+              ))}
+            </div>
+          )}
+
+          <div className="rounded-lg border border-slate-700/70">
+            <div className="border-b border-slate-800 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-widest text-slate-500">Per subnet</div>
+            <div className="max-h-40 overflow-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="sticky top-0 bg-steel-900 text-[10px] uppercase tracking-wider text-slate-500">
+                  <tr><th className="px-3 py-1.5">Subnet</th><th className="px-3 py-1.5">Status</th><th className="px-3 py-1.5 text-right">Hosts</th><th className="px-3 py-1.5 text-right">Open</th></tr>
+                </thead>
+                <tbody className="divide-y divide-slate-800/70">
+                  {data.subnets.map((s) => (
+                    <tr key={s.target}>
+                      <td className="px-3 py-1.5 font-mono text-slate-200">{s.target}</td>
+                      <td className="px-3 py-1.5">{s.scanned ? <span className="text-matrix">scanned</span> : <span className="text-slate-500">never scanned</span>}</td>
+                      <td className="px-3 py-1.5 text-right font-mono text-slate-300">{s.hosts}</td>
+                      <td className="px-3 py-1.5 text-right font-mono text-slate-300">{s.open_ports}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** The Operations modal — tabbed shell around the three capability panels. */
+function OperationsPanel({ onClose }) {
+  const [tab, setTab] = useState('passive');
+  useEscapeToClose(true, onClose);
+  const ref = useFocusTrap();
+  return (
+    <div className="fixed inset-0 z-[78] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Operations">
+      <Backdrop onClose={onClose} className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
+      <div ref={ref} tabIndex={-1} className="eg-card relative z-10 flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden p-0 outline-none">
+        <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3">
+          <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-100">
+            <Icon.Radar className="h-4 w-4 text-sky-400" /> Operations
+          </h2>
+          <button onClick={onClose} aria-label="Close" className="rounded p-1 text-slate-500 outline-none transition hover:bg-steel-800 hover:text-slate-200 focus-visible:ring-2 focus-visible:ring-sky-400">
+            <Icon.X className="h-4 w-4" />
+          </button>
+        </div>
+        <div role="tablist" aria-label="Operations sections" className="flex gap-1 border-b border-slate-800 px-3 pt-2">
+          {OPS_TABS.map((t) => (
+            <button
+              key={t.id}
+              role="tab"
+              aria-selected={tab === t.id}
+              onClick={() => setTab(t.id)}
+              className={`flex items-center gap-1.5 rounded-t-md px-3 py-2 text-xs font-semibold outline-none transition focus-visible:ring-2 focus-visible:ring-sky-400 ${tab === t.id ? 'border-b-2 border-sky-500 text-slate-100' : 'text-slate-500 hover:text-slate-300'}`}
+            >
+              <t.Icon className="h-3.5 w-3.5" />{t.label}
+            </button>
+          ))}
+        </div>
+        <div className="min-h-0 flex-1 overflow-auto p-4">
+          {tab === 'passive' && <PassiveTab />}
+          {tab === 'schedules' && <SchedulesTab />}
+          {tab === 'campaign' && <CampaignTab />}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Owns the Operations modal; opens on the `eg:open-operations` event. */
+function OperationsLayer() {
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    const openEvt = () => setOpen(true);
+    window.addEventListener('eg:open-operations', openEvt);
+    return () => window.removeEventListener('eg:open-operations', openEvt);
+  }, []);
+  return open ? <OperationsPanel onClose={() => setOpen(false)} /> : null;
+}
+
 /**
  * Fires action-feedback toasts on meaningful scan-state transitions. Renders
  * nothing — a pure watcher, so scan state stays a plain data concern.
@@ -2553,6 +2945,8 @@ export default function IndustrialDashboard() {
     <div className="relative flex h-screen overflow-hidden text-slate-200">
       <ScanToasts />
       <ShortcutsLayer />
+      <OperationsLayer />
+      <CopilotLayer />
       <CommandPalette />
       <div className="eg-aurora" />
       {booting && <BootSplash onDone={finishBoot} />}

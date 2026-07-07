@@ -16,6 +16,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from io import BytesIO
 
+import provenance
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_LEFT
 from reportlab.lib.pagesizes import A4
@@ -258,6 +259,7 @@ def build_pdf(payload: dict) -> bytes:
     story = []
 
     profile = payload.get("profile") or payload.get("scanProfile")
+    prov = provenance.manifest()
     story.append(Paragraph("EnumGrid — Network Enumeration Report", styles["PRTitle"]))
     story.append(Paragraph(f"Generated {generated}", styles["PRSub"]))
     story.append(_kv_table(
@@ -268,7 +270,11 @@ def build_pdf(payload: dict) -> bytes:
             ("Distinct services", summary["services"]),
             ("Vulnerability findings", summary["vulns"]),
             ("Critical flags", summary["critical"]),
-        ] + ([("Scan profile", profile)] if profile else []),
+        ] + ([("Scan profile", profile)] if profile else []) + [
+            # Reproducibility manifest — what produced this report.
+            ("Build", f"EnumGrid v{prov['tool_version']} · commit {prov['git_commit']}"),
+            ("Toolchain", f"nmap {prov['nmap_version']} · Python {prov['python_version']}"),
+        ],
         styles,
     ))
 

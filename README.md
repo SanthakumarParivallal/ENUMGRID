@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/SanthakumarParivallal/ENUMGRID/actions/workflows/ci.yml/badge.svg)](https://github.com/SanthakumarParivallal/ENUMGRID/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-FFB300.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-512%20passing-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-623%20passing-brightgreen.svg)](#testing)
 [![Python](https://img.shields.io/badge/python-3.10%E2%80%933.14-blue.svg)](pyproject.toml)
 [![Node](https://img.shields.io/badge/node-%E2%89%A520-blue.svg)](frontend/package.json)
 [![SAST: bandit](https://img.shields.io/badge/SAST-bandit%200%20high%2Fmed-blue.svg)](#security)
@@ -178,6 +178,19 @@ Phase 2  Vertical deep-dive nmap -sV (+ NSE)   service / version / vuln detectio
   (30s / 2m / 5m / 15m) and raises a dismissible banner **+ desktop notification**
   the moment a device appears/disappears or a port opens/closes. Network watch,
   not just a one-shot scan.
+- **Passive (zero-packet) discovery** — a stealth mode that **sends nothing on the
+  wire**: it listens for the broadcast/multicast chatter hosts emit on their own
+  (ARP, DHCP, mDNS, LLMNR, NetBIOS) and reports who is talking. Invisible to an IDS
+  watching for scans, and a clean *active vs passive* contrast. `POST /api/passive`
+  or run `backend/passive.py` standalone (needs `scapy` + raw-socket privilege).
+- **Cron-style scheduled scans** — unattended, time-of-day recurring scans ("sweep
+  192.168.0.0/24 every weekday at 02:00") that fire **even with no browser open**;
+  each populates history + drift automatically. Managed from the **Operations**
+  panel or `/api/schedules`; scope-validated on creation and persisted.
+- **Multi-subnet campaign view** — roll the latest scan of several subnets (office
+  /24, server VLAN, DMZ) into **one estate-wide picture**: unique hosts, open
+  ports, merged inventory, device/service/severity rollups. Operations ▸ Campaign
+  or `GET /api/campaign`.
 - **Service / version detection** — Phase 2 runs real `nmap -sV`; ports, service
   names and product versions stream into each device's expandable detail table.
 - **Adaptive depth (thorough where it pays)** — the default scan covers the **top
@@ -321,12 +334,12 @@ make test      # ruff lint + CLI pytest + backend pytest + frontend Vitest
 
 | Suite | Count | Scope |
 |---|---|---|
-| `test_purple_recon.py` | 89 | guardrails (incl. IPv6 scope, empty/delimiter-only specs), NDP/ARP/OUI parsing, discovery policy, reports, export, renderers, **fuzzing** |
-| `backend/test_*.py` | 352 | scope/**RBAC** (constant-time tokens), **11 scan profiles** + injection safety + **adaptive all-ports scan**, **privilege auto-adaptation** (root/sudo/unprivileged downgrade) **+ runtime sudo elevation** (in-memory password, drop), **live NVD** (+ persisted API key) **+ offline CVE DB + OSV backport-aware**, **KEV+EPSS prioritization**, **credentialed SSH + package parsers**, **web-DAST audit** (TLS cert parse), **SNMP BER codec**, **AWS/LDAP parsers** (incl. IPv6 SG), **job-queue**, **outbound alerting + audit**, NSE/CVSS, **multi-signal OS fingerprinting** (hostname > vendor, honest random-MAC OS), device discovery + mDNS + **NBNS** + **SSDP** + **port probe**, history + drift, **PDF escaping**, **FastAPI integration**, **hypothesis fuzzing** |
-| `frontend/src/**/*.test.js` | 59 | schema coercion / null-safety + scan-state transients, CVE link + confidence + **KEV/EPSS risk-rank**, derived counters, **API-token helpers**, **CSV/JSON export** (formula-injection-safe), **privilege-tier badge logic**, **modal focus-trap logic** (a11y), **toast tone/role mapping**, **keyboard-shortcut guard**, **⌘K command-palette ranking** |
-| `evaluation/test_benchmark.py` | 12 | benchmark metric math (precision/recall/Jaccard) + **privileged (ARP) baseline** command/summary |
+| `tests/test_purple_recon.py` | 92 | guardrails (incl. IPv6 scope, empty/delimiter-only specs), NDP/ARP/OUI parsing, discovery policy, reports, export, renderers, **reproducibility manifest**, **fuzzing** |
+| `backend/tests/test_*.py` | 422 | scope/**RBAC** (constant-time tokens), **11 scan profiles** + injection safety + **adaptive all-ports scan**, **privilege auto-adaptation** (root/sudo/unprivileged downgrade) **+ runtime sudo elevation** (in-memory password, drop), **live NVD** (+ persisted API key) **+ offline CVE DB + OSV backport-aware**, **KEV+EPSS prioritization**, **credentialed SSH + package parsers**, **web-DAST audit** (TLS cert parse), **SNMP BER codec**, **AWS/LDAP parsers** (incl. IPv6 SG), **job-queue**, **passive (zero-packet) discovery**, **cron-style scheduling** (`due`/`next_run`), **multi-subnet campaign aggregation**, **provenance manifest**, **outbound alerting + audit**, NSE/CVSS, **multi-signal OS fingerprinting** (hostname > vendor, honest random-MAC OS), device discovery + mDNS + **NBNS** + **SSDP** + **port probe**, history + drift, **PDF escaping**, **FastAPI integration**, **AI copilot** (multi-provider keys, scan-grounding, proposed-action validation), **hypothesis fuzzing** |
+| `frontend/src/**/*.test.js` | 86 | schema coercion / null-safety + scan-state transients, CVE link + confidence + **KEV/EPSS risk-rank**, derived counters, **API-token helpers**, **CSV/JSON export** (formula-injection-safe), **privilege-tier badge logic**, **modal focus-trap logic** (a11y), **toast tone/role mapping**, **keyboard-shortcut guard**, **⌘K command-palette ranking**, **Operations-panel helpers** (schedule/campaign parsing), **copilot helpers** (scan-context grounding, SSE parsing, key-form validation) |
+| `evaluation/test_benchmark.py` | 23 | benchmark metric math (precision/recall/Jaccard), **multi-run stats** (mean ± 95 % CI), **arp-scan / netdiscover / masscan** baseline parsers, **privileged (ARP) baseline** command/summary |
 
-**512 tests, all green.** Static analysis is clean: **ruff** 0 findings, **ESLint**
+**623 tests, all green.** Static analysis is clean: **ruff** 0 findings, **ESLint**
 0 (react-hooks + jsx-a11y accessibility rules), **bandit** SAST 0 high/medium,
 **pip-audit** 0 known CVEs, **npm audit** 0 (vite 8 / vitest 4). CI
 (`.github/workflows/ci.yml`) runs **5 jobs** — lint (ruff), **security** (bandit +
@@ -346,8 +359,8 @@ pip-audit + npm audit), CLI (Python 3.10–3.14 matrix), backend, and frontend
 
 ```
 purple_recon.py        # the single-file CLI engine (shared primitives)
-test_purple_recon.py   # CLI test suite
-pyproject.toml         # pip-installable: `enumgrid` console command
+pyproject.toml         # pip-install (`enumgrid` command) + pytest & ruff config
+tests/                 # CLI test suite
 backend/               # FastAPI SSE service (reuses the CLI engine)
   ├─ scanner.py        #   two-tiered nmap pipeline (+ nmap -6) + NSE/CVSS parsing
   ├─ discovery.py      #   fast device discovery (ICMP/ARP/NDP/mDNS/SSDP/TTL + port probe)
@@ -355,6 +368,7 @@ backend/               # FastAPI SSE service (reuses the CLI engine)
   ├─ osfp.py           #   specific OS from TTL + vendor + hostname + mDNS model
   ├─ security.py       #   ScopeValidator reuse (dual-stack) + auth + concurrency cap
   ├─ history.py        #   SQLite scan history + drift  ·  report.py  PDF
+  └─ tests/            #   backend test suite (pytest)
 frontend/              # Vite + React + Tailwind cockpit
   └─ src/lib/preferences.js  #  persisted theme · density · column widths
 evaluation/            # benchmark harness + docker testbed (vs nmap)

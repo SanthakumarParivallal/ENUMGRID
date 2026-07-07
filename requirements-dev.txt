@@ -16,3 +16,10 @@ fastapi>=0.110
 pydantic>=2.0
 reportlab>=4.0  # PDF report generation (test_report.py)
 zeroconf>=0.130  # mDNS device discovery (test_mdns.py)
+
+# Optional feature dependencies. The code degrades gracefully without them and
+# the tests cover the pure logic + the "unavailable" paths, so they stay optional:
+#   scapy>=2.5        # passive (zero-packet) discovery — backend/passive.py
+#   matplotlib>=3.8   # benchmark recall/time plot — evaluation/benchmark.py --plot
+#   anthropic>=0.40   # AI copilot (Anthropic Claude) — backend/copilot.py
+#   openai>=1.40      # AI copilot (OpenAI)          — backend/copilot.py

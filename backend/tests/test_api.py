@@ -12,7 +12,9 @@ from __future__ import annotations
 import json
 
 import history
+import passive
 import pytest
+import schedule
 import security
 from app import app
 from fastapi.testclient import TestClient
@@ -22,9 +24,11 @@ client = TestClient(app)
 
 @pytest.fixture(autouse=True)
 def _temp_history(tmp_path, monkeypatch):
-    """Isolate every test from the real history DB."""
+    """Isolate every test from the real history DB + schedule store."""
     monkeypatch.setattr(history, "DB_PATH", str(tmp_path / "h.db"))
     history.init_db()
+    # Point the schedule store at a throwaway file so tests never touch the repo's.
+    monkeypatch.setattr("app._schedules", schedule.ScheduleStore(str(tmp_path / "s.json")))
 
 
 def _sse_frame(resp_text: str) -> dict:
@@ -42,6 +46,85 @@ def test_health():
     # privilege auto-adaptation surface
     assert body["capability"] in ("root", "sudo", "unprivileged")
     assert "can_raw" in body
+    # reproducibility manifest surfaced for provenance
+    prov = body["provenance"]
+    assert prov["tool"] == "ENUMGRID"
+    assert "git_commit" in prov and "nmap_version" in prov and "python_version" in prov
+
+
+# --- passive (zero-packet) discovery --------------------------------------- #
+def test_passive_endpoint_unavailable_without_scapy(monkeypatch):
+    # Force the no-scapy path so the test never sniffs or needs root.
+    monkeypatch.setattr(passive, "_HAVE_SCAPY", False)
+    r = client.post("/api/passive?seconds=5")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["available"] is False and body["count"] == 0
+    assert "scapy" in body["reason"].lower()
+    assert body["hosts"] == []
+
+
+def test_passive_endpoint_validates_seconds_bounds():
+    # Out-of-range windows are rejected by FastAPI before any capture runs.
+    assert client.post("/api/passive?seconds=0").status_code == 422
+    assert client.post("/api/passive?seconds=9999").status_code == 422
+
+
+# --- scheduled scans -------------------------------------------------------- #
+def test_schedule_create_list_toggle_delete():
+    r = client.post("/api/schedules", json={"target": "192.168.50.0/24", "at": "02:00",
+                                             "days": "mon,fri", "mode": "full"})
+    assert r.status_code == 201
+    rule = r.json()
+    assert rule["target"] == "192.168.50.0/24" and rule["at"] == "02:00" and rule["days"] == "mon,fri"
+    sid = rule["id"]
+
+    listed = client.get("/api/schedules").json()["schedules"]
+    assert any(s["id"] == sid for s in listed)
+
+    toggled = client.post(f"/api/schedules/{sid}/toggle?enabled=false")
+    assert toggled.status_code == 200 and toggled.json()["enabled"] is False
+
+    assert client.delete(f"/api/schedules/{sid}").status_code == 200
+    assert client.delete(f"/api/schedules/{sid}").status_code == 404  # gone
+
+
+def test_schedule_create_rejects_bad_time():
+    r = client.post("/api/schedules", json={"target": "192.168.50.0/24", "at": "25:00"})
+    assert r.status_code == 400
+    assert "time" in r.json()["error"].lower()
+
+
+def test_schedule_create_rejects_out_of_scope_target():
+    # A public target is refused by the same ScopeValidator a live scan uses.
+    r = client.post("/api/schedules", json={"target": "8.8.8.8", "at": "02:00"})
+    assert r.status_code == 400
+
+
+def test_schedule_create_requires_target():
+    assert client.post("/api/schedules", json={"at": "02:00"}).status_code == 400
+
+
+# --- multi-subnet campaign view --------------------------------------------- #
+def test_campaign_aggregates_latest_scans():
+    history.save_scan({"target": "192.168.50.0/24", "finished_at": "t1", "hosts": [
+        {"ip": "192.168.50.1", "device_type": "Router",
+         "ports": [{"port": 80, "service": "http", "state": "open"}]},
+    ]}, mode="discover")
+    history.save_scan({"target": "10.10.0.0/24", "finished_at": "t2", "hosts": [
+        {"ip": "10.10.0.5", "device_type": "Server",
+         "ports": [{"port": 22, "service": "ssh", "state": "open"}]},
+    ]}, mode="discover")
+
+    r = client.get("/api/campaign?targets=192.168.50.0/24,10.10.0.0/24,172.16.9.0/24")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["totals"]["subnets"] == 3
+    assert body["totals"]["scanned_subnets"] == 2       # the third was never scanned
+    assert body["totals"]["hosts"] == 2
+    assert body["totals"]["open_ports"] == 2
+    unscanned = next(s for s in body["subnets"] if s["target"] == "172.16.9.0/24")
+    assert unscanned["scanned"] is False and unscanned["hosts"] == 0
 
 
 # --- runtime privilege elevation endpoints --------------------------------- #
@@ -131,6 +214,57 @@ def test_nvd_key_requires_admin(monkeypatch):
     assert client.post("/api/settings/nvd-key", json={"key": "x"}).status_code == 401
     ok = client.post("/api/settings/nvd-key?token=adm1n", json={"key": ""})
     assert ok.status_code == 200
+
+
+# --- copilot ---------------------------------------------------------------- #
+def _sse_frames(resp_text: str) -> list:
+    return [json.loads(li[len("data:"):].strip())
+            for li in resp_text.splitlines() if li.startswith("data:")]
+
+
+@pytest.fixture()
+def _copilot_isolated(tmp_path, monkeypatch):
+    """Keep copilot key/provider files out of the repo during tests."""
+    import copilot
+    monkeypatch.setattr(copilot, "_STATE_DIR", str(tmp_path))
+    for var in ("ENUMGRID_ANTHROPIC_API_KEY", "ENUMGRID_OPENAI_API_KEY", "ENUMGRID_COPILOT_PROVIDER"):
+        monkeypatch.delenv(var, raising=False)
+
+
+def test_copilot_status(_copilot_isolated):
+    r = client.get("/api/copilot")
+    assert r.status_code == 200
+    body = r.json()
+    assert set(body["providers"]) == {"anthropic", "openai"}
+    assert body["active"] in ("anthropic", "openai")
+
+
+def test_copilot_key_set_and_provider_switch(_copilot_isolated):
+    r = client.post("/api/copilot/key", json={"provider": "openai", "key": "sk-test"})
+    assert r.status_code == 200 and r.json()["key_set"] is True
+    assert r.json()["status"]["providers"]["openai"]["key_set"] is True
+    assert client.post("/api/copilot/key", json={"provider": "bogus", "key": "x"}).status_code == 400
+    sw = client.post("/api/copilot/provider", json={"provider": "openai"})
+    assert sw.status_code == 200 and sw.json()["status"]["active"] == "openai"
+    assert client.post("/api/copilot/provider", json={"provider": "bogus"}).status_code == 400
+
+
+def test_copilot_key_requires_admin(monkeypatch, _copilot_isolated):
+    monkeypatch.setattr(security, "ADMIN_TOKEN", "adm1n")
+    assert client.post("/api/copilot/key", json={"provider": "openai", "key": "x"}).status_code == 401
+    assert client.post("/api/copilot/key?token=adm1n",
+                       json={"provider": "openai", "key": ""}).status_code == 200
+
+
+def test_copilot_chat_streams_honest_error_without_key(_copilot_isolated):
+    # No key configured → the stream must degrade to an honest error frame, never
+    # a fabricated answer, and always terminate with a done frame.
+    r = client.post("/api/copilot/chat",
+                    json={"messages": [{"role": "user", "content": "hi"}], "provider": "anthropic"})
+    assert r.status_code == 200
+    frames = _sse_frames(r.text)
+    assert frames[0]["type"] == "error"
+    assert frames[-1] == {"type": "done"}
 
 
 def test_network_suggestion():

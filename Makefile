@@ -42,7 +42,7 @@ test-cli: ## CLI engine test suite
 	$(PY) -m pytest -q
 
 test-backend: ## Backend (scope guard + NSE parsing) test suite
-	cd backend && ../$(PY) -m pytest test_scanner.py test_security.py -q
+	cd backend && ../$(PY) -m pytest tests/test_scanner.py tests/test_security.py -q
 
 test-frontend: ## Frontend unit tests (Vitest)
 	cd frontend && npm test

@@ -240,6 +240,8 @@ def test_profile_vuln_adds_scripts():
 def test_profile_recon_uses_safe_enum_scripts():
     a = scanner.build_host_scan_args("recon", None, None, False, False)
     assert "--script" in a and "ssl-cert" in a and "smb-os-discovery" in a
+    # SMB share listing is info-gathering (not brute), so it belongs in recon.
+    assert "smb-enum-shares" in a
     # recon must never pull in intrusive categories
     for bad in ("brute", "exploit", "dos", "malware"):
         assert bad not in a
