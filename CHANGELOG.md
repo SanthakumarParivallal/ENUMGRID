@@ -22,16 +22,27 @@ All notable changes to **ENUMGRID: the Enumeration Platform**. Format based on
   comma-string (what the cockpit UI already sends), so the endpoint returns the
   created rule instead of a 500. Found via live end-to-end testing; regression-tested.
 
-### Added — AI copilot (multi-provider, scan-grounded, agentic)
+### Added — AI copilot (multi-provider incl. free local/cloud, scan-grounded, agentic)
 - **In-cockpit AI copilot** (`backend/copilot.py`, `frontend/src/CopilotPanel.jsx`,
   `/api/copilot*`) — a security-analyst chatbot embedded in the dashboard that is
   **grounded in the live scan** (it answers about *your* hosts / ports / CVEs, and
   says so honestly when the context doesn't contain the answer — never fabricates).
-- **Two providers, switchable in the dashboard** — Anthropic Claude (default,
-  `claude-opus-4-8`) and OpenAI. Each SDK is optional; a missing SDK or key returns
-  `available:false` with a reason instead of a fake reply. The operator pastes their
-  own key **directly in the panel** (persisted `0600`, gitignored, never logged),
-  mirroring the NVD-key pattern — plus `POST /api/copilot/key` / `/provider`.
+- **Four providers, switchable in the dashboard — two of them free.** Ollama
+  (**local, keyless, zero-cost** — the scan never leaves the machine; default), Google
+  Gemini (**free tier**), plus Anthropic Claude and OpenAI (paid). Gemini and Ollama
+  speak the OpenAI wire protocol, so they reuse the OpenAI code path with a different
+  base URL. Each SDK is optional; a missing SDK or key returns `ready:false` with a
+  reason instead of a fake reply — and if the local Ollama server is down, the chat
+  surfaces a real "start Ollama" message, never a fabricated answer. The operator
+  pastes any needed key **directly in the panel** (persisted `0600`, gitignored, never
+  logged), mirroring the NVD-key pattern — plus `POST /api/copilot/key` / `/provider`.
+- **Turnkey Ollama — no terminal required.** The dashboard probes the local Ollama
+  server (`/api/tags`) to report, honestly, whether it's running and which models are
+  installed; a provider is only `ready` once its chosen model is actually present.
+  When it isn't, the panel becomes a guided setup: download link + auto-detect polling
+  → **one-click model download with a live streamed progress bar** (`POST
+  /api/copilot/ollama/pull`) → a model picker (`POST /api/copilot/model`, persisted).
+  Model names are validated; the pull streams Ollama's real byte-level progress.
 - **Agentic, human-in-the-loop** — the model can call a `propose_scan` tool; the
   backend never runs it, it surfaces the proposal as a confirm button that launches
   the normal scope-vetted scan. A security tool never scans without the operator.

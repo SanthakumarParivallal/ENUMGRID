@@ -5,7 +5,12 @@ import {
   validateKeyForm,
   summarizeAction,
   isReady,
+  ollamaSetupState,
+  formatBytes,
+  OLLAMA_RECOMMENDED,
   PROVIDER_LABELS,
+  PROVIDER_ORDER,
+  PROVIDER_HINTS,
 } from './copilot.js';
 
 describe('buildScanContext', () => {
@@ -74,11 +79,16 @@ describe('parseSSE', () => {
 describe('validateKeyForm', () => {
   it('accepts a plausible key', () => {
     expect(validateKeyForm({ provider: 'anthropic', key: 'sk-ant-abcdef1234' })).toEqual({ ok: true });
+    expect(validateKeyForm({ provider: 'gemini', key: 'AIzaSy-abcdef123456' })).toEqual({ ok: true });
   });
-  it('rejects bad provider, empty, and too-short keys', () => {
-    expect(validateKeyForm({ provider: 'gemini', key: 'x'.repeat(20) }).ok).toBe(false);
+  it('treats Ollama as keyless (no key required)', () => {
+    expect(validateKeyForm({ provider: 'ollama', key: '' })).toEqual({ ok: true });
+    expect(validateKeyForm({ provider: 'ollama' })).toEqual({ ok: true });
+  });
+  it('rejects unknown provider, empty, and too-short keys', () => {
+    expect(validateKeyForm({ provider: 'grok', key: 'x'.repeat(20) }).ok).toBe(false);
     expect(validateKeyForm({ provider: 'openai', key: '  ' }).ok).toBe(false);
-    expect(validateKeyForm({ provider: 'openai', key: 'short' }).ok).toBe(false);
+    expect(validateKeyForm({ provider: 'gemini', key: 'short' }).ok).toBe(false);
   });
 });
 
@@ -100,8 +110,44 @@ describe('misc', () => {
     expect(isReady({ any_ready: false })).toBe(false);
     expect(isReady(null)).toBe(false);
   });
-  it('exposes provider labels', () => {
+  it('exposes provider labels for all four providers', () => {
     expect(PROVIDER_LABELS.anthropic).toMatch(/Claude/);
     expect(PROVIDER_LABELS.openai).toMatch(/OpenAI/);
+    expect(PROVIDER_LABELS.gemini).toMatch(/Gemini/);
+    expect(PROVIDER_LABELS.ollama).toMatch(/Ollama/);
+  });
+  it('orders the free providers first and marks them free/keyless', () => {
+    expect(PROVIDER_ORDER.slice(0, 2)).toEqual(['ollama', 'gemini']);
+    expect(PROVIDER_HINTS.ollama.keyless).toBe(true);
+    expect(PROVIDER_HINTS.gemini.tag).toMatch(/Free/);
+  });
+});
+
+describe('ollamaSetupState', () => {
+  const withOllama = (o) => ({ providers: { ollama: o } });
+  it('walks the setup steps in order', () => {
+    expect(ollamaSetupState(null)).toBe('unknown');
+    expect(ollamaSetupState(withOllama({ sdk_installed: false }))).toBe('sdk_missing');
+    expect(ollamaSetupState(withOllama({ sdk_installed: true, server_up: false }))).toBe('server_down');
+    expect(ollamaSetupState(withOllama({ sdk_installed: true, server_up: true, model_present: false }))).toBe('need_model');
+    expect(ollamaSetupState(withOllama({ sdk_installed: true, server_up: true, model_present: true }))).toBe('ready');
+  });
+});
+
+describe('formatBytes', () => {
+  it('formats sizes and ignores junk', () => {
+    expect(formatBytes(0)).toBe('');
+    expect(formatBytes(512)).toBe('512 B');
+    expect(formatBytes(1536)).toBe('1.5 KB');
+    expect(formatBytes(5_033_164_800)).toBe('4.7 GB');
+    expect(formatBytes('nope')).toBe('');
+  });
+});
+
+describe('OLLAMA_RECOMMENDED', () => {
+  it('offers tool-capable models with one marked recommended', () => {
+    expect(OLLAMA_RECOMMENDED.length).toBeGreaterThanOrEqual(2);
+    expect(OLLAMA_RECOMMENDED.some((m) => m.recommended)).toBe(true);
+    expect(OLLAMA_RECOMMENDED.every((m) => m.name && m.label)).toBe(true);
   });
 });

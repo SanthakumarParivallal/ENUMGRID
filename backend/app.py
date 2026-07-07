@@ -435,7 +435,8 @@ def copilot_set_provider(
     token: str | None = Query(None),
     authorization: str | None = Header(None),
 ) -> JSONResponse:
-    """Choose the active copilot provider (anthropic | openai). Admin-gated."""
+    """Choose the active copilot provider (ollama | gemini | anthropic | openai).
+    Admin-gated."""
     if not admin_ok(token, authorization):
         raise HTTPException(status_code=401, detail="admin token required")
     try:
@@ -444,6 +445,47 @@ def copilot_set_provider(
         return JSONResponse({"error": str(exc)}, status_code=400)
     audit.record("copilot_provider_set", provider=payload.get("provider"))
     return JSONResponse({"ok": True, "status": copilot.status()})
+
+
+@app.post("/api/copilot/model")
+def copilot_set_model(
+    payload: dict = Body(...),
+    token: str | None = Query(None),
+    authorization: str | None = Header(None),
+) -> JSONResponse:
+    """Choose which model a provider uses (e.g. pick an installed Ollama model).
+    Admin-gated; a blank model reverts to the built-in default."""
+    if not admin_ok(token, authorization):
+        raise HTTPException(status_code=401, detail="admin token required")
+    provider = str(payload.get("provider") or "").strip()
+    if not copilot.valid_provider(provider):
+        return JSONResponse({"error": "unknown provider"}, status_code=400)
+    try:
+        model = copilot.set_model(provider, str(payload.get("model") or ""))
+    except ValueError as exc:
+        return JSONResponse({"error": str(exc)}, status_code=400)
+    audit.record("copilot_model_set", provider=provider, model=model)
+    return JSONResponse({"ok": True, "model": model, "status": copilot.status()})
+
+
+@app.post("/api/copilot/ollama/pull")
+def copilot_ollama_pull(
+    payload: dict = Body(...),
+    token: str | None = Query(None),
+    authorization: str | None = Header(None),
+):
+    """Download an Ollama model from the dashboard, streaming real progress as SSE
+    so the operator never needs a terminal. Admin-gated (it's a local action that
+    consumes disk/CPU). Progress is genuine — a down server fails honestly."""
+    if not admin_ok(token, authorization):
+        raise HTTPException(status_code=401, detail="admin token required")
+    model = str(payload.get("model") or "")
+
+    def event_source():
+        for event in copilot.pull_model(model):
+            yield f"data: {json.dumps(event)}\n\n"
+
+    return StreamingResponse(event_source(), media_type="text/event-stream", headers=_SSE_HEADERS)
 
 
 @app.post("/api/copilot/chat")

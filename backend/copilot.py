@@ -5,11 +5,16 @@ operator to confirm.
 
 Design
 ------
-* **Two providers, switchable** — Anthropic Claude (default) and OpenAI. Each is
-  an *optional* dependency (`anthropic` / `openai`); when a provider's SDK or key
-  is missing we say so honestly (`available: false` + reason) and never fake a
+* **Four providers, switchable — two of them free** — Anthropic Claude and OpenAI
+  (paid), plus **Ollama** (a model running *locally* — no key, no cloud, no cost)
+  and **Google Gemini** (a generous free tier). Ollama and Gemini both speak the
+  OpenAI wire protocol, so they reuse the OpenAI code path with a different base
+  URL. Each provider is an *optional* dependency (`anthropic` for Claude; the
+  `openai` SDK powers OpenAI **and** Gemini **and** Ollama); when a provider's SDK
+  or key is missing we say so honestly (`ready: false` + reason) and never fake a
   reply. The operator pastes their own key in the dashboard (persisted 0600,
-  gitignored, never logged) — mirroring the NVD-key pattern in ``cve.py``.
+  gitignored, never logged) — mirroring the NVD-key pattern in ``cve.py``. Ollama
+  needs no key at all; it just needs the local Ollama server running.
 * **Grounded** — every request carries a compact, real summary of the current
   scan (hosts, open ports, services, CVEs, severities) built by
   ``build_context_block``. The model answers about *your* network, not in the
@@ -29,6 +34,9 @@ from __future__ import annotations
 import json
 import os
 import re
+import socket
+import urllib.request
+from urllib.parse import urlparse
 
 try:  # Anthropic Claude — optional (the operator may only use OpenAI, or neither).
     import anthropic  # type: ignore
@@ -50,20 +58,57 @@ _DIR = os.path.dirname(os.path.abspath(__file__))
 # A single base dir keeps tests trivial (monkeypatch `_STATE_DIR` → tmp_path).
 _STATE_DIR = os.environ.get("ENUMGRID_COPILOT_DIR", _DIR)
 
-PROVIDERS = ("anthropic", "openai")
-_DEFAULT_PROVIDER = "anthropic"
+PROVIDERS = ("ollama", "gemini", "anthropic", "openai")
+# Default to the free, local, keyless provider so a fresh install works without a
+# paid key. The operator can switch to any provider in the dashboard.
+_DEFAULT_PROVIDER = "ollama"
+
+# Providers that don't need an API key. Ollama runs locally and authenticates by
+# nothing more than reaching the local server.
+_KEYLESS = frozenset({"ollama"})
+
+# OpenAI-compatible providers reuse the `openai` SDK against a different base URL.
+# `openai` itself uses the SDK default (None → api.openai.com).
+_BASE_URLS = {
+    "openai": None,
+    "gemini": os.environ.get(
+        "ENUMGRID_GEMINI_URL", "https://generativelanguage.googleapis.com/v1beta/openai/"),
+    "ollama": os.environ.get("ENUMGRID_OLLAMA_URL", "http://localhost:11434/v1"),
+}
 
 # Latest, most capable defaults; overridable per deployment via env. The operator
-# can also override the model per-provider without touching code.
+# can also override the model per-provider without touching code. The free
+# defaults (Gemini flash, Llama 3.1) are chosen to support tool use.
 _DEFAULT_MODELS = {
     "anthropic": os.environ.get("ENUMGRID_ANTHROPIC_MODEL", "claude-opus-4-8"),
     "openai": os.environ.get("ENUMGRID_OPENAI_MODEL", "gpt-4o"),
+    "gemini": os.environ.get("ENUMGRID_GEMINI_MODEL", "gemini-2.0-flash"),
+    "ollama": os.environ.get("ENUMGRID_OLLAMA_MODEL", "llama3.1"),
 }
-_ENV_KEYS = {"anthropic": "ENUMGRID_ANTHROPIC_API_KEY", "openai": "ENUMGRID_OPENAI_API_KEY"}
+_ENV_KEYS = {
+    "anthropic": "ENUMGRID_ANTHROPIC_API_KEY",
+    "openai": "ENUMGRID_OPENAI_API_KEY",
+    "gemini": "ENUMGRID_GEMINI_API_KEY",
+    "ollama": "ENUMGRID_OLLAMA_API_KEY",
+}
 
 _MAX_TOKENS = 4096          # a chat reply; streaming means no HTTP-timeout worry
 _MAX_MESSAGES = 24          # keep the request bounded (drop the oldest turns)
 _MAX_MSG_CHARS = 8000       # clamp any single message
+
+# Curated Ollama models the dashboard offers as one-click downloads. All three
+# support tool use (needed for the propose_scan action). Ordered lightest-first so
+# a low-RAM machine has an obvious safe pick; `llama3.1` is the balanced default.
+_OLLAMA_RECOMMENDED = (
+    {"name": "llama3.2", "label": "Llama 3.2 (3B)", "size": "~2 GB",
+     "note": "Lightest — good on ~8 GB RAM"},
+    {"name": "llama3.1", "label": "Llama 3.1 (8B)", "size": "~4.7 GB",
+     "note": "Balanced default — needs ~16 GB RAM", "recommended": True},
+    {"name": "qwen2.5", "label": "Qwen 2.5 (7B)", "size": "~4.7 GB",
+     "note": "Strong reasoning + tool use"},
+)
+# A safe Ollama model tag: starts alphanumeric, then the usual name/tag characters.
+_MODEL_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/\-]{0,63}")
 
 SYSTEM_PROMPT = (
     "You are the ENUMGRID Copilot — a concise, expert security analyst embedded in "
@@ -120,18 +165,108 @@ def valid_provider(provider: str | None) -> bool:
 
 
 def sdk_available(provider: str) -> bool:
-    return {"anthropic": _HAVE_ANTHROPIC, "openai": _HAVE_OPENAI}.get(provider, False)
+    # Gemini and Ollama are OpenAI-wire-compatible, so they ride the `openai` SDK.
+    if provider == "anthropic":
+        return _HAVE_ANTHROPIC
+    if provider in ("openai", "gemini", "ollama"):
+        return _HAVE_OPENAI
+    return False
+
+
+def requires_key(provider: str) -> bool:
+    """Whether the provider needs an API key (Ollama runs locally, so it doesn't)."""
+    return provider not in _KEYLESS
+
+
+def _ollama_root() -> str:
+    """The Ollama *native* API root (its OpenAI-compat base minus the ``/v1``)."""
+    base = _BASE_URLS["ollama"].rstrip("/")
+    return base[:-3].rstrip("/") if base.endswith("/v1") else base
+
+
+def _tcp_up(timeout: float = 0.35) -> bool:
+    """Fast TCP connect to the Ollama host:port. Never raises."""
+    try:
+        parsed = urlparse(_BASE_URLS["ollama"])
+        with socket.create_connection((parsed.hostname or "localhost", parsed.port or 11434),
+                                      timeout=timeout):
+            return True
+    except OSError:
+        return False
+
+
+def ollama_probe(timeout: float = 0.6) -> dict:
+    """Ask the local Ollama server what it has: ``{'up': bool, 'models': [names]}``.
+
+    A single cheap call powers the whole setup UX — is the server running, and which
+    models are already pulled. Never raises (a down/absent server → ``up: False``)."""
+    if not _tcp_up():                       # avoid a slow HTTP wait when nothing listens
+        return {"up": False, "models": []}
+    try:
+        with urllib.request.urlopen(f"{_ollama_root()}/api/tags", timeout=timeout) as resp:
+            data = json.loads(resp.read().decode("utf-8", "replace") or "{}")
+        models = [m.get("name") for m in (data.get("models") or [])
+                  if isinstance(m, dict) and m.get("name")]
+        return {"up": True, "models": models}
+    except (OSError, ValueError):
+        return {"up": True, "models": []}   # server answered TCP but tags failed — still "up"
+
+
+def _model_installed(name: str, models) -> bool:
+    """Whether ``name`` (e.g. ``llama3.1``) matches an installed tag (``llama3.1:latest``)."""
+    if not name:
+        return False
+    base = name.split(":")[0]
+    return any(m == name or m.split(":")[0] == base for m in (models or []))
+
+
+def valid_model_name(name: str | None) -> bool:
+    return bool(name) and bool(_MODEL_NAME_RE.fullmatch(name.strip()))
+
+
+def _model_file(provider: str) -> str:
+    return os.path.join(_STATE_DIR, f".enumgrid_{provider}_model")
+
+
+def active_model(provider: str) -> str:
+    """The model to use for a provider: an operator override (persisted) else the
+    built-in default. Lets the operator pick from their installed Ollama models."""
+    return _read_file(_model_file(provider)) or default_model(provider)
+
+
+def set_model(provider: str, model: str | None) -> str:
+    """Persist (or clear → revert to default) the model for a provider."""
+    if not valid_provider(provider):
+        raise ValueError(f"unknown provider '{provider}'")
+    model = (model or "").strip()
+    if model and not valid_model_name(model):
+        raise ValueError("invalid model name")
+    _write_secret(_model_file(provider), model or None)
+    return active_model(provider)
+
+
+def _stored_key(provider: str) -> str | None:
+    """A real key the operator supplied: env var wins, else the saved 0600 file."""
+    env = _ENV_KEYS.get(provider)
+    return (os.environ.get(env) if env else None) or _read_file(_key_file(provider))
 
 
 def load_key(provider: str) -> str | None:
-    """The active key for a provider: explicit env var wins, else the saved file."""
+    """The key handed to the SDK. A real stored key wins; a keyless provider
+    (Ollama) falls back to a harmless placeholder so the OpenAI client — which
+    demands a non-empty ``api_key`` — is satisfied."""
     if not valid_provider(provider):
         return None
-    return os.environ.get(_ENV_KEYS[provider]) or _read_file(_key_file(provider))
+    key = _stored_key(provider)
+    if key:
+        return key
+    return "ollama" if provider in _KEYLESS else None
 
 
 def has_key(provider: str) -> bool:
-    return bool(load_key(provider))
+    """Whether the operator has stored a real key (used for the status display).
+    Keyless providers report False here but are still ``ready`` — see ``status``."""
+    return bool(_stored_key(provider))
 
 
 def save_key(provider: str, key: str | None) -> bool:
@@ -167,15 +302,34 @@ def status() -> dict:
     """Everything the dashboard needs to render the copilot + key-upload UI.
 
     Never includes key values — only whether each provider is usable."""
-    prov = {
-        name: {
-            "sdk_installed": sdk_available(name),
+    prov = {}
+    probe = None   # probe the local Ollama server at most once per status call
+    for name in PROVIDERS:
+        sdk = sdk_available(name)
+        needs_key = requires_key(name)
+        entry = {
+            "sdk_installed": sdk,
             "key_set": has_key(name),
-            "model": default_model(name),
-            "ready": sdk_available(name) and has_key(name),
+            "requires_key": needs_key,
+            "local": name in _KEYLESS,
+            "free": name in ("ollama", "gemini"),
+            "server_up": None,          # only meaningful for the local provider
+            "model": active_model(name),
         }
-        for name in PROVIDERS
-    }
+        if name == "ollama":
+            if probe is None:
+                probe = ollama_probe() if sdk else {"up": False, "models": []}
+            entry["server_up"] = probe["up"]
+            entry["models"] = probe["models"]
+            entry["model_present"] = _model_installed(entry["model"], probe["models"])
+            entry["recommended"] = list(_OLLAMA_RECOMMENDED)
+            # Ready only when the server is up AND the chosen model is pulled — else
+            # the UI guides setup (install / download) instead of a failing chat.
+            entry["ready"] = sdk and probe["up"] and entry["model_present"]
+        else:
+            # Ready = SDK present and credentials satisfied (a real key OR none needed).
+            entry["ready"] = sdk and (has_key(name) or not needs_key)
+        prov[name] = entry
     active = active_provider()
     return {
         "providers": prov,
@@ -338,15 +492,19 @@ def stream_reply(messages, context=None, *, provider: str | None = None, model: 
     turns = sanitize_messages(messages)
     if not turns:
         yield from _unavailable("no message to send"); return
-    model = model or default_model(provider)
+    model = model or active_model(provider)
     system = SYSTEM_PROMPT + "\n\n" + build_context_block(context)
     try:
         if provider == "anthropic":
             yield from _stream_anthropic(key, model, system, turns)
         else:
-            yield from _stream_openai(key, model, system, turns)
+            yield from _stream_openai(key, model, system, turns, base_url=_BASE_URLS.get(provider))
     except Exception as exc:  # noqa: BLE001 - surface any provider error honestly
         reason = " ".join(str(exc).split()).strip() or type(exc).__name__
+        # Ollama is local: the usual failure is "server not started" — say so plainly.
+        if provider == "ollama" and any(w in reason.lower() for w in ("connect", "refused", "connection")):
+            reason = (f"Can't reach Ollama at {_BASE_URLS['ollama']}. Start it "
+                      f"(`ollama serve`) and pull the model (`ollama pull {model}`).")
         yield {"type": "error", "message": reason[:300]}
     yield {"type": "done"}
 
@@ -369,8 +527,9 @@ def _stream_anthropic(key: str, model: str, system: str, turns: list[dict]):
             break
 
 
-def _stream_openai(key: str, model: str, system: str, turns: list[dict]):
-    client = openai.OpenAI(api_key=key)
+def _stream_openai(key: str, model: str, system: str, turns: list[dict], base_url: str | None = None):
+    # `base_url` lets the same OpenAI SDK drive Gemini and a local Ollama server.
+    client = openai.OpenAI(api_key=key, base_url=base_url) if base_url else openai.OpenAI(api_key=key)
     messages = [{"role": "system", "content": system}, *turns]
     tool_args: dict[int, str] = {}
     tool_seen = False
@@ -400,3 +559,55 @@ def _stream_openai(key: str, model: str, system: str, turns: list[dict]):
             if action:
                 yield {"type": "action", "action": action}
                 break
+
+
+# --- one-click Ollama model download (streamed progress) ---------------------- #
+def pull_model(name: str, timeout: float = 120.0):
+    """Stream an Ollama model download as events so the dashboard can show a live
+    progress bar — no terminal needed. Yields ``{'type':'progress', percent, ...}``
+    frames, then ``done`` or an honest ``error``. Never raises.
+
+    Talks to Ollama's native ``/api/pull`` (newline-delimited JSON). ``name`` is
+    validated (no shell — it's a JSON field) so it can't smuggle anything odd."""
+    name = (name or "").strip()
+    if not valid_model_name(name):
+        yield {"type": "error", "message": "invalid model name"}
+        yield {"type": "done"}
+        return
+    payload = json.dumps({"name": name, "stream": True}).encode("utf-8")
+    req = urllib.request.Request(
+        f"{_ollama_root()}/api/pull", data=payload,
+        headers={"Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            for raw in resp:                      # one JSON object per line
+                line = raw.decode("utf-8", "replace").strip()
+                if not line:
+                    continue
+                try:
+                    obj = json.loads(line)
+                except ValueError:
+                    continue
+                if obj.get("error"):
+                    yield {"type": "error", "message": str(obj["error"])[:300]}
+                    yield {"type": "done"}
+                    return
+                total = obj.get("total") or 0
+                completed = obj.get("completed") or 0
+                yield {
+                    "type": "progress",
+                    "status": str(obj.get("status") or "")[:120],
+                    "completed": completed,
+                    "total": total,
+                    "percent": int(completed * 100 / total) if total else None,
+                }
+                if obj.get("status") == "success":
+                    yield {"type": "done"}
+                    return
+        yield {"type": "done"}
+    except (OSError, ValueError) as exc:
+        reason = " ".join(str(exc).split()).strip() or type(exc).__name__
+        if any(w in reason.lower() for w in ("refused", "connect", "timed out", "timeout")):
+            reason = f"Can't reach Ollama at {_ollama_root()} — start it first (`ollama serve`)."
+        yield {"type": "error", "message": reason[:300]}
+        yield {"type": "done"}
