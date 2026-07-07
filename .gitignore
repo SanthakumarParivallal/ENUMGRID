@@ -48,7 +48,10 @@ oui.txt
 # Copilot LLM keys + provider choice, persisted from the dashboard (owner-only)
 .enumgrid_anthropic_key
 .enumgrid_openai_key
+.enumgrid_gemini_key
+.enumgrid_ollama_key
 .enumgrid_copilot_provider
+.enumgrid_ollama_model
 
 # ---- runtime logs + local intel caches (operator data) ----
 *.log

@@ -224,10 +224,13 @@ def _sse_frames(resp_text: str) -> list:
 
 @pytest.fixture()
 def _copilot_isolated(tmp_path, monkeypatch):
-    """Keep copilot key/provider files out of the repo during tests."""
+    """Keep copilot key/provider files out of the repo during tests, and stub the
+    local Ollama probe so status stays hermetic (no network)."""
     import copilot
     monkeypatch.setattr(copilot, "_STATE_DIR", str(tmp_path))
-    for var in ("ENUMGRID_ANTHROPIC_API_KEY", "ENUMGRID_OPENAI_API_KEY", "ENUMGRID_COPILOT_PROVIDER"):
+    monkeypatch.setattr(copilot, "ollama_probe", lambda *a, **k: {"up": False, "models": []})
+    for var in ("ENUMGRID_ANTHROPIC_API_KEY", "ENUMGRID_OPENAI_API_KEY",
+                "ENUMGRID_GEMINI_API_KEY", "ENUMGRID_OLLAMA_API_KEY", "ENUMGRID_COPILOT_PROVIDER"):
         monkeypatch.delenv(var, raising=False)
 
 
@@ -235,8 +238,11 @@ def test_copilot_status(_copilot_isolated):
     r = client.get("/api/copilot")
     assert r.status_code == 200
     body = r.json()
-    assert set(body["providers"]) == {"anthropic", "openai"}
-    assert body["active"] in ("anthropic", "openai")
+    assert set(body["providers"]) == {"anthropic", "openai", "gemini", "ollama"}
+    assert body["active"] in body["providers"]
+    # the two free providers advertise themselves as such for the dashboard
+    assert body["providers"]["ollama"]["local"] is True
+    assert body["providers"]["ollama"]["requires_key"] is False
 
 
 def test_copilot_key_set_and_provider_switch(_copilot_isolated):
@@ -265,6 +271,33 @@ def test_copilot_chat_streams_honest_error_without_key(_copilot_isolated):
     frames = _sse_frames(r.text)
     assert frames[0]["type"] == "error"
     assert frames[-1] == {"type": "done"}
+
+
+def test_copilot_set_model(_copilot_isolated):
+    r = client.post("/api/copilot/model", json={"provider": "ollama", "model": "qwen2.5"})
+    assert r.status_code == 200 and r.json()["model"] == "qwen2.5"
+    assert r.json()["status"]["providers"]["ollama"]["model"] == "qwen2.5"
+    # bad provider / bad model name are rejected
+    assert client.post("/api/copilot/model", json={"provider": "bogus", "model": "x"}).status_code == 400
+    assert client.post("/api/copilot/model",
+                       json={"provider": "ollama", "model": "bad name; rm -rf"}).status_code == 400
+
+
+def test_copilot_ollama_pull_streams_error_when_name_bad(_copilot_isolated):
+    # An invalid model name must fail honestly as an SSE error, never silently.
+    r = client.post("/api/copilot/ollama/pull", json={"model": "bad name; rm"})
+    assert r.status_code == 200
+    frames = _sse_frames(r.text)
+    assert frames[0]["type"] == "error" and "invalid model" in frames[0]["message"]
+    assert frames[-1] == {"type": "done"}
+
+
+def test_copilot_model_and_pull_require_admin(monkeypatch, _copilot_isolated):
+    monkeypatch.setattr(security, "ADMIN_TOKEN", "adm1n")
+    assert client.post("/api/copilot/model", json={"provider": "ollama", "model": "llama3.1"}).status_code == 401
+    assert client.post("/api/copilot/ollama/pull", json={"model": "llama3.1"}).status_code == 401
+    assert client.post("/api/copilot/model?token=adm1n",
+                       json={"provider": "ollama", "model": "llama3.1"}).status_code == 200
 
 
 def test_network_suggestion():

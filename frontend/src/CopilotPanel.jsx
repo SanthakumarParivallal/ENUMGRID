@@ -18,10 +18,14 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useScan } from './context/ScanContext.jsx';
 import { authFetch } from './lib/auth.js';
 import {
+  OLLAMA_RECOMMENDED,
   PROVIDER_HINTS,
   PROVIDER_LABELS,
+  PROVIDER_ORDER,
   buildScanContext,
+  formatBytes,
   isReady,
+  ollamaSetupState,
   parseSSE,
   summarizeAction,
   validateKeyForm,
@@ -43,12 +47,236 @@ const fieldCls =
   'w-full rounded-md border border-slate-700 bg-steel-900 px-2.5 py-1.5 text-xs text-slate-100 ' +
   'placeholder:text-slate-500 outline-none focus-visible:ring-2 focus-visible:ring-sky-400';
 
-/** Provider + key upload — shown when nothing is ready, or via the gear. */
-function ConnectCard({ status, onSaved }) {
+const primaryBtn =
+  'w-full rounded-md border border-matrix/50 bg-matrix/10 px-3 py-1.5 text-xs font-semibold ' +
+  'text-matrix transition hover:bg-matrix hover:text-steel-950 disabled:opacity-50';
+
+/** Live download progress for `ollama pull`, streamed frame-by-frame. */
+function PullProgress({ pull }) {
+  const pct = typeof pull.percent === 'number' ? pull.percent : null;
+  return (
+    <div className="rounded-md border border-matrix/30 bg-matrix/5 p-2.5">
+      <div className="mb-1 flex items-center justify-between text-[11px]">
+        <span className="text-slate-200">Downloading <span className="font-semibold">{pull.model}</span>…</span>
+        <span className="font-semibold text-matrix">{pct != null ? `${pct}%` : '…'}</span>
+      </div>
+      <div className="h-1.5 w-full overflow-hidden rounded bg-steel-800">
+        <div
+          className={`h-full bg-matrix transition-all ${pct == null ? 'animate-pulse' : ''}`}
+          style={{ width: pct != null ? `${pct}%` : '35%' }}
+        />
+      </div>
+      <p className="mt-1 truncate text-[10px] text-slate-500">
+        {pull.total ? `${formatBytes(pull.completed)} / ${formatBytes(pull.total)} · ` : ''}{pull.status || 'working…'}
+      </p>
+      <p className="mt-1 text-[10px] text-slate-600">First download can take a few minutes — you can keep this open.</p>
+    </div>
+  );
+}
+
+/** Turnkey Ollama onboarding: detect the server + models, download a model with a
+ *  live progress bar, pick which model to use — no terminal required. */
+function OllamaSetup({ status, onSaved, onRefresh }) {
   const { toast } = useToast();
-  const [provider, setProvider] = useState((status && status.active) || 'anthropic');
+  const p = (status && status.providers && status.providers.ollama) || {};
+  const step = ollamaSetupState(status);
+  const installed = Array.isArray(p.models) ? p.models : [];
+  const recommended = Array.isArray(p.recommended) && p.recommended.length ? p.recommended : OLLAMA_RECOMMENDED;
+  const note = (PROVIDER_HINTS.ollama || {}).note;
+
+  const [selected, setSelected] = useState(p.model || 'llama3.1');
+  const [pull, setPull] = useState(null);       // { model, percent, status } while downloading
+  const [busy, setBusy] = useState(false);
+  const pullAbort = useRef(null);
+
+  useEffect(() => { if (p.model) setSelected(p.model); }, [p.model]);
+
+  // Poll while waiting on the server / a model so the card advances on its own once
+  // the operator installs and starts Ollama (no manual refresh needed).
+  useEffect(() => {
+    if (!onRefresh || pull) return undefined;
+    if (step !== 'server_down' && step !== 'need_model' && step !== 'unknown') return undefined;
+    const id = setInterval(onRefresh, 2500);
+    return () => clearInterval(id);
+  }, [step, pull, onRefresh]);
+
+  useEffect(() => () => { if (pullAbort.current) pullAbort.current.abort(); }, []);
+
+  const downloadModel = async (model) => {
+    setPull({ model, percent: 0, status: 'starting' });
+    const controller = new AbortController();
+    pullAbort.current = controller;
+    let failed = null;
+    try {
+      const resp = await authFetch('/api/copilot/ollama/pull', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model }), signal: controller.signal,
+      });
+      if (!resp.ok || !resp.body) throw new Error('pull failed');
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buf = '';
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const { events, rest } = parseSSE(buf);
+        buf = rest;
+        for (const ev of events) {
+          if (ev.type === 'progress') {
+            setPull({ model, percent: ev.percent, status: ev.status, completed: ev.completed, total: ev.total });
+          } else if (ev.type === 'error') {
+            failed = ev.message;
+          }
+        }
+      }
+      if (failed) {
+        toast(failed, { type: 'error' });
+      } else {
+        setSelected(model);
+        await authFetch('/api/copilot/model', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ provider: 'ollama', model }),
+        }).catch(() => {});
+        toast(`${model} downloaded and selected.`, { type: 'success' });
+      }
+    } catch (e) {
+      if (e.name !== 'AbortError') toast('Download failed — is Ollama running?', { type: 'error' });
+    } finally {
+      setPull(null);
+      pullAbort.current = null;
+      if (onRefresh) await onRefresh();
+    }
+  };
+
+  const useOllama = async () => {
+    setBusy(true);
+    try {
+      if (selected && selected !== p.model) {
+        await authFetch('/api/copilot/model', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ provider: 'ollama', model: selected }),
+        });
+      }
+      const r = await authFetch('/api/copilot/provider', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ provider: 'ollama' }),
+      });
+      const d = await r.json().catch(() => ({}));
+      toast('Ollama connected.', { type: 'success' });
+      onSaved((d && d.status) || null);
+    } catch {
+      toast('Could not select Ollama.', { type: 'error' });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (step === 'sdk_missing') {
+    return (
+      <div className="rounded-md border border-amber/30 bg-amber/5 p-2.5 text-[11px] leading-relaxed text-amber">
+        The backend needs the <code>openai</code> SDK to talk to Ollama
+        (<code>pip install openai</code>), then restart the backend.
+      </div>
+    );
+  }
+
+  if (step === 'ready') {
+    return (
+      <div className="space-y-2.5">
+        <p className="text-[11px] font-semibold text-matrix">✓ Ollama is running with {p.model} — ready to chat.</p>
+        {installed.length > 1 && (
+          <label className="block text-[11px] text-slate-400">
+            Model
+            <select
+              value={selected} onChange={(e) => setSelected(e.target.value)}
+              className={`${fieldCls} mt-1`}
+            >
+              {installed.map((m) => <option key={m} value={m}>{m}</option>)}
+            </select>
+          </label>
+        )}
+        <button type="button" onClick={useOllama} disabled={busy} className={primaryBtn}>
+          {busy ? 'Connecting…' : 'Use Ollama'}
+        </button>
+      </div>
+    );
+  }
+
+  if (step === 'need_model') {
+    return (
+      <div className="space-y-2.5">
+        <p className="text-[11px] font-semibold text-matrix">✓ Ollama is running. Download a model to finish:</p>
+        {pull ? (
+          <PullProgress pull={pull} />
+        ) : (
+          <>
+            <div className="space-y-1.5">
+              {recommended.map((m) => (
+                <button
+                  key={m.name} type="button" onClick={() => downloadModel(m.name)}
+                  className="flex w-full items-center justify-between gap-2 rounded-md border border-slate-700 bg-steel-900 px-2.5 py-2 text-left transition hover:border-matrix/50 hover:bg-matrix/5"
+                >
+                  <span className="min-w-0">
+                    <span className="block truncate text-xs font-semibold text-slate-100">
+                      {m.label}{m.recommended && <span className="ml-1.5 text-[9px] uppercase tracking-wide text-matrix">recommended</span>}
+                    </span>
+                    <span className="block truncate text-[10px] text-slate-500">{m.size} · {m.note}</span>
+                  </span>
+                  <span className="shrink-0 text-[11px] font-semibold text-matrix">Download</span>
+                </button>
+              ))}
+            </div>
+            {installed.length > 0 && (
+              <div className="flex items-end gap-2 border-t border-slate-800 pt-2">
+                <label className="min-w-0 flex-1 text-[11px] text-slate-400">
+                  …or use an installed model
+                  <select value={selected} onChange={(e) => setSelected(e.target.value)} className={`${fieldCls} mt-1`}>
+                    {installed.map((m) => <option key={m} value={m}>{m}</option>)}
+                  </select>
+                </label>
+                <button type="button" onClick={useOllama} disabled={busy} className="shrink-0 rounded-md border border-matrix/50 bg-matrix/10 px-3 py-1.5 text-xs font-semibold text-matrix transition hover:bg-matrix hover:text-steel-950 disabled:opacity-50">
+                  Use
+                </button>
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    );
+  }
+
+  // server_down / unknown — guide install, then auto-detect.
+  return (
+    <div className="space-y-2">
+      <p className="text-[11px] leading-relaxed text-slate-300">
+        {note}{' '}
+        <a href="https://ollama.com/download" target="_blank" rel="noreferrer" className="font-semibold text-sky-400 hover:underline">
+          Download Ollama ↗
+        </a>
+      </p>
+      <div className="flex items-center gap-2 rounded-md border border-amber/30 bg-amber/5 px-2.5 py-2 text-[11px] text-amber">
+        <span className="h-2 w-2 shrink-0 animate-pulse rounded-full bg-amber" />
+        <span>Waiting for Ollama… once installed it starts on its own (or run <code>ollama serve</code>).</span>
+      </div>
+      <button type="button" onClick={() => onRefresh && onRefresh()} className={primaryBtn}>
+        Re-check
+      </button>
+    </div>
+  );
+}
+
+/** Provider chooser + credentials — shown when nothing is ready, or via the gear.
+ *  Four providers, the two free ones (Ollama · Gemini) first. Ollama gets a full
+ *  turnkey setup wizard; the cloud providers get a key field. */
+function ConnectCard({ status, onSaved, onRefresh }) {
+  const { toast } = useToast();
+  const [provider, setProvider] = useState((status && status.active) || 'ollama');
   const [key, setKey] = useState('');
   const [busy, setBusy] = useState(false);
+
+  const hint = PROVIDER_HINTS[provider] || {};
+  const keyless = !!hint.keyless;
 
   const save = async () => {
     const check = validateKeyForm({ provider, key });
@@ -61,13 +289,15 @@ function ConnectCard({ status, onSaved }) {
       });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.error || 'Could not save the key.');
-      await authFetch('/api/copilot/provider', {
+      const pr = await authFetch('/api/copilot/provider', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ provider }),
       });
+      const pd = await pr.json().catch(() => ({}));
+      if (!pr.ok) throw new Error(pd.error || 'Could not select the provider.');
       setKey('');
       toast(`${PROVIDER_LABELS[provider]} connected.`, { type: 'success' });
-      onSaved(d.status || null);
+      onSaved((pd && pd.status) || null);
     } catch (e) {
       toast(e.message, { type: 'error' });
     } finally {
@@ -75,61 +305,78 @@ function ConnectCard({ status, onSaved }) {
     }
   };
 
-  const hint = PROVIDER_HINTS[provider] || {};
-  const sdkMissing = status && status.providers && status.providers[provider]
-    && !status.providers[provider].sdk_installed;
+  const providerStatus = (status && status.providers && status.providers[provider]) || null;
+  const sdkMissing = providerStatus && !providerStatus.sdk_installed;
+  const freeTag = provider === 'gemini';
 
   return (
     <div className="space-y-3 rounded-lg border border-slate-700/70 bg-steel-900/60 p-3">
       <div>
-        <div className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-slate-400">AI provider</div>
-        <div className="flex gap-2">
-          {['anthropic', 'openai'].map((p) => (
-            <button
-              key={p} type="button" onClick={() => setProvider(p)}
-              aria-pressed={provider === p}
-              className={`flex-1 rounded-md border px-2 py-1.5 text-xs font-semibold transition ${
-                provider === p
-                  ? 'border-sky-500/50 bg-sky-500/10 text-sky-300'
-                  : 'border-slate-700 bg-steel-900 text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              {PROVIDER_LABELS[p]}
-            </button>
-          ))}
+        <div className="mb-1.5 flex items-center justify-between">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">AI provider</span>
+          <span className="text-[9px] font-medium uppercase tracking-wide text-matrix">2 free options</span>
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          {PROVIDER_ORDER.map((pv) => {
+            const active = provider === pv;
+            const tag = (PROVIDER_HINTS[pv] || {}).tag;
+            const free = pv === 'ollama' || pv === 'gemini';
+            return (
+              <button
+                key={pv} type="button" onClick={() => setProvider(pv)} aria-pressed={active}
+                className={`rounded-md border px-2 py-1.5 text-left transition ${
+                  active
+                    ? 'border-sky-500/50 bg-sky-500/10 text-sky-300'
+                    : 'border-slate-700 bg-steel-900 text-slate-400 hover:text-slate-200'
+                }`}
+              >
+                <span className="block text-xs font-semibold">{PROVIDER_LABELS[pv]}</span>
+                {tag && (
+                  <span className={`mt-0.5 block text-[9px] font-medium uppercase tracking-wide ${
+                    free ? 'text-matrix' : 'text-slate-500'}`}>
+                    {tag}
+                  </span>
+                )}
+              </button>
+            );
+          })}
         </div>
       </div>
-      <div>
-        <label htmlFor="eg-copilot-key" className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-          API key
-        </label>
-        <input
-          id="eg-copilot-key" type="password" autoComplete="off" value={key}
-          onChange={(e) => setKey(e.target.value)}
-          onKeyDown={(e) => { if (e.key === 'Enter') save(); }}
-          placeholder={hint.placeholder || 'API key'} className={fieldCls}
-        />
-        <p className="mt-1 text-[10px] text-slate-500">
-          Stored on your machine (0600, gitignored) — never logged.{' '}
-          {hint.url && (
-            <a href={hint.url} target="_blank" rel="noreferrer" className="text-sky-400 hover:underline">
-              Get a key ↗
-            </a>
-          )}
-        </p>
-        {sdkMissing && (
-          <p className="mt-1 text-[10px] text-amber">
-            The {PROVIDER_LABELS[provider]} SDK isn’t installed on the backend
-            (<code>pip install {provider}</code>) — the key saves, but chat needs the SDK.
-          </p>
-        )}
-      </div>
-      <button
-        type="button" onClick={save} disabled={busy}
-        className="w-full rounded-md border border-matrix/50 bg-matrix/10 px-3 py-1.5 text-xs font-semibold text-matrix transition hover:bg-matrix hover:text-steel-950 disabled:opacity-50"
-      >
-        {busy ? 'Saving…' : 'Connect'}
-      </button>
+
+      {keyless ? (
+        <OllamaSetup status={status} onSaved={onSaved} onRefresh={onRefresh} />
+      ) : (
+        <>
+          <div>
+            <label htmlFor="eg-copilot-key" className="mb-1 block text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+              API key {freeTag && <span className="ml-1 text-matrix">(free)</span>}
+            </label>
+            <input
+              id="eg-copilot-key" type="password" autoComplete="off" value={key}
+              onChange={(e) => setKey(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') save(); }}
+              placeholder={hint.placeholder || 'API key'} className={fieldCls}
+            />
+            <p className="mt-1 text-[10px] text-slate-500">
+              {hint.note ? `${hint.note} ` : ''}Stored on your machine (0600, gitignored) — never logged.{' '}
+              {hint.url && (
+                <a href={hint.url} target="_blank" rel="noreferrer" className="text-sky-400 hover:underline">
+                  {hint.linkText || 'Get a key ↗'}
+                </a>
+              )}
+            </p>
+            {sdkMissing && (
+              <p className="mt-1 text-[10px] text-amber">
+                The {PROVIDER_LABELS[provider]} SDK isn’t installed on the backend
+                (<code>pip install {provider === 'gemini' ? 'openai' : provider}</code>) — the key saves, but chat needs the SDK.
+              </p>
+            )}
+          </div>
+          <button type="button" onClick={save} disabled={busy} className={primaryBtn}>
+            {busy ? 'Saving…' : 'Connect'}
+          </button>
+        </>
+      )}
     </div>
   );
 }
@@ -172,18 +419,27 @@ function CopilotPanel({ onClose }) {
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
+  // Fetch copilot status (used on open and to refresh during Ollama setup polling).
+  const loadStatus = useCallback(async () => {
+    try {
+      const r = await authFetch('/api/copilot');
+      const d = r.ok ? await r.json() : null;
+      setStatus(d);
+      return d;
+    } catch {
+      return null;
+    }
+  }, []);
+
   // Load status on open; open the connect card if nothing is ready.
   useEffect(() => {
     let alive = true;
-    authFetch('/api/copilot')
-      .then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (alive) { setStatus(d); setShowConnect(!isReady(d)); } })
-      .catch(() => { if (alive) setShowConnect(true); });
+    loadStatus().then((d) => { if (alive) setShowConnect(!isReady(d)); });
     return () => {
       alive = false;
       if (abortRef.current) abortRef.current.abort();
     };
-  }, []);
+  }, [loadStatus]);
 
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
@@ -295,6 +551,7 @@ function CopilotPanel({ onClose }) {
           {(showConnect || !ready) && (
             <ConnectCard
               status={status}
+              onRefresh={loadStatus}
               onSaved={(st) => {
                 setStatus(st);
                 if (isReady(st)) setShowConnect(false);

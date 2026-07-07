@@ -8,13 +8,33 @@
  */
 
 export const PROVIDER_LABELS = Object.freeze({
+  ollama: 'Ollama (local)',
+  gemini: 'Google Gemini',
   anthropic: 'Anthropic Claude',
   openai: 'OpenAI',
 });
 
+// The two free options are surfaced first so the operator reaches them by default.
+export const PROVIDER_ORDER = Object.freeze(['ollama', 'gemini', 'anthropic', 'openai']);
+
 export const PROVIDER_HINTS = Object.freeze({
-  anthropic: { placeholder: 'sk-ant-…', url: 'https://console.anthropic.com/settings/keys' },
-  openai: { placeholder: 'sk-…', url: 'https://platform.openai.com/api-keys' },
+  ollama: {
+    tag: 'Local · Free',
+    keyless: true,
+    url: 'https://ollama.com/download',
+    linkText: 'Install Ollama ↗',
+    note: 'No key, no cloud — runs on this machine. Install Ollama, run '
+      + '“ollama pull llama3.1”, then Connect. Your scan never leaves the laptop.',
+  },
+  gemini: {
+    tag: 'Free tier',
+    placeholder: 'AIza…',
+    url: 'https://aistudio.google.com/apikey',
+    linkText: 'Get a free key ↗',
+    note: 'Free tier from Google AI Studio — no billing required.',
+  },
+  anthropic: { tag: 'Paid', placeholder: 'sk-ant-…', url: 'https://console.anthropic.com/settings/keys' },
+  openai: { tag: 'Paid', placeholder: 'sk-…', url: 'https://platform.openai.com/api-keys' },
 });
 
 /**
@@ -71,11 +91,12 @@ export function parseSSE(buffer) {
   return { events, rest };
 }
 
-/** Validate the in-dashboard key-upload form. */
+/** Validate the in-dashboard key-upload form. Ollama is local, so it needs no key. */
 export function validateKeyForm({ provider, key } = {}) {
-  if (provider !== 'anthropic' && provider !== 'openai') {
+  if (!Object.prototype.hasOwnProperty.call(PROVIDER_LABELS, provider)) {
     return { ok: false, error: 'Choose a provider.' };
   }
+  if (provider === 'ollama') return { ok: true }; // keyless — connect straight away
   const k = (key || '').trim();
   if (!k) return { ok: false, error: 'Paste an API key.' };
   if (k.length < 12) return { ok: false, error: 'That key looks too short.' };
@@ -97,4 +118,38 @@ export function summarizeAction(action) {
 /** Whether a fetched status makes the copilot usable at all. */
 export function isReady(status) {
   return !!(status && status.any_ready);
+}
+
+/**
+ * The Ollama onboarding step, derived from status. Drives the setup wizard:
+ *   sdk_missing → backend lacks the openai SDK
+ *   server_down → Ollama isn't installed / running
+ *   need_model  → server up, but the chosen model isn't downloaded yet
+ *   ready       → good to chat
+ */
+export function ollamaSetupState(status) {
+  const p = status && status.providers && status.providers.ollama;
+  if (!p) return 'unknown';
+  if (!p.sdk_installed) return 'sdk_missing';
+  if (!p.server_up) return 'server_down';
+  if (!p.model_present) return 'need_model';
+  return 'ready';
+}
+
+/** Fallback list of recommended Ollama models if the backend doesn't supply one. */
+export const OLLAMA_RECOMMENDED = Object.freeze([
+  { name: 'llama3.2', label: 'Llama 3.2 (3B)', size: '~2 GB', note: 'Lightest — good on ~8 GB RAM' },
+  { name: 'llama3.1', label: 'Llama 3.1 (8B)', size: '~4.7 GB', note: 'Balanced default — needs ~16 GB RAM', recommended: true },
+  { name: 'qwen2.5', label: 'Qwen 2.5 (7B)', size: '~4.7 GB', note: 'Strong reasoning + tool use' },
+]);
+
+/** Compact byte formatting for the download progress bar (e.g. 1536 → "1.5 KB"). */
+export function formatBytes(n) {
+  const num = Number(n);
+  if (!Number.isFinite(num) || num <= 0) return '';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let v = num;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) { v /= 1024; i += 1; }
+  return `${v >= 10 || i === 0 ? Math.round(v) : v.toFixed(1)} ${units[i]}`;
 }
