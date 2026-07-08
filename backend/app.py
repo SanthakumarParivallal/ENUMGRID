@@ -749,14 +749,25 @@ def host_webscan(
 
 
 @app.post("/api/report/pdf")
-def report_pdf(payload: dict = Body(...)) -> Response:
+def report_pdf(
+    payload: dict = Body(...),
+    token: str | None = Query(None),
+    authorization: str | None = Header(None),
+) -> Response:
     """Render the supplied ScanState snapshot into a downloadable PDF report.
 
     The dashboard POSTs exactly what it's showing, so the report can never drift
     from the screen. Stateless: the server holds no scan, it just formats. Pass
     ``include_ai_summary: true`` to prepend a grounded, copilot-written executive
     summary (best-effort — a copilot failure never blocks the report).
+
+    Read-gated (viewer or admin), matching ``/api/copilot/summary`` — both can
+    spend the operator's own LLM key (via ``include_ai_summary``), so neither may
+    be driven by an unauthenticated caller when RBAC is configured. Open when no
+    tokens are set (the local-only guard still fences off the zero-config mode).
     """
+    if not token_ok(token, authorization):
+        raise HTTPException(status_code=401, detail="unauthorized")
     if payload.get("include_ai_summary") and not payload.get("ai_summary"):
         try:
             context = {"target": payload.get("target"), "hosts": payload.get("hosts") or []}

@@ -38,10 +38,27 @@ _SAMPLE_IP = "172.28.0.11"
 
 
 def _load_scanner_from_xml(path: str) -> "nmap.PortScanner":
-    """Parse a fixed nmap XML file into a PortScanner (no nmap binary, no network)."""
+    """Parse a fixed nmap XML file into a PortScanner (no nmap binary, no network).
+
+    python-nmap's ``PortScanner()`` constructor shells out to ``nmap --version`` to
+    locate the binary and raises ``PortScannerError`` when it's absent — but the XML
+    parser (``analyse_nmap_xml_scan``) needs no binary at all. So when nmap isn't
+    installed (e.g. the backend CI runner), we build the object *without* the version
+    probe and initialise only the two attributes the parser touches. This keeps the
+    determinism guarantee a genuinely pure-processing test, exactly as documented —
+    it exercises the real parse path either way (real constructor when nmap is
+    present, probe-free construction when it isn't)."""
     with open(path, encoding="utf-8") as fh:
-        ps = nmap.PortScanner()
-        ps.analyse_nmap_xml_scan(nmap_xml_output=fh.read())
+        xml = fh.read()
+    try:
+        ps = nmap.PortScanner()  # normal path when the nmap binary is installed
+    except nmap.PortScannerError:
+        # Binary-free, parse-only construction (bypass the version probe).
+        ps = nmap.PortScanner.__new__(nmap.PortScanner)
+        ps._nmap_path = ""
+        ps._scan_result = {}
+        ps._nmap_last_output = ""
+    ps.analyse_nmap_xml_scan(nmap_xml_output=xml)
     return ps
 
 
@@ -101,6 +118,8 @@ def test_golden_captures_the_accuracy_critical_facts(monkeypatch):
     assert p80.critical is True
     assert [v.id for v in p80.vulns] == ["CVE-2021-42013", "CVE-2021-41773"]
     assert p80.vulns[0].severity.value == "critical" and p80.vulns[0].confidence == "version"
+    # nmap service-detection confidence is carried through from the XML (conf="10").
+    assert p80.conf == 10 and by_port[22].conf == 10
     # SSH port carries no invented findings.
     assert by_port[22].vulns == []
     # Host-level ms17-010 hostscript → a CONFIRMED critical CVE.

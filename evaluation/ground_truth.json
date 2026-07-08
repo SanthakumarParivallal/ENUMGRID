@@ -1,13 +1,20 @@
 {
   "_comment": [
     "Ground truth for the pinned evaluation testbed (evaluation/docker-compose.yml).",
-    "Every open port + service name below is fixed by the pinned container images, so",
-    "detection_benchmark.py can compute true precision/recall — nothing is assumed.",
-    "'planted_cves' lists CVEs a version-accurate scanner MUST recall on that host.",
-    "Any reported CVE not planted is surfaced as 'unexpected' for operator review;",
-    "on the pinned/patched hosts (empty planted list) an unexpected CVE is a candidate",
-    "false positive. 'decoy_ports' are ports the scan probes but that are CLOSED, so",
-    "reporting one as open is a hard false positive (scored in port precision)."
+    "Every open port + service name + version below is fixed by the pinned container",
+    "images, so detection_benchmark.py can compute true precision/recall — nothing is",
+    "assumed. 'version' is the version TOKEN the reported banner must contain (e.g.",
+    "'2.4.49'); omit it where nmap cannot reliably fingerprint a version (e.g. Postgres",
+    "behind auth) so that port is service-scored but not version-scored — never penalise",
+    "what we don't assert. 'planted_cves' lists CVEs a version-accurate scanner MUST",
+    "recall on that host. Any reported CVE not planted is surfaced as 'unexpected' for",
+    "operator review; on a rolling image an unexpected CVE may be genuine, so it is",
+    "never auto-scored as a false positive (the offline false-positive guarantee is",
+    "measured separately and deterministically by evaluation/cve_precision.py).",
+    "'decoy_ports' are ports the scan probes but that are CLOSED, so reporting one as",
+    "open is a hard false positive (scored in port precision). Host 172.28.0.15 runs",
+    "redis on a NON-STANDARD port (1999) to prove detection follows the banner, not the",
+    "port number."
   ],
   "subnet": "172.28.0.0/24",
   "decoy_ports": [21, 23, 3389],
@@ -15,26 +22,39 @@
     {
       "ip": "172.28.0.10",
       "name": "web-nginx",
-      "ports": [{"port": 80, "service": "http"}],
+      "ports": [{"port": 80, "service": "http", "version": "1.25.3"}],
       "planted_cves": []
     },
     {
       "ip": "172.28.0.11",
       "name": "web-apache",
-      "ports": [{"port": 80, "service": "http"}],
+      "ports": [{"port": 80, "service": "http", "version": "2.4.49"}],
       "planted_cves": ["CVE-2021-41773", "CVE-2021-42013"]
     },
     {
       "ip": "172.28.0.12",
       "name": "ssh-server",
-      "ports": [{"port": 2222, "service": "ssh"}],
+      "ports": [{"port": 2222, "service": "ssh", "version": "9.3"}],
       "planted_cves": []
     },
     {
       "ip": "172.28.0.13",
       "name": "redis",
-      "ports": [{"port": 6379, "service": "redis"}],
+      "ports": [{"port": 6379, "service": "redis", "version": "7.2.3"}],
       "planted_cves": []
+    },
+    {
+      "ip": "172.28.0.14",
+      "name": "db-postgres",
+      "ports": [{"port": 5432, "service": "postgresql"}],
+      "planted_cves": []
+    },
+    {
+      "ip": "172.28.0.15",
+      "name": "redis-nonstd",
+      "ports": [{"port": 1999, "service": "redis", "version": "7.2.3"}],
+      "planted_cves": [],
+      "note": "non-standard port: detection must identify redis by banner, not by port 6379"
     }
   ]
 }

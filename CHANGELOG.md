@@ -5,6 +5,33 @@ All notable changes to **ENUMGRID: the Enumeration Platform**. Format based on
 
 ## [Unreleased]
 
+### Security — end-to-end audit pass
+- **Closed an authorization gap on `POST /api/report/pdf`** — every other read/write
+  endpoint enforced RBAC, but the PDF/report endpoint had **no token check**, so with
+  `ENUMGRID_ADMIN_TOKEN` configured an unauthenticated caller could render arbitrary
+  PDFs (CPU) and, via `include_ai_summary`, **spend the operator's own LLM key** and
+  trigger outbound provider calls (financial DoS). It is now **read-gated**
+  (`token_ok`, viewer/admin) exactly like `/api/copilot/summary`; the dashboard
+  already sent its bearer token, so the fix is transparent. Regression-tested
+  (`test_report_pdf_is_read_gated_in_token_mode`). Threat model **T18** updated.
+- **Patched vulnerable dependencies** — `pip-audit` flagged four advisories:
+  `starlette` 1.2.1 → **1.3.1** (PYSEC-2026-248/249; FastAPI's HTTP core, in the
+  request path), `msgpack` 1.1.2 → **1.2.1** (GHSA-6v7p-g79w-8964), and
+  `cryptography` 48.0.0 → **48.0.1** (GHSA-537c-gmf6-5ccf, pulled in via `paramiko`).
+  `requirements.lock` bumped, a `cryptography>=48.0.1` security floor added to
+  `backend/requirements.txt`, and `pip-audit` is **back to 0 known CVEs**.
+- **Least-privilege container (CWE-250)** — the Docker image ran `uvicorn` as **root**;
+  it now runs as a **non-root user** (`enumgrid`, uid 10001). The scanner is designed
+  to run unprivileged (raw-socket scans auto-downgrade to connect scans), so no default
+  functionality is lost while a web-tier compromise no longer implies host root. Threat
+  model **T22** added.
+- **Audit coverage** — reviewed command execution (fixed-argv nmap, no shell; strict
+  target allowlist), SSRF surfaces (copilot/NVD/OSV/KEV/EPSS use fixed HTTPS endpoints
+  with URL-encoded params), XSS (escape-first Markdown renderer, scheme allow-list),
+  PDF/reportlab markup escaping, SQLi (parameterized), and secret handling (0600,
+  gitignored, never logged) — no further defects found. Full suite **802 tests** green;
+  ruff, bandit (0 high/med), pip-audit and npm audit all clean.
+
 ### Changed — project layout & tooling
 - **Repository restructure** — moved the test suites out of the source
   directories (`backend/test_*.py` → `backend/tests/`, root

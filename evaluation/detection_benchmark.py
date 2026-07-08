@@ -12,6 +12,12 @@ That turns the project's "no false positives / accurate" claim into numbers:
     are probed but closed make a false positive show up as precision < 1.
   * **Services** — of the correctly-found ports, how many got the right service
     name (nginx/apache → http, openssh → ssh, redis → redis).
+  * **Versions** — of the found ports that carry an expected version in the
+    ground truth, how many reported the right version *string* (2.4.49 vs 2.4.50).
+    This is the bridge between service detection and CVE matching: an accurate
+    service name on a wrong version would still mismatch every CVE. Ports whose
+    version nmap can't reliably fingerprint (e.g. auth-gated Postgres) carry no
+    expected version and are simply not version-scored — honest by omission.
   * **CVEs**     — *recall* of a planted, documented CVE (Apache 2.4.49 →
     CVE-2021-41773/42013): did the scanner surface the bug we know is there? Any
     CVE reported beyond the planted set is surfaced as "unexpected" (a candidate
@@ -26,10 +32,16 @@ Two layers, like benchmark.py:
     so the published numbers are trustworthy and run in CI with no Docker/network;
   * the live runner needs the testbed up + nmap installed and is operator-run.
 
+It also reports accuracy **by nmap detection confidence** (a high-confidence,
+actively-probed match is more trustworthy than a port-table guess), and can
+measure its own **run-to-run stability** (`--repeat N`) — a serious scanner
+quantifies its flakiness rather than pretending a live scan is deterministic.
+
 Usage (with the testbed up — `docker compose -f evaluation/docker-compose.yml up -d`):
     python evaluation/detection_benchmark.py                 # uses ground_truth.json
     python evaluation/detection_benchmark.py --json out.json --md out.md
     python evaluation/detection_benchmark.py --ports 22,80,443,2222,6379
+    python evaluation/detection_benchmark.py --repeat 3      # run-to-run stability
 
 Nothing is fabricated: a host that fails to scan is reported as an error, never as
 "found nothing".
@@ -56,6 +68,12 @@ _SERVICE_ALIASES = {
     "ssh": "ssh",
     "microsoft-ds": "smb",
 }
+
+# nmap service/version-detection confidence is 1–10. >= this is an actively-probed,
+# high-confidence match; below it (or None) is a port-table guess we trust less.
+# Reporting accuracy *by* this band substantiates "high-confidence hits are more
+# accurate" rather than hiding it inside one blended number.
+_HIGH_CONF = 7
 
 
 # --------------------------------------------------------------------------- #
@@ -109,6 +127,38 @@ def score_services(detected: dict, truth: dict) -> dict:
     }
 
 
+def score_versions(detected: dict, truth: dict) -> dict:
+    """Of the found ports that carry an expected version, how many match.
+
+    ``truth`` maps port → an expected version *token* (e.g. "2.4.49"); a port with
+    no/empty expected version is skipped (nmap can't always fingerprint a version,
+    and we never penalise what we don't assert). A detection matches when the
+    reported version string CONTAINS the expected token, so "Apache httpd 2.4.49
+    ((Unix))" satisfies "2.4.49" but "2.4.50" does not — the 2.4.49-vs-2.4.50
+    distinction the CVE match hinges on."""
+    detected = {int(p): (v or "").strip().lower() for p, v in detected.items()}
+    scored = 0
+    correct = 0
+    mismatches = []
+    for port, exp_raw in sorted(truth.items()):
+        exp = (exp_raw or "").strip().lower()
+        if not exp:
+            continue                                   # unversioned truth → not scored
+        if port in detected:
+            scored += 1
+            got = detected[port]
+            if exp in got:
+                correct += 1
+            else:
+                mismatches.append({"port": port, "expected": exp, "got": got})
+    return {
+        "scored_ports": scored,
+        "correct": correct,
+        "accuracy": (correct / scored) if scored else None,
+        "mismatches": mismatches,
+    }
+
+
 def score_cves(detected: set, planted: set) -> dict:
     """Recall of the planted CVEs; unexpected CVEs are surfaced, not scored.
 
@@ -128,21 +178,116 @@ def score_cves(detected: set, planted: set) -> dict:
     }
 
 
+def confidence_samples(detected: dict, truth: dict) -> list[dict]:
+    """Per-found-port record of (confidence, service_ok, version_ok).
+
+    One row per expected port that was actually found, tagging each detection
+    decision with nmap's confidence so accuracy can be reported by confidence
+    band. ``version_ok`` is None when the ground truth asserts no version."""
+    truth_ports = {int(p["port"]): _norm_service(p.get("service", "")) for p in truth.get("ports", [])}
+    truth_vers = {int(p["port"]): (p.get("version", "") or "").strip().lower()
+                  for p in truth.get("ports", [])}
+    det_ports = {int(p): _norm_service(s) for p, s in detected.get("ports", {}).items()}
+    det_vers = {int(p): (v or "").strip().lower() for p, v in detected.get("versions", {}).items()}
+    det_confs = {int(p): c for p, c in detected.get("confs", {}).items()}
+    rows = []
+    for port, exp_svc in sorted(truth_ports.items()):
+        if port not in det_ports:
+            continue
+        exp_ver = truth_vers.get(port, "")
+        rows.append({
+            "port": port,
+            "conf": det_confs.get(port),
+            "service_ok": det_ports[port] == exp_svc,
+            "version_ok": (exp_ver in det_vers.get(port, "")) if exp_ver else None,
+        })
+    return rows
+
+
+def _bucket_confidence(samples: list[dict]) -> dict:
+    """Fold confidence samples into high/low bands with per-band accuracy."""
+    bands = {b: {"n": 0, "service_correct": 0, "version_scored": 0, "version_correct": 0}
+             for b in ("high", "low")}
+    for s in samples:
+        conf = s.get("conf")
+        band = bands["high"] if (conf is not None and conf >= _HIGH_CONF) else bands["low"]
+        band["n"] += 1
+        band["service_correct"] += 1 if s["service_ok"] else 0
+        if s["version_ok"] is not None:
+            band["version_scored"] += 1
+            band["version_correct"] += 1 if s["version_ok"] else 0
+    for band in bands.values():
+        band["service_accuracy"] = (band["service_correct"] / band["n"]) if band["n"] else None
+        band["version_accuracy"] = (
+            band["version_correct"] / band["version_scored"] if band["version_scored"] else None
+        )
+    return bands
+
+
+def stability(runs: list[dict]) -> dict:
+    """Run-to-run stability of repeated scans of the SAME host (flake measurement).
+
+    A scan is non-deterministic (the network changes, probes race), so a serious
+    tool should *quantify* its own flakiness rather than pretend it is zero.
+    Given N ``detected_from_host`` dicts for the same target this reports:
+
+      * **port_stability**    — Jaccard of the open-port sets (1.0 = identical
+        every run; < 1.0 = a port flapped in/out).
+      * **service_stability** — of the ports open in *every* run, the fraction
+        whose service name was identical every run.
+      * **cve_stability**     — Jaccard of the CVE-id sets across runs.
+
+    One run (nothing to compare) is trivially stable (1.0)."""
+    runs = [r for r in runs if r is not None]
+    if len(runs) < 2:
+        return {"runs": len(runs), "port_stability": 1.0, "service_stability": 1.0,
+                "cve_stability": 1.0, "stable_ports": [], "flapping_ports": []}
+    port_sets = [set(int(p) for p in r.get("ports", {})) for r in runs]
+    inter = set.intersection(*port_sets)
+    union = set.union(*port_sets)
+    port_stability = (len(inter) / len(union)) if union else 1.0
+
+    svc_agree = 0
+    for port in inter:
+        names = {_norm_service(r["ports"][port]) for r in runs}
+        if len(names) == 1:
+            svc_agree += 1
+    service_stability = (svc_agree / len(inter)) if inter else 1.0
+
+    cve_sets = [{str(c).upper() for c in r.get("cves", set())} for r in runs]
+    ci = set.intersection(*cve_sets)
+    cu = set.union(*cve_sets)
+    cve_stability = (len(ci) / len(cu)) if cu else 1.0
+
+    return {
+        "runs": len(runs),
+        "port_stability": port_stability,
+        "service_stability": service_stability,
+        "cve_stability": cve_stability,
+        "stable_ports": sorted(inter),
+        "flapping_ports": sorted(union - inter),
+    }
+
+
 def score_host(detected: dict, truth: dict) -> dict:
     """Score one host's detection against its ground-truth entry.
 
     ``detected`` = {"ports": {port: service}, "cves": set[str]}.
     ``truth``    = a ground_truth.json host entry (+ 'decoy_ports' merged in)."""
     truth_ports = {int(p["port"]): p.get("service", "") for p in truth.get("ports", [])}
+    truth_versions = {int(p["port"]): p.get("version", "") for p in truth.get("ports", [])}
     # Decoys are part of what we probed but expect CLOSED, so they belong in the
     # port-precision denominator only via the detected side; expected excludes them.
     detected_ports = {int(p): s for p, s in detected.get("ports", {}).items()}
+    detected_versions = {int(p): v for p, v in detected.get("versions", {}).items()}
     return {
         "ip": truth.get("ip", ""),
         "name": truth.get("name", ""),
         "ports": score_ports(set(detected_ports), set(truth_ports)),
         "services": score_services(detected_ports, truth_ports),
+        "versions": score_versions(detected_versions, truth_versions),
         "cves": score_cves(detected.get("cves", set()), truth.get("planted_cves", [])),
+        "confidence_samples": confidence_samples(detected, truth),
     }
 
 
@@ -167,19 +312,25 @@ def aggregate(host_results: list[dict]) -> dict:
     ports = _micro(scored, "ports")
     svc_scored = sum(h["services"]["scored_ports"] for h in scored)
     svc_correct = sum(h["services"]["correct"] for h in scored)
+    ver_scored = sum(h["versions"]["scored_ports"] for h in scored if "versions" in h)
+    ver_correct = sum(h["versions"]["correct"] for h in scored if "versions" in h)
     planted_total = sum(len(h["cves"]["planted"]) for h in scored)
     planted_hit = sum(len(h["cves"]["recalled"]) for h in scored)
     unexpected = sum(len(h["cves"]["unexpected"]) for h in scored)
+    all_samples = [s for h in scored for s in h.get("confidence_samples", [])]
     return {
         "hosts_scored": len(scored),
         "hosts_errored": len(host_results) - len(scored),
         "ports": ports,
         "service_accuracy": (svc_correct / svc_scored) if svc_scored else None,
         "service_scored": svc_scored,
+        "version_accuracy": (ver_correct / ver_scored) if ver_scored else None,
+        "version_scored": ver_scored,
         "cve_recall": (planted_hit / planted_total) if planted_total else None,
         "cve_planted": planted_total,
         "cve_recalled": planted_hit,
         "cve_unexpected": unexpected,
+        "confidence_buckets": _bucket_confidence(all_samples),
     }
 
 
@@ -205,22 +356,41 @@ def render_md(result: dict) -> str:
         "",
         f"- **Service-name accuracy:** {_pct(agg['service_accuracy'])} "
         f"over {agg['service_scored']} found port(s)",
+        f"- **Version-string accuracy:** {_pct(agg['version_accuracy'])} "
+        f"over {agg['version_scored']} versioned port(s)",
         f"- **Planted-CVE recall:** {_pct(agg['cve_recall'])} "
         f"({agg['cve_recalled']}/{agg['cve_planted']} planted CVEs detected)",
         f"- **Unexpected CVEs (review):** {agg['cve_unexpected']}",
         f"- **False-positive open ports:** {p['fp']}  ·  **missed ports:** {p['fn']}",
+    ]
+    buckets = agg.get("confidence_buckets")
+    if buckets and any(buckets[b]["n"] for b in buckets):
+        lines += [
+            "",
+            f"**Accuracy by nmap detection confidence** (high = conf ≥ {_HIGH_CONF}):",
+            "",
+            "| Confidence | Detections | Service acc. | Version acc. |",
+            "|---|---:|---:|---:|",
+        ]
+        for band in ("high", "low"):
+            b = buckets[band]
+            lines.append(
+                f"| {band} | {b['n']} | {_pct(b['service_accuracy'])} | {_pct(b['version_accuracy'])} |"
+            )
+    lines += [
         "",
-        "| Host | Ports P/R | Services | CVE recall | Unexpected |",
-        "|---|---|---|---|---|",
+        "| Host | Ports P/R | Services | Versions | CVE recall | Unexpected |",
+        "|---|---|---|---|---|---|",
     ]
     for h in result["hosts"]:
         if "error" in h:
-            lines.append(f"| `{h['ip']}` ({h.get('name', '')}) | _error_ | {h['error']} |  |  |")
+            lines.append(f"| `{h['ip']}` ({h.get('name', '')}) | _error_ | {h['error']} |  |  |  |")
             continue
         hp, hs, hc = h["ports"], h["services"], h["cves"]
+        hv = h.get("versions", {"accuracy": None})
         lines.append(
             f"| `{h['ip']}` ({h['name']}) | {hp['precision']:.2f}/{hp['recall']:.2f} | "
-            f"{_pct(hs['accuracy'])} | {_pct(hc['recall'])} | "
+            f"{_pct(hs['accuracy'])} | {_pct(hv['accuracy'])} | {_pct(hc['recall'])} | "
             f"{', '.join(hc['unexpected']) or '—'} |"
         )
     return "\n".join(lines)
@@ -238,18 +408,22 @@ def _import_scanner():
 
 
 def detected_from_host(host: dict, scanner_mod) -> dict:
-    """Extract {ports:{port:service}, cves:set} from a `_service_scan` result."""
+    """Extract {ports, versions, confs, cves} from a `_service_scan` result."""
     open_states = (scanner_mod.PortState.OPEN, scanner_mod.PortState.OPEN_FILTERED)
     ports: dict[int, str] = {}
+    versions: dict[int, str] = {}
+    confs: dict[int, int | None] = {}
     cves: set[str] = set()
     for p in host.get("ports", []):
         if p.state in open_states:
             ports[p.port] = p.service
+            versions[p.port] = getattr(p, "version", "") or ""
+            confs[p.port] = getattr(p, "conf", None)
             for v in p.vulns:
                 cves.add(v.id)
     for v in host.get("vulns", []):
         cves.add(v.id)
-    return {"ports": ports, "cves": cves}
+    return {"ports": ports, "versions": versions, "confs": confs, "cves": cves}
 
 
 def scan_target(ip: str, ports_spec: str, profile: str = "vuln") -> dict:
@@ -278,6 +452,61 @@ def ports_spec_for(gt: dict) -> str:
 def load_ground_truth(path: str) -> dict:
     with open(path, encoding="utf-8") as fh:
         return json.load(fh)
+
+
+def render_stability_md(result: dict) -> str:
+    """Markdown for a repeated-scan stability run (flake measurement)."""
+    lines = [
+        f"### Scan stability — `{result['subnet']}`, {result['repeats']}× per host "
+        f"({result['timestamp']})",
+        "",
+        "Each host scanned repeatedly; 1.00 = identical every run.",
+        "",
+        "| Host | Runs | Port stability | Service stability | CVE stability | Flapping ports |",
+        "|---|---:|---:|---:|---:|---|",
+    ]
+    for h in result["hosts"]:
+        if "error" in h:
+            lines.append(f"| `{h['ip']}` ({h.get('name', '')}) | _error_ | {h['error']} |  |  |  |")
+            continue
+        s = h["stability"]
+        lines.append(
+            f"| `{h['ip']}` ({h['name']}) | {s['runs']} | {s['port_stability']:.2f} | "
+            f"{s['service_stability']:.2f} | {s['cve_stability']:.2f} | "
+            f"{', '.join(str(p) for p in s['flapping_ports']) or '—'} |"
+        )
+    return "\n".join(lines)
+
+
+def scan_repeat(ip: str, ports_spec: str, profile: str, repeats: int) -> list[dict]:
+    """Scan one host ``repeats`` times, returning each run's detected facts."""
+    return [scan_target(ip, ports_spec, profile) for _ in range(max(1, repeats))]
+
+
+def run_stability(gt: dict, repeats: int, ports_spec: str | None = None,
+                  profile: str = "vuln", log=lambda _m: None) -> dict:
+    """Repeatedly scan every host and report run-to-run stability. Errors surfaced."""
+    import time  # noqa: PLC0415 - only the live path needs a wall clock
+
+    ports_spec = ports_spec or ports_spec_for(gt)
+    host_results = []
+    for entry in gt.get("hosts", []):
+        ip = entry["ip"]
+        log(f"» stability {ip} ({entry.get('name', '')}) ×{repeats} …")
+        try:
+            runs = scan_repeat(ip, ports_spec, profile, repeats)
+        except Exception as exc:  # noqa: BLE001 - a scan failure is reported, not faked
+            host_results.append({"ip": ip, "name": entry.get("name", ""), "error": str(exc)})
+            continue
+        host_results.append({"ip": ip, "name": entry.get("name", ""), "stability": stability(runs)})
+    return {
+        "subnet": gt.get("subnet", ""),
+        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "profile": profile,
+        "ports": ports_spec,
+        "repeats": repeats,
+        "hosts": host_results,
+    }
 
 
 def run(gt: dict, ports_spec: str | None = None, profile: str = "vuln",
@@ -311,14 +540,21 @@ def main(argv=None) -> int:
     ap.add_argument("--ground-truth", default=_DEFAULT_GT, help="path to ground_truth.json")
     ap.add_argument("--ports", help="override the probed port spec (default: gt ports ∪ decoys)")
     ap.add_argument("--profile", default="vuln", help="nmap profile (default: vuln — enables NSE CVE scripts)")
+    ap.add_argument("--repeat", type=int, default=1, metavar="N",
+                    help="scan each host N times and report run-to-run stability instead of accuracy")
     ap.add_argument("--json", metavar="FILE", help="write the full result as JSON")
     ap.add_argument("--md", metavar="FILE", help="append the markdown table to this path")
     args = ap.parse_args(argv)
 
     gt = load_ground_truth(args.ground_truth)
-    result = run(gt, ports_spec=args.ports, profile=args.profile,
-                 log=lambda m: print(m, file=sys.stderr))
-    md = render_md(result)
+    if args.repeat > 1:
+        result = run_stability(gt, args.repeat, ports_spec=args.ports, profile=args.profile,
+                               log=lambda m: print(m, file=sys.stderr))
+        md = render_stability_md(result)
+    else:
+        result = run(gt, ports_spec=args.ports, profile=args.profile,
+                     log=lambda m: print(m, file=sys.stderr))
+        md = render_md(result)
     print("\n" + md + "\n")
     if args.json:
         with open(args.json, "w", encoding="utf-8") as fh:

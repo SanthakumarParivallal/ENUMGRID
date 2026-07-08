@@ -80,6 +80,13 @@ class Port(BaseModel):
     protocol: Protocol = Protocol.TCP
     service: str = "unknown"
     version: str = ""
+    # nmap's service/version-detection confidence, 1 (low) – 10 (high). 10 means
+    # the service was confirmed by an active probe; a low value means it was
+    # guessed from the port-number table. Surfaced so accuracy can be reported
+    # *by confidence* (a high-confidence detection is far more trustworthy than a
+    # port-table guess) and so the UI can flag "verify" on low-confidence hits.
+    # None when nmap reported no confidence (e.g. a bare port-state scan).
+    conf: int | None = None
     state: PortState = PortState.OPEN
     critical: bool = False
     vulns: list[Vuln] = Field(default_factory=list)

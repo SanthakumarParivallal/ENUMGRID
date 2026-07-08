@@ -38,6 +38,17 @@ RUN pip install --no-cache-dir -e .
 ENV ENUMGRID_DB=/data/enumgrid_history.db
 RUN mkdir -p /data
 
+# Run the web service as a NON-ROOT user (CWE-250: least privilege). The scanner
+# is architected to run unprivileged — nmap's raw-socket scan types (-sS/-sU/-O)
+# auto-downgrade to unprivileged connect scans (see scanner._adapt_args), so the
+# service never needs root, and a compromise of the web tier can't trivially own
+# the host. The app writes its audit log / copilot state next to the code and its
+# history DB to /data, so both trees are handed to the runtime user. (For real
+# SYN/OS scans, run the CLI separately with privilege, or grant nmap CAP_NET_RAW.)
+RUN useradd --create-home --uid 10001 enumgrid \
+    && chown -R enumgrid:enumgrid /app /data
+USER enumgrid
+
 EXPOSE 8011
 WORKDIR /app/backend
 

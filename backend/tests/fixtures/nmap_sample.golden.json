@@ -5,6 +5,7 @@
   "os": "Linux 5.4",
   "ports": [
     {
+      "conf": 10,
       "critical": false,
       "port": 22,
       "protocol": "tcp",
@@ -14,6 +15,7 @@
       "vulns": []
     },
     {
+      "conf": 10,
       "critical": true,
       "port": 80,
       "protocol": "tcp",
@@ -46,6 +48,7 @@
       ]
     },
     {
+      "conf": 10,
       "critical": false,
       "port": 443,
       "protocol": "tcp",

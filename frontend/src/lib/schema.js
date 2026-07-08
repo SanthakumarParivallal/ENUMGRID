@@ -161,6 +161,7 @@ function asObject(value) {
  * @property {'tcp'|'udp'} protocol
  * @property {string} service
  * @property {string} version
+ * @property {number|null} conf   nmap service-detection confidence, 1–10 (null if absent)
  * @property {'open'|'filtered'|'closed'|'open|filtered'} state
  * @property {boolean} critical
  */
@@ -201,6 +202,8 @@ export function PortModel(data = {}) {
     protocol: oneOf(data.protocol, Object.values(Protocol), Protocol.TCP),
     service: data.service ? String(data.service) : 'unknown',
     version: data.version != null ? String(data.version) : '',
+    // nmap service-detection confidence 1–10; null when the backend didn't report it.
+    conf: data.conf != null && Number.isFinite(Number(data.conf)) ? Number(data.conf) : null,
     state: oneOf(data.state, Object.values(PortState), PortState.OPEN),
     critical: Boolean(data.critical),
     vulns: Array.isArray(data.vulns) ? data.vulns.map(VulnModel) : [],

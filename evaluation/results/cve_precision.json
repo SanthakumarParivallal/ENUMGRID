@@ -1,0 +1,537 @@
+{
+  "matcher": "backend/vulndb.lookup_offline_cves",
+  "cases": [
+    {
+      "tp": 1,
+      "fp": 0,
+      "fn": 0,
+      "expect": [
+        "CVE-2011-2523"
+      ],
+      "got": [
+        "CVE-2011-2523"
+      ],
+      "false_positives": [],
+      "missed": [],
+      "banner": "vsftpd 2.3.4",
+      "category": "exact",
+      "note": "vsftpd 2.3.4 backdoor"
+    },
+    {
+      "tp": 1,
+      "fp": 0,
+      "fn": 0,
+      "expect": [
+        "CVE-2015-3306"
+      ],
+      "got": [
+        "CVE-2015-3306"
+      ],
+      "false_positives": [],
+      "missed": [],
+      "banner": "ProFTPD 1.3.5",
+      "category": "exact",
+      "note": ""
+    },
+    {
+      "tp": 1,
+      "fp": 0,
+      "fn": 0,
+      "expect": [
+        "CVE-2018-15473"
+      ],
+      "got": [
+        "CVE-2018-15473"
+      ],
+      "false_positives": [],
+      "missed": [],
+      "banner": "OpenSSH 7.2p2 Ubuntu-4ubuntu2.10",
+      "category": "exact",
+      "note": "username enumeration, < 7.7"
+    },
+    {
+      "tp": 1,
+      "fp": 0,
+      "fn": 0,
+      "expect": [
+        "CVE-2024-6387"
+      ],
+      "got": [
+        "CVE-2024-6387"
+      ],
+      "false_positives": [],
+      "missed": [],
+      "banner": "OpenSSH 8.9p1 Debian",
+      "category": "exact",
+      "note": "regreSSHion, upstream 8.5p1-9.7p1. On a backport-patched distro OSV suppresses this."
+    },
+    {
+      "tp": 1,
+      "fp": 0,
+      "fn": 0,
+      "expect": [
+        "CVE-2024-6387"
+      ],
+      "got": [
+        "CVE-2024-6387"
+      ],
+      "false_positives": [],
+      "missed": [],
+      "banner": "OpenSSH 9.7p1",
+      "category": "exact",
+      "note": "upper edge of the regreSSHion range (inclusive)"
+    },
+    {
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "expect": [],
+      "got": [],
+      "false_positives": [],
+      "missed": [],
+      "banner": "OpenSSH 9.8p1",
+      "category": "boundary",
+      "note": "regreSSHion fixed in 9.8p1 - must NOT match"
+    },
+    {
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "expect": [],
+      "got": [],
+      "false_positives": [],
+      "missed": [],
+      "banner": "OpenSSH 7.7",
+      "category": "boundary",
+      "note": "enum fixed at 7.7 - must NOT match"
+    },
+    {
+      "tp": 1,
+      "fp": 0,
+      "fn": 0,
+      "expect": [
+        "CVE-2021-41773"
+      ],
+      "got": [
+        "CVE-2021-41773"
+      ],
+      "false_positives": [],
+      "missed": [],
+      "banner": "Apache httpd 2.4.49",
+      "category": "exact",
+      "note": "path traversal is 2.4.49-only"
+    },
+    {
+      "tp": 1,
+      "fp": 0,
+      "fn": 0,
+      "expect": [
+        "CVE-2021-42013"
+      ],
+      "got": [
+        "CVE-2021-42013"
+      ],
+      "false_positives": [],
+      "missed": [],
+      "banner": "Apache httpd 2.4.50",
+      "category": "exact",
+      "note": "the incomplete-fix RCE is 2.4.50-only"
+    },
+    {
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "expect": [],
+      "got": [],
+      "false_positives": [],
+      "missed": [],
+      "banner": "Apache httpd 2.4.51",
+      "category": "boundary",
+      "note": "patched upstream - neither CVE"
+    },
+    {
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "expect": [],
+      "got": [],
+      "false_positives": [],
+      "missed": [],
+      "banner": "Apache httpd 2.4.6 ((CentOS))",
+      "category": "backport",
+      "note": "RHEL/CentOS backport build (httpd-2.4.6-97.el7); not the vulnerable 2.4.49/2.4.50 build"
+    },
+    {
+      "tp": 1,
+      "fp": 0,
+      "fn": 0,
+      "expect": [
+        "CVE-2013-2028"
+      ],
+      "got": [
+        "CVE-2013-2028"
+      ],
+      "false_positives": [],
+      "missed": [],
+      "banner": "nginx 1.2.0",
+      "category": "exact",
+      "note": ""
+    },
+    {
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "expect": [],
+      "got": [],
+      "false_positives": [],
+      "missed": [],
+      "banner": "nginx 1.3.10",
+      "category": "boundary",
+      "note": "one past the vulnerable range upper bound (1.3.9)"
+    },
+    {
+      "tp": 1,
+      "fp": 0,
+      "fn": 0,
+      "expect": [
+        "CVE-2022-41556"
+      ],
+      "got": [
+        "CVE-2022-41556"
+      ],
+      "false_positives": [],
+      "missed": [],
+      "banner": "lighttpd 1.4.50",
+      "category": "exact",
+      "note": "lighttpd's own mod_wstunnel UAF"
+    },
+    {
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "expect": [],
+      "got": [],
+      "false_positives": [],
+      "missed": [],
+      "banner": "lighttpd 2.4.49",
+      "category": "wrong-product",
+      "note": "REGRESSION GUARD: 'httpd' is a substring of 'lighttpd'; must NOT inherit Apache CVE-2021-41773"
+    },
+    {
+      "tp": 1,
+      "fp": 0,
+      "fn": 0,
+      "expect": [
+        "CVE-2017-7269"
+      ],
+      "got": [
+        "CVE-2017-7269"
+      ],
+      "false_positives": [],
+      "missed": [],
+      "banner": "Microsoft IIS httpd 6.0",
+      "category": "exact",
+      "note": "Windows/IIS 6.0 WebDAV; 'httpd' token present but version is not an Apache build"
+    },
+    {
+      "tp": 1,
+      "fp": 0,
+      "fn": 0,
+      "expect": [
+        "CVE-2020-1938"
+      ],
+      "got": [
+        "CVE-2020-1938"
+      ],
+      "false_positives": [],
+      "missed": [],
+      "banner": "Apache Tomcat 9.0.30",
+      "category": "exact",
+      "note": "Ghostcat, < 9.0.31"
+    },
+    {
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "expect": [],
+      "got": [],
+      "false_positives": [],
+      "missed": [],
+      "banner": "Apache Tomcat 9.0.31",
+      "category": "boundary",
+      "note": "Ghostcat fixed at 9.0.31"
+    },
+    {
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "expect": [],
+      "got": [],
+      "false_positives": [],
+      "missed": [],
+      "banner": "Apache-Coyote/1.1",
+      "category": "wrong-product",
+      "note": "Tomcat connector banner; version 1.1 is outside every Ghostcat range and is not an Apache httpd build"
+    },
+    {
+      "tp": 1,
+      "fp": 0,
+      "fn": 0,
+      "expect": [
+        "CVE-2017-7494"
+      ],
+      "got": [
+        "CVE-2017-7494"
+      ],
+      "false_positives": [],
+      "missed": [],
+      "banner": "Samba smbd 4.5.0",
+      "category": "exact",
+      "note": "SambaCry"
+    },
+    {
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "expect": [],
+      "got": [],
+      "false_positives": [],
+      "missed": [],
+      "banner": "Samba smbd 4.6.4",
+      "category": "boundary",
+      "note": "fixed at 4.6.4"
+    },
+    {
+      "tp": 1,
+      "fp": 0,
+      "fn": 0,
+      "expect": [
+        "CVE-2019-10149"
+      ],
+      "got": [
+        "CVE-2019-10149"
+      ],
+      "false_positives": [],
+      "missed": [],
+      "banner": "Exim smtpd 4.90",
+      "category": "exact",
+      "note": ""
+    },
+    {
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "expect": [],
+      "got": [],
+      "false_positives": [],
+      "missed": [],
+      "banner": "Exim smtpd 4.92",
+      "category": "boundary",
+      "note": "fixed at 4.92"
+    },
+    {
+      "tp": 1,
+      "fp": 0,
+      "fn": 0,
+      "expect": [
+        "CVE-2019-15107"
+      ],
+      "got": [
+        "CVE-2019-15107"
+      ],
+      "false_positives": [],
+      "missed": [],
+      "banner": "Webmin 1.900",
+      "category": "exact",
+      "note": ""
+    },
+    {
+      "tp": 1,
+      "fp": 0,
+      "fn": 0,
+      "expect": [
+        "CVE-2023-50387"
+      ],
+      "got": [
+        "CVE-2023-50387"
+      ],
+      "false_positives": [],
+      "missed": [],
+      "banner": "dnsmasq 2.80",
+      "category": "exact",
+      "note": "KeyTrap, < 2.90"
+    },
+    {
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "expect": [],
+      "got": [],
+      "false_positives": [],
+      "missed": [],
+      "banner": "dnsmasq 2.90",
+      "category": "boundary",
+      "note": "KeyTrap fixed at 2.90"
+    },
+    {
+      "tp": 1,
+      "fp": 0,
+      "fn": 0,
+      "expect": [
+        "CVE-2010-2075"
+      ],
+      "got": [
+        "CVE-2010-2075"
+      ],
+      "false_positives": [],
+      "missed": [],
+      "banner": "UnrealIRCd 3.2.8.1",
+      "category": "exact",
+      "note": "four-component version"
+    },
+    {
+      "tp": 1,
+      "fp": 0,
+      "fn": 0,
+      "expect": [
+        "CVE-2018-15473"
+      ],
+      "got": [
+        "CVE-2018-15473"
+      ],
+      "false_positives": [],
+      "missed": [],
+      "banner": "OpenSSH 2.3.4",
+      "category": "wrong-product",
+      "note": "version 2.3.4 is vsftpd's backdoor magic version, but on OpenSSH it must map to the OpenSSH CVE, never vsftpd's CVE-2011-2523"
+    },
+    {
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "expect": [],
+      "got": [],
+      "false_positives": [],
+      "missed": [],
+      "banner": "nginx 2.3.4",
+      "category": "wrong-product",
+      "note": "2.3.4 must not trigger vsftpd's CVE-2011-2523 on nginx, and is outside nginx's own range"
+    },
+    {
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "expect": [],
+      "got": [],
+      "false_positives": [],
+      "missed": [],
+      "banner": "Redis 6.2.6",
+      "category": "control",
+      "note": "not in the curated table - must return nothing, never guess"
+    },
+    {
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "expect": [],
+      "got": [],
+      "false_positives": [],
+      "missed": [],
+      "banner": "PostgreSQL 14.2",
+      "category": "control",
+      "note": "not in the curated table"
+    },
+    {
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "expect": [],
+      "got": [],
+      "false_positives": [],
+      "missed": [],
+      "banner": "Apache httpd",
+      "category": "control",
+      "note": "no version detected - must not guess a CVE"
+    },
+    {
+      "tp": 0,
+      "fp": 0,
+      "fn": 0,
+      "expect": [],
+      "got": [],
+      "false_positives": [],
+      "missed": [],
+      "banner": "",
+      "category": "control",
+      "note": "empty banner"
+    }
+  ],
+  "summary": {
+    "cases": 33,
+    "tp": 17,
+    "fp": 0,
+    "fn": 0,
+    "precision": 1.0,
+    "recall": 1.0,
+    "f1": 1.0,
+    "precision_ci": [
+      0.8156763396284354,
+      1.0
+    ],
+    "recall_ci": [
+      0.8156763396284354,
+      1.0
+    ],
+    "predicted_positives": 17,
+    "actual_positives": 17,
+    "false_positive_cases": [],
+    "false_negative_cases": [],
+    "by_category": {
+      "exact": {
+        "tp": 16,
+        "fp": 0,
+        "fn": 0,
+        "cases": 16,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0
+      },
+      "boundary": {
+        "tp": 0,
+        "fp": 0,
+        "fn": 0,
+        "cases": 8,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0
+      },
+      "backport": {
+        "tp": 0,
+        "fp": 0,
+        "fn": 0,
+        "cases": 1,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0
+      },
+      "wrong-product": {
+        "tp": 1,
+        "fp": 0,
+        "fn": 0,
+        "cases": 4,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0
+      },
+      "control": {
+        "tp": 0,
+        "fp": 0,
+        "fn": 0,
+        "cases": 4,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0
+      }
+    }
+  }
+}

@@ -27,6 +27,7 @@ describe('PortModel', () => {
     expect(p.port).toBe(0);
     expect(p.protocol).toBe('tcp');
     expect(p.state).toBe(PortState.OPEN);
+    expect(p.conf).toBeNull(); // no confidence reported → null, never a fake number
     expect(p.vulns).toEqual([]);
   });
 
@@ -35,6 +36,12 @@ describe('PortModel', () => {
     expect(p.port).toBe(443);
     expect(p.protocol).toBe('tcp'); // invalid enum → fallback
     expect(p.state).toBe(PortState.OPEN);
+  });
+
+  it('carries nmap detection confidence through, coercing to a number', () => {
+    expect(PortModel({ port: 80, conf: 10 }).conf).toBe(10);
+    expect(PortModel({ port: 80, conf: '3' }).conf).toBe(3); // string → number
+    expect(PortModel({ port: 80, conf: 'high' }).conf).toBeNull(); // garbage → null
   });
 });
 

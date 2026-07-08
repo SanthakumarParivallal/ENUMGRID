@@ -20,6 +20,22 @@ from models import Severity, Vuln
 _VER_RE = re.compile(r"(\d+(?:\.\d+){0,3})")
 
 
+def _kw_hit(low: str, keywords: tuple[str, ...]) -> bool:
+    """True if any product keyword appears as a whole token in ``low``.
+
+    Whole-token (letter-boundary) matching, not a bare substring: nmap's product
+    string is space/slash/digit-delimited, so ``"httpd"`` must match "Apache
+    httpd 2.4.49" but NOT "lighttpd 2.4.49" — otherwise lighttpd would inherit
+    Apache's path-traversal CVE (a real false positive this guards against; see
+    evaluation/cve_corpus.json). Boundaries are alphabetic only, so a version
+    digit right after the name (e.g. "Apache/2.4.49") still matches.
+    """
+    return any(
+        re.search(rf"(?<![a-z]){re.escape(k)}(?![a-z])", low) is not None
+        for k in keywords
+    )
+
+
 def _ver(text: str | None) -> tuple[int, ...]:
     """Extract the leading dotted version from a banner → tuple of ints."""
     m = _VER_RE.search(text or "")
@@ -101,7 +117,7 @@ def lookup_offline_cves(banner: str | None) -> list[Vuln]:
         return []
     out: list[Vuln] = []
     for keywords, predicate, cve, cvss, title in _DB:
-        if any(k in low for k in keywords) and predicate(version):
+        if _kw_hit(low, keywords) and predicate(version):
             out.append(
                 Vuln(
                     id=cve,
