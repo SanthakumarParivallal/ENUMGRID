@@ -83,3 +83,92 @@ def test_scan_packages_dedupes(monkeypatch):
     out = osv.scan_packages([("openssl", "1.0"), ("libssl", "1.0")], "Ubuntu:22.04")
     ids = sorted(v.id for v in out)
     assert ids == ["CVE-2023-1234", "OSV-2020-1"]  # deduped across packages
+
+
+# --- severity banding from the distro's text severity ---------------------- #
+@pytest.mark.parametrize(
+    "text,expected",
+    [
+        ("CRITICAL", osv.Severity.CRITICAL),
+        ("High", osv.Severity.HIGH),
+        ("moderate", osv.Severity.MEDIUM),   # OSV uses "MODERATE" for medium
+        ("Medium", osv.Severity.MEDIUM),
+        ("low", osv.Severity.LOW),
+        ("", osv.Severity.INFO),             # nothing recognisable → INFO
+    ],
+)
+def test_sev_text_bands(text, expected):
+    assert osv._sev_text(text) == expected
+
+
+def test_parse_uses_database_specific_severity_and_distro_id_cve():
+    # No CVE alias, but the distro id embeds the CVE → we still link to NVD; and the
+    # database_specific severity bands the finding.
+    data = {"vulns": [{
+        "id": "UBUNTU-CVE-2019-1543",
+        "aliases": ["USN-1234-1"],                       # not a CVE alias
+        "summary": "OpenSSL ChaCha20-Poly1305 nonce reuse",
+        "database_specific": {"severity": "High"},
+    }]}
+    out = osv.parse_osv(data)
+    assert len(out) == 1
+    assert out[0].id == "CVE-2019-1543"                  # extracted from the distro id
+    assert out[0].severity == osv.Severity.HIGH
+    assert out[0].url == "https://nvd.nist.gov/vuln/detail/CVE-2019-1543"
+
+
+def test_parse_links_to_osv_when_no_cve():
+    data = {"vulns": [{"id": "OSV-2021-999", "aliases": [], "summary": "generic"}]}
+    out = osv.parse_osv(data)
+    assert out[0].id == "OSV-2021-999"
+    assert out[0].url == "https://osv.dev/vulnerability/OSV-2021-999"  # no CVE → OSV link
+    assert out[0].severity == osv.Severity.MEDIUM        # no severity text → default MEDIUM
+
+
+def test_parse_skips_vuln_without_any_id():
+    assert osv.parse_osv({"vulns": [{"aliases": []}]}) == []
+
+
+# --- live query path (mocked urlopen) + graceful degradation ---------------- #
+def test_query_posts_package_and_parses(monkeypatch):
+    import json as _json
+
+    captured = {}
+
+    class _Resp:
+        def __init__(self, body): self._b = body
+        def read(self): return self._b
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    def fake_urlopen(req, timeout=None):
+        captured["body"] = _json.loads(req.data.decode())
+        return _Resp(_json.dumps({"vulns": []}).encode())
+
+    monkeypatch.setattr(osv.urllib.request, "urlopen", fake_urlopen)
+    osv._query("openssl", "1.1.1", "Ubuntu:22.04")
+    assert captured["body"] == {"version": "1.1.1",
+                                "package": {"name": "openssl", "ecosystem": "Ubuntu:22.04"}}
+
+
+def test_lookup_network_error_degrades(monkeypatch):
+    monkeypatch.setattr(osv, "_query", lambda *a: (_ for _ in ()).throw(OSError("net down")))
+    assert osv.lookup("openssl", "1.1.1", "Ubuntu:22.04") == []   # best-effort, no crash
+
+
+def test_cache_survives_db_errors(monkeypatch, tmp_path):
+    monkeypatch.setattr(osv, "CACHE_DB", str(tmp_path))   # a dir → sqlite can't open
+    assert osv._cache_get("k") is None
+    osv._cache_put("k", [])                               # no raise
+
+
+def test_cache_corrupt_payload_is_a_miss():
+    with osv._conn() as conn:
+        conn.execute("INSERT OR REPLACE INTO osv (key, payload, fetched_at) VALUES (?, ?, ?)",
+                     ("bad", "{not-json", osv.time.time()))
+    assert osv._cache_get("bad") is None
+
+
+def test_scan_packages_empty_inputs():
+    assert osv.scan_packages([], "Ubuntu:22.04") == []
+    assert osv.scan_packages([("openssl", "1.0")], "") == []

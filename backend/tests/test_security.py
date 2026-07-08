@@ -83,3 +83,107 @@ def test_token_enabled_checks_query_and_header(monkeypatch):
     assert security.token_ok("nope", None) is False
     assert security.token_ok(None, None) is False
     assert security.token_ok(None, "Basic s3cret") is False     # wrong scheme
+
+
+# --- policy-knob parsing --------------------------------------------------- #
+def test_env_int_clamps_and_falls_back(monkeypatch):
+    monkeypatch.setenv("ENUMGRID_TEST_INT", "not-a-number")
+    assert security._env_int("ENUMGRID_TEST_INT", 7) == 7       # non-int → default
+    monkeypatch.setenv("ENUMGRID_TEST_INT", "3")
+    assert security._env_int("ENUMGRID_TEST_INT", 7) == 3       # parsed
+    monkeypatch.setenv("ENUMGRID_TEST_INT", "0")
+    assert security._env_int("ENUMGRID_TEST_INT", 7) == 1       # floored to >= 1
+
+
+# --- concurrency slot (fork-bomb guard) ------------------------------------ #
+def test_scan_slot_acquires_and_releases():
+    import asyncio
+
+    async def go():
+        async with security.scan_slot() as ok:
+            assert ok is True                                   # a free slot is granted
+        # After release the semaphore is back to full capacity.
+        return security.scan_semaphore._value
+
+    value_after = asyncio.run(go())
+    assert value_after == security.MAX_CONCURRENT_SCANS
+
+
+def test_scan_slot_rejects_when_at_capacity(monkeypatch):
+    import asyncio
+
+    # No permits available → the slot must refuse fast (returns False) instead of
+    # queueing an unbounded backlog of nmap processes.
+    monkeypatch.setattr(security, "scan_semaphore", asyncio.Semaphore(0))
+
+    async def go():
+        async with security.scan_slot() as ok:
+            return ok
+
+    assert asyncio.run(go()) is False
+
+
+# --- auth brute-force throttle (deterministic via injected `now`) ----------- #
+def test_auth_failures_below_threshold_do_not_lock(monkeypatch):
+    security.reset_auth_throttle()
+    monkeypatch.setattr(security, "AUTH_MAX_FAILURES", 3)
+    ip = "203.0.113.7"
+    assert security.register_auth_failure(ip, now=0.0) is False
+    assert security.register_auth_failure(ip, now=1.0) is False
+    assert security.is_locked_out(ip, now=1.0) is False
+    assert security.lockout_remaining(ip, now=1.0) == 0          # has failures but no lockout yet
+
+
+def test_auth_failures_trip_lockout_at_threshold(monkeypatch):
+    security.reset_auth_throttle()
+    monkeypatch.setattr(security, "AUTH_MAX_FAILURES", 3)
+    monkeypatch.setattr(security, "AUTH_LOCKOUT_S", 100)
+    ip = "203.0.113.8"
+    assert security.register_auth_failure(ip, now=0.0) is False
+    assert security.register_auth_failure(ip, now=0.0) is False
+    assert security.register_auth_failure(ip, now=0.0) is True    # the 3rd trips the lock
+    assert security.is_locked_out(ip, now=1.0) is True
+    assert security.lockout_remaining(ip, now=1.0) == 99
+
+
+def test_lockout_expires_after_cooldown(monkeypatch):
+    security.reset_auth_throttle()
+    monkeypatch.setattr(security, "AUTH_MAX_FAILURES", 2)
+    monkeypatch.setattr(security, "AUTH_LOCKOUT_S", 100)
+    ip = "203.0.113.9"
+    security.register_auth_failure(ip, now=0.0)
+    security.register_auth_failure(ip, now=0.0)                   # locked until t=100
+    assert security.is_locked_out(ip, now=50.0) is True
+    assert security.is_locked_out(ip, now=100.0) is False         # cooldown elapsed → cleared
+    assert security.lockout_remaining(ip, now=100.0) == 0
+
+
+def test_old_failures_age_out_of_window(monkeypatch):
+    security.reset_auth_throttle()
+    monkeypatch.setattr(security, "AUTH_MAX_FAILURES", 3)
+    monkeypatch.setattr(security, "AUTH_WINDOW_S", 100)
+    ip = "203.0.113.10"
+    security.register_auth_failure(ip, now=0.0)
+    security.register_auth_failure(ip, now=1.0)
+    # 200s later the first two are outside the window, so the count restarts.
+    assert security.register_auth_failure(ip, now=200.0) is False
+    assert security.register_auth_failure(ip, now=200.0) is False
+    assert security.is_locked_out(ip, now=200.0) is False
+
+
+def test_success_clears_failure_streak(monkeypatch):
+    security.reset_auth_throttle()
+    monkeypatch.setattr(security, "AUTH_MAX_FAILURES", 3)
+    ip = "203.0.113.11"
+    security.register_auth_failure(ip, now=0.0)
+    security.register_auth_failure(ip, now=0.0)
+    security.register_auth_success(ip)                            # valid auth wipes the streak
+    assert security.register_auth_failure(ip, now=0.0) is False   # count restarts from 1
+    assert security.is_locked_out(ip, now=0.0) is False
+
+
+def test_throttle_ignores_empty_ip():
+    security.reset_auth_throttle()
+    assert security.register_auth_failure(None) is False
+    assert security.is_locked_out(None) is False
+    assert security.lockout_remaining(None) == 0

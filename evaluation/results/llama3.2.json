@@ -1,0 +1,54 @@
+{
+  "provider": "ollama",
+  "model": "llama3.2",
+  "results": [
+    {
+      "question": "Which host is the most exposed, and why?",
+      "coverage": 1.0,
+      "grounding": 1.0,
+      "missed": [],
+      "hallucinated": [],
+      "reply": "The most exposed host is 172.16.2.1, which is a Router running RouterOS on the gateway of the network. It has three open ports (no specific services listed), making it more vulnerable to exploitation compared to the other hosts with known services or fewer open ports. This increased exposure due to its role as the gateway makes it a higher priority for further investigation and potential remediation."
+    },
+    {
+      "question": "Are there any critical vulnerabilities? Name the CVE id(s).",
+      "coverage": 1.0,
+      "grounding": 1.0,
+      "missed": [],
+      "hallucinated": [],
+      "reply": "Yes, one critical vulnerability was found: \n\nCVE-2021-44228 on 172.16.2.1."
+    },
+    {
+      "question": "What is running on 172.16.2.5?",
+      "coverage": 0.0,
+      "grounding": 1.0,
+      "missed": [
+        "ssh / secure shell / :22 / port 22"
+      ],
+      "hallucinated": [],
+      "reply": "On 172.16.2.5, a Linux build named \"build01\" is running, with two open ports."
+    },
+    {
+      "question": "Is host 172.16.2.20 a web server?",
+      "coverage": 1.0,
+      "grounding": 1.0,
+      "missed": [],
+      "hallucinated": [],
+      "reply": "No, according to the context, host 172.16.2.20 is an IP Camera (embedded device). It does not appear to be running any web services or hosting a web server."
+    },
+    {
+      "question": "Give a one-line risk summary of this subnet.",
+      "coverage": 1.0,
+      "grounding": 1.0,
+      "missed": [],
+      "hallucinated": [],
+      "reply": "The 172.16.2.0/24 subnet has significant exposure to critical and high-severity vulnerabilities, with at least two hosts (172.16.2.1 and 172.16.2.5) identified as having unpatched systems that could be exploited by attackers."
+    }
+  ],
+  "summary": {
+    "cases": 5,
+    "coverage": 0.8,
+    "grounding": 1.0,
+    "score": 0.9
+  }
+}

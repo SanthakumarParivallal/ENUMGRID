@@ -36,6 +36,18 @@ def _sse_frame(resp_text: str) -> dict:
     return json.loads(line[len("data:"):].strip())
 
 
+# --- request correlation id ------------------------------------------------- #
+def test_response_carries_generated_request_id():
+    r = client.get("/api/health")
+    assert r.status_code == 200
+    assert len(r.headers.get("X-Request-Id", "")) == 12   # generated correlation id
+
+
+def test_inbound_request_id_is_echoed():
+    r = client.get("/api/health", headers={"X-Request-Id": "trace-xyz"})
+    assert r.headers.get("X-Request-Id") == "trace-xyz"   # client-supplied id preserved
+
+
 # --- health / network ------------------------------------------------------ #
 def test_health():
     r = client.get("/api/health")
@@ -146,7 +158,7 @@ def test_privilege_elevate_success(monkeypatch):
         lambda: {"capability": "sudo", "can_raw": True, "is_root": False,
                  "elevated": True, "sudo_available": True, "can_elevate": True},
     )
-    r = client.post("/api/privilege/elevate", json={"password": "x"})
+    r = client.post("/api/privilege/elevate", json={"password": "x"})  # nosec B105 - test fixture, not a real secret
     assert r.status_code == 200
     body = r.json()
     assert body["ok"] is True and body["capability"] == "sudo"
@@ -163,7 +175,7 @@ def test_privilege_elevate_wrong_password(monkeypatch):
         lambda: {"capability": "unprivileged", "can_raw": False, "is_root": False,
                  "elevated": False, "sudo_available": True, "can_elevate": True},
     )
-    r = client.post("/api/privilege/elevate", json={"password": "nope"})
+    r = client.post("/api/privilege/elevate", json={"password": "nope"})  # nosec B105 - test fixture, not a real secret
     assert r.status_code == 200
     body = r.json()
     assert body["ok"] is False and "rejected" in body["message"].lower()
@@ -214,6 +226,26 @@ def test_nvd_key_requires_admin(monkeypatch):
     assert client.post("/api/settings/nvd-key", json={"key": "x"}).status_code == 401
     ok = client.post("/api/settings/nvd-key?token=adm1n", json={"key": ""})
     assert ok.status_code == 200
+
+
+def test_auth_bruteforce_lockout_blocks_remote_after_repeated_401s(monkeypatch):
+    """The throttle middleware locks a *remote* IP out (429) after too many 401s,
+    and a valid token still works from a fresh IP."""
+    security.reset_auth_throttle()
+    monkeypatch.setattr(security, "ADMIN_TOKEN", "adm1n")             # token mode
+    monkeypatch.setattr(security, "AUTH_MAX_FAILURES", 3)
+    # The in-process TestClient is "local"; treat it as remote so the throttle bites.
+    monkeypatch.setattr(security, "client_is_local", lambda h: False)
+    try:
+        for _ in range(3):                                            # 3 bad-token 401s
+            assert client.post("/api/settings/nvd-key", json={"key": "x"}).status_code == 401
+        locked = client.post("/api/settings/nvd-key", json={"key": "x"})
+        assert locked.status_code == 429                              # now locked out
+        assert "Retry-After" in locked.headers
+        # A correct token is refused too while locked (short-circuited before auth).
+        assert client.post("/api/settings/nvd-key?token=adm1n", json={"key": ""}).status_code == 429
+    finally:
+        security.reset_auth_throttle()
 
 
 # --- copilot ---------------------------------------------------------------- #

@@ -11,7 +11,6 @@ export const SHORTCUTS = Object.freeze([
   { keys: '⌘K', label: 'Open the command palette (all actions)' },
   { keys: '/', label: 'Focus the search box' },
   { keys: 't', label: 'Toggle light / dark theme' },
-  { keys: 'd', label: 'Toggle compact / cozy density' },
   { keys: '?', label: 'Show / hide this shortcuts help' },
   { keys: 'Esc', label: 'Close any open dialog, menu, or this help' },
 ]);

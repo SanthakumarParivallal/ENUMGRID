@@ -1,0 +1,52 @@
+{
+  "provider": "ollama",
+  "model": "qwen2.5",
+  "results": [
+    {
+      "question": "Which host is the most exposed, and why?",
+      "coverage": 1.0,
+      "grounding": 1.0,
+      "missed": [],
+      "hallucinated": [],
+      "reply": "The host `172.16.2.1` is the most exposed due to the critical vulnerability CVE-2021-44228.\n\nNext steps:\n1. Verify if this router is part of a larger network or has direct internet access.\n2. Assess if there are any default credentials or misconfigurations that could be exploited.\n3. Consider isolating this device from other network segments if possible."
+    },
+    {
+      "question": "Are there any critical vulnerabilities? Name the CVE id(s).",
+      "coverage": 1.0,
+      "grounding": 1.0,
+      "missed": [],
+      "hallucinated": [],
+      "reply": "Yes, there is one critical vulnerability:\n\n- CVE-2021-44228 on 172.16.2.1 (RouterOS)"
+    },
+    {
+      "question": "What is running on 172.16.2.5?",
+      "coverage": 1.0,
+      "grounding": 1.0,
+      "missed": [],
+      "hallucinated": [],
+      "reply": "On host `172.16.2.5`, the following services are running:\n- Linux (likely a server)\n- SSH service\n\nThis host is identified as `build01` in the sample hosts list provided."
+    },
+    {
+      "question": "Is host 172.16.2.20 a web server?",
+      "coverage": 1.0,
+      "grounding": 1.0,
+      "missed": [],
+      "hallucinated": [],
+      "reply": "No, based on the SCAN CONTEXT provided, host 172.16.2.20 is an IP Camera and has only one open port. It is not running any of the top services listed (domain, http, http-proxy, https, or ssh)."
+    },
+    {
+      "question": "Give a one-line risk summary of this subnet.",
+      "coverage": 1.0,
+      "grounding": 1.0,
+      "missed": [],
+      "hallucinated": [],
+      "reply": "Critical vulnerability (CVE-2021-44228) on the router and high-severity vulnerability (CVE-2022-0778) on a Linux server pose significant risks."
+    }
+  ],
+  "summary": {
+    "cases": 5,
+    "coverage": 1.0,
+    "grounding": 1.0,
+    "score": 1.0
+  }
+}

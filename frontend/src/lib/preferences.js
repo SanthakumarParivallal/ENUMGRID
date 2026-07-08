@@ -1,17 +1,18 @@
 /**
  * preferences.js — small, persisted UI preferences for the cockpit.
  * ---------------------------------------------------------------------------
- * Three user-tunable view settings, stored in localStorage so they survive a
- * reload and applied to <html data-theme data-density> so plain CSS (variables +
- * attribute selectors) does the styling — no React re-render needed for the
- * visual effect:
+ * Two user-tunable view settings, stored in localStorage so they survive a
+ * reload and applied to <html data-theme> so plain CSS (variables + attribute
+ * selectors) does the styling — no React re-render needed for the visual
+ * effect:
  *
  *   • theme     — 'dark' (default cockpit) | 'light' (paper)
- *   • density   — 'comfortable' (default)  | 'compact' (tighter rows)
  *   • colWidths — per-column pixel widths for the resizable matrix columns
  *
- * The module applies the persisted prefs at import time (before first paint) so
- * there's no flash of the wrong theme.
+ * Spacing/density is no longer a toggle: the layout is responsive by default
+ * (it tightens automatically on smaller viewports), so there's nothing for the
+ * operator to tune. The module applies the persisted prefs at import time
+ * (before first paint) so there's no flash of the wrong theme.
  */
 
 import { useCallback, useState } from 'react';
@@ -20,7 +21,6 @@ const KEY = 'enumgrid_prefs_v1';
 
 export const DEFAULTS = Object.freeze({
   theme: 'dark', // 'dark' | 'light'
-  density: 'comfortable', // 'comfortable' | 'compact'
   colWidths: {}, // { hostname, vendor, device, mac } -> px
 });
 
@@ -41,7 +41,6 @@ function read() {
     const p = JSON.parse(raw) || {};
     return {
       theme: p.theme === 'light' ? 'light' : 'dark',
-      density: p.density === 'compact' ? 'compact' : 'comfortable',
       colWidths: p.colWidths && typeof p.colWidths === 'object' ? { ...p.colWidths } : {},
     };
   } catch {
@@ -57,12 +56,11 @@ function write(prefs) {
   }
 }
 
-/** Reflect theme + density onto <html> so CSS variables / selectors apply. */
+/** Reflect theme onto <html> so CSS variables / selectors apply. */
 export function applyDocumentPrefs(prefs) {
   if (typeof document === 'undefined') return;
   const el = document.documentElement;
   el.dataset.theme = prefs.theme;
-  el.dataset.density = prefs.density;
   el.style.colorScheme = prefs.theme;
 }
 
@@ -91,10 +89,6 @@ export function usePreferences() {
     () => commit((p) => ({ ...p, theme: p.theme === 'light' ? 'dark' : 'light' })),
     [commit],
   );
-  const toggleDensity = useCallback(
-    () => commit((p) => ({ ...p, density: p.density === 'compact' ? 'comfortable' : 'compact' })),
-    [commit],
-  );
   const setColWidth = useCallback(
     (col, px) =>
       commit((p) => ({
@@ -105,7 +99,7 @@ export function usePreferences() {
   );
   const resetColWidths = useCallback(() => commit((p) => ({ ...p, colWidths: {} })), [commit]);
 
-  return { ...prefs, toggleTheme, toggleDensity, setColWidth, resetColWidths };
+  return { ...prefs, toggleTheme, setColWidth, resetColWidths };
 }
 
 /** Resolve the effective width (px) for a resizable column. */

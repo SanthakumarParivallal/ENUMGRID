@@ -66,8 +66,8 @@ jobs:
           test "$code" -eq 2 || { echo "expected exit 2, got $code"; exit 1; }
       - name: Run CLI test suite (with coverage gate)
         run: python -m pytest -v --cov=purple_recon --cov-report=term-missing --cov-fail-under=50
-      - name: Evaluation harness unit tests
-        run: python -m pytest evaluation/test_benchmark.py -v
+      - name: Evaluation harness unit tests (benchmark + detection + copilot scoring)
+        run: python -m pytest evaluation/ -v
 
   backend:
     name: Backend pytest (FastAPI / scope guard / NSE parsing)
@@ -89,9 +89,22 @@ jobs:
           python -m pytest -v
           tests/test_scanner.py tests/test_security.py tests/test_history.py tests/test_fingerprint.py
           tests/test_report.py tests/test_mdns.py tests/test_osfp.py tests/test_api.py tests/test_fuzz.py
+          tests/test_golden.py tests/test_obs.py
           --cov=app --cov=scanner --cov=discovery --cov=security --cov=history
-          --cov=report --cov=fingerprint --cov=mdns --cov=osfp --cov=models
-          --cov-report=term --cov-fail-under=60
+          --cov=report --cov=fingerprint --cov=mdns --cov=osfp --cov=models --cov=obs
+          --cov-report=term --cov-fail-under=65
+
+      # A stricter gate on the load-bearing modules — the scope/auth guardrails
+      # and the CVE matchers that the "no false positives" claim rests on. These
+      # are held near-total (≥95%) rather than at the broad backend floor.
+      - name: Coverage gate — accuracy/security-critical modules (>=95%)
+        working-directory: backend
+        run: >
+          python -m pytest -q
+          tests/test_cve.py tests/test_security.py tests/test_rbac.py tests/test_api.py
+          tests/test_osv.py tests/test_vulndb.py tests/test_provenance.py tests/test_golden.py
+          --cov=cve --cov=security --cov=osv --cov=vulndb --cov=provenance --cov=models
+          --cov-report=term-missing --cov-fail-under=95
 
   frontend:
     name: Frontend (ESLint + Vitest + build)
@@ -116,3 +129,19 @@ jobs:
         run: npm test
       - name: Production build
         run: npm run build
+
+  sbom:
+    name: SBOM (CycloneDX — Python + npm dependencies)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Syft scans the repo (backend/requirements.txt + frontend/package-lock.json)
+      # and emits one CycloneDX SBOM — the software bill of materials reviewers now
+      # expect. Uploaded as a build artifact for release attach / vuln scanning.
+      - name: Generate CycloneDX SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: cyclonedx-json
+          output-file: enumgrid.sbom.cyclonedx.json
+          artifact-name: enumgrid-sbom.cyclonedx.json
