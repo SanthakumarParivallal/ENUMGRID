@@ -1,0 +1,71 @@
+{
+  "device_type": "Server / Computer",
+  "hostname": "web-apache",
+  "note": "",
+  "os": "Linux 5.4",
+  "ports": [
+    {
+      "critical": false,
+      "port": 22,
+      "protocol": "tcp",
+      "service": "ssh",
+      "state": "open",
+      "version": "OpenSSH 9.2p1 protocol 2.0",
+      "vulns": []
+    },
+    {
+      "critical": true,
+      "port": 80,
+      "protocol": "tcp",
+      "service": "http",
+      "state": "open",
+      "version": "Apache httpd 2.4.49",
+      "vulns": [
+        {
+          "confidence": "version",
+          "cvss": 9.8,
+          "epss": null,
+          "id": "CVE-2021-42013",
+          "kev": false,
+          "output": "CVE-2021-42013 \u2014 CVSS 9.8 (vulners, version-matched)",
+          "severity": "critical",
+          "title": "",
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2021-42013"
+        },
+        {
+          "confidence": "version",
+          "cvss": 7.5,
+          "epss": null,
+          "id": "CVE-2021-41773",
+          "kev": false,
+          "output": "CVE-2021-41773 \u2014 CVSS 7.5 (vulners, version-matched)",
+          "severity": "high",
+          "title": "",
+          "url": "https://nvd.nist.gov/vuln/detail/CVE-2021-41773"
+        }
+      ]
+    },
+    {
+      "critical": false,
+      "port": 443,
+      "protocol": "tcp",
+      "service": "https",
+      "state": "open",
+      "version": "Apache httpd 2.4.49",
+      "vulns": []
+    }
+  ],
+  "vulns": [
+    {
+      "confidence": "confirmed",
+      "cvss": null,
+      "epss": null,
+      "id": "CVE-2017-0143",
+      "kev": false,
+      "output": "State: VULNERABLE\nIDs:  CVE:CVE-2017-0143\nRisk factor: HIGH",
+      "severity": "critical",
+      "title": "smb vuln ms17 010",
+      "url": "https://nvd.nist.gov/vuln/detail/CVE-2017-0143"
+    }
+  ]
+}

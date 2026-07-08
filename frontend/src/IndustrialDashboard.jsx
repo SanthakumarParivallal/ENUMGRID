@@ -20,7 +20,7 @@
  * PrivilegeControl → /api/privilege/elevate).
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useScan } from './context/ScanContext.jsx';
 import { usePreferences, colWidth, COL_DEFAULTS } from './lib/preferences.js';
 import { authFetch, useApiToken } from './lib/auth.js';
@@ -79,10 +79,10 @@ const Icon = {
       <path d="M20 14.5 A8 8 0 1 1 9.5 4 A6.2 6.2 0 0 0 20 14.5 Z" />
     </I>
   ),
-  Rows: ({ className }) => (
+  Copy: ({ className }) => (
     <I className={className}>
-      <rect x="3" y="4" width="18" height="5" rx="1" />
-      <rect x="3" y="12" width="18" height="5" rx="1" className="opacity-60" />
+      <rect x="9" y="9" width="11" height="11" rx="2" />
+      <path d="M5 15 H4 A1 1 0 0 1 3 14 V4 A1 1 0 0 1 4 3 H14 a1 1 0 0 1 1 1 v1" />
     </I>
   ),
   Lock: ({ className }) => (
@@ -395,6 +395,29 @@ function useEscapeToClose(open, close) {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [open, close]);
+}
+
+/**
+ * "This device" identity — the operator's own IP on the LAN, hostname and the
+ * /24 they're attached to. Real data, fetched once from the backend's
+ * /api/network (which reads it from the OS); absent fields come back null so the
+ * UI shows "—" rather than inventing anything.
+ */
+function useNetworkIdentity() {
+  const [net, setNet] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    authFetch('/api/network')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (!cancelled && d) setNet(d);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return net;
 }
 
 /* ========================================================================== *
@@ -769,12 +792,12 @@ function ExportMenu({ disabled, btnBase }) {
 }
 
 /* ========================================================================== *
- * Settings menu — theme · density · API token (RBAC) · NVD key. Consolidated so
+ * Settings menu — theme · API token (RBAC) · NVD key. Consolidated so
  * the command bar stays clean.
  * ========================================================================== */
 
 function SettingsMenu({ btnBase }) {
-  const { theme, density, toggleTheme, toggleDensity } = usePreferences();
+  const { theme, toggleTheme } = usePreferences();
   const [open, setOpen] = useState(false);
   useEscapeToClose(open, useCallback(() => setOpen(false), []));
   const row = 'flex items-center justify-between gap-3 rounded-md px-2 py-1.5 text-xs';
@@ -790,7 +813,7 @@ function SettingsMenu({ btnBase }) {
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label="Settings"
-        title="Settings — theme, density, API token, NVD key"
+        title="Settings — theme, API token, NVD key"
         className={`${btnBase} border-slate-700 bg-steel-900 text-slate-400 hover:border-slate-500 hover:text-slate-200`}
       >
         <Icon.Gear className="h-4 w-4" />
@@ -805,13 +828,6 @@ function SettingsMenu({ btnBase }) {
               <button onClick={toggleTheme} className={toggleBtn(theme === 'light')}>
                 {theme === 'light' ? <Icon.Sun className="h-3.5 w-3.5" /> : <Icon.Moon className="h-3.5 w-3.5" />}
                 {theme === 'light' ? 'Light' : 'Dark'}
-              </button>
-            </div>
-            <div className={row}>
-              <span className="text-slate-300">Density</span>
-              <button onClick={toggleDensity} className={toggleBtn(density === 'compact')}>
-                <Icon.Rows className="h-3.5 w-3.5" />
-                {density === 'compact' ? 'Compact' : 'Cozy'}
               </button>
             </div>
             <div className="my-2 border-t border-slate-700/60" />
@@ -909,7 +925,7 @@ function CommandBar({ onOpenNav }) {
         </span>
 
         {/* Target field */}
-        <label className="relative flex min-w-[200px] flex-1 items-center">
+        <label className="relative flex w-full items-center sm:w-auto sm:min-w-[200px] sm:flex-1">
           <span className="pointer-events-none absolute left-3 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-widest text-slate-500">
             <Icon.Globe className="h-3.5 w-3.5" />
             <span className="hidden sm:inline">Target</span>
@@ -933,7 +949,7 @@ function CommandBar({ onOpenNav }) {
             className={`${btnBase} border-matrix/50 bg-matrix/15 text-matrix hover:bg-matrix hover:text-steel-950 hover:shadow-glow-matrix`}
           >
             <Icon.Play className="h-4 w-4" />
-            <span className="hidden sm:inline">Start Scan</span>
+            <span>Start Scan</span>
           </button>
         ) : (
           <button
@@ -942,7 +958,7 @@ function CommandBar({ onOpenNav }) {
             className={`${btnBase} border-crimson/60 bg-crimson/15 text-crimson hover:bg-crimson hover:text-white hover:shadow-glow-crimson`}
           >
             <Icon.Stop className="h-4 w-4" />
-            <span className="hidden sm:inline">Stop</span>
+            <span>Stop</span>
           </button>
         )}
 
@@ -977,7 +993,7 @@ function CommandBar({ onOpenNav }) {
 
         {/* Right cluster — grouped so it stays right-aligned and its dropdowns
             (Export / Settings) always open leftward into content, never off-edge. */}
-        <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
+        <div className="flex flex-wrap items-center gap-2 sm:ml-auto sm:justify-end">
           <span className="mx-0.5 hidden h-6 w-px self-center bg-slate-700/70 lg:block" />
 
           {/* Privilege (the new feature) */}
@@ -1315,6 +1331,73 @@ function EngineFooter() {
   );
 }
 
+/** One copy-to-clipboard row in the "This device" card. */
+function DeviceRow({ label, value, valueClass = 'text-slate-300', dot, copied, onCopy }) {
+  return (
+    <div className="flex items-center justify-between gap-2">
+      <span className="shrink-0 text-[11px] text-slate-500">{label}</span>
+      <button
+        type="button"
+        onClick={() => onCopy(value)}
+        disabled={!value}
+        title={value ? `Copy ${label.toLowerCase()}` : 'Not detected'}
+        className="group flex min-w-0 items-center gap-1.5 rounded px-1 py-0.5 outline-none transition hover:bg-steel-800 focus-visible:ring-2 focus-visible:ring-sky-400 disabled:cursor-default disabled:hover:bg-transparent"
+      >
+        {dot && <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${dot}`} />}
+        <span className={`truncate font-mono text-[11px] ${valueClass}`}>{value || '—'}</span>
+        {copied === value ? (
+          <Icon.Check className="h-3 w-3 shrink-0 text-matrix" />
+        ) : (
+          value && <Icon.Copy className="h-3 w-3 shrink-0 text-slate-600 opacity-0 transition group-hover:opacity-100" />
+        )}
+      </button>
+    </div>
+  );
+}
+
+/**
+ * "This device" card — shows the operator where they're scanning FROM: their
+ * own IP on the LAN, hostname, and the /24 they're attached to. Click a value
+ * to copy it. All values are real (backend /api/network); unknowns show "—".
+ */
+function DeviceIdentity() {
+  const net = useNetworkIdentity();
+  const [copied, setCopied] = useState(null);
+
+  const copy = useCallback((value) => {
+    if (!value) return;
+    try {
+      navigator.clipboard?.writeText(value);
+      setCopied(value);
+      setTimeout(() => setCopied((c) => (c === value ? null : c)), 1200);
+    } catch {
+      /* clipboard blocked — non-fatal */
+    }
+  }, []);
+
+  return (
+    <div className="eg-card p-3">
+      <div className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+        <Icon.Server className="h-3.5 w-3.5 text-sky-400" /> This device
+      </div>
+      {net === null ? (
+        <div className="flex items-center gap-1.5 font-mono text-[11px] text-slate-500">
+          <Spinner className="h-3 w-3" /> detecting…
+        </div>
+      ) : (
+        <div className="space-y-1">
+          <DeviceRow label="Host" value={net.hostname} copied={copied} onCopy={copy} />
+          <DeviceRow label="Your IP" value={net.primary_ip} valueClass="text-sky-300" dot="bg-sky-400" copied={copied} onCopy={copy} />
+          <DeviceRow label="Network" value={net.network_cidr || net.suggested_target} copied={copied} onCopy={copy} />
+        </div>
+      )}
+      <p className="mt-2 border-t border-slate-700/60 pt-2 font-mono text-[9px] leading-relaxed text-slate-600">
+        Your address on this LAN — read locally, not sent anywhere.
+      </p>
+    </div>
+  );
+}
+
 function Sidebar({ mobileOpen, onClose }) {
   return (
     <>
@@ -1344,6 +1427,7 @@ function Sidebar({ mobileOpen, onClose }) {
         </div>
 
         <PipelineStepper />
+        <DeviceIdentity />
         <DriftPanel />
         <SessionLog />
         <EngineFooter />
@@ -1649,20 +1733,26 @@ function ScanStateBadge({ host }) {
   return <span className={`${cls} border-slate-700 bg-steel-900 text-slate-500`}>{host.ports.length ? 'Ports' : 'Ready'}</span>;
 }
 
-function AssetRow({ host, expanded, onToggle, template }) {
+// Memoised so a large matrix (a /22 can be ~1000 hosts) doesn't re-render every
+// row when only the search box, a filter, the sort, or one row's expand state
+// changes. Effective only if `onToggle` and `template` are stable references (see
+// the memoised `toggleRow` and `template` in AssetMatrix) — otherwise the shallow
+// prop compare always misses. During an active scan the `host` objects genuinely
+// change each frame, so those rows still update; the win is post-scan interaction.
+const AssetRow = memo(function AssetRow({ host, expanded, onToggle, template }) {
   const openCount = countOpenPorts(host);
   const crit = criticalCount(host);
   const isDown = host.status === HostStatus.DOWN;
   return (
-    <div className={isDown ? 'opacity-55' : ''}>
+    <div className={`eg-asset-row ${isDown ? 'opacity-55' : ''}`}>
       <div
         role="button"
         tabIndex={0}
         data-host-row
         aria-expanded={expanded}
         aria-label={`Host ${host.ip}${host.hostname ? ` (${host.hostname})` : ''} — Enter to ${expanded ? 'collapse' : 'expand'}`}
-        onClick={onToggle}
-        onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), onToggle())}
+        onClick={() => onToggle(host.ip)}
+        onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), onToggle(host.ip))}
         style={{ gridTemplateColumns: template }}
         className={`${GRID_COLS} eg-grid-row cursor-pointer px-2 py-2.5 text-sm outline-none transition hover:bg-steel-800/60 focus-visible:bg-steel-800 focus-visible:ring-1 focus-visible:ring-amber/60 ${expanded ? 'bg-steel-800/40' : ''}`}
       >
@@ -1698,7 +1788,7 @@ function AssetRow({ host, expanded, onToggle, template }) {
       {expanded && <div className="animate-expand-in border-y border-slate-800 bg-steel-950/40"><PortDetailTable host={host} /></div>}
     </div>
   );
-}
+});
 
 function MatrixHeader({ sort, onSort, allExpanded, onToggleAll, template, onResize, onResetCol }) {
   const ColHead = ({ col, children }) => (
@@ -1708,7 +1798,7 @@ function MatrixHeader({ sort, onSort, allExpanded, onToggleAll, template, onResi
     </span>
   );
   return (
-    <div style={{ gridTemplateColumns: template }} className={`${GRID_COLS} eg-matrix-header sticky top-0 z-10 border-b border-slate-700 bg-steel-850/95 px-2 py-2 text-[10px] font-semibold backdrop-blur`}>
+    <div style={{ gridTemplateColumns: template }} className={`${GRID_COLS} eg-matrix-header z-10 border-b border-slate-700 bg-steel-850/95 px-2 py-2 text-[10px] font-semibold backdrop-blur lg:sticky lg:top-0`}>
       <button onClick={onToggleAll} title={allExpanded ? 'Collapse all' : 'Expand all'} className="flex justify-center text-slate-500 hover:text-amber">
         <Icon.Chevron className={`h-4 w-4 transition-transform ${allExpanded ? 'rotate-90' : ''}`} />
       </button>
@@ -1726,6 +1816,7 @@ function MatrixHeader({ sort, onSort, allExpanded, onToggleAll, template, onResi
 
 function EmptyState() {
   const { startScan, target, deepScan } = useScan();
+  const net = useNetworkIdentity();
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-4 px-6 py-20 text-center">
       <div className="relative grid h-20 w-20 place-items-center rounded-2xl border border-slate-700 bg-steel-900 text-slate-500">
@@ -1738,6 +1829,14 @@ function EmptyState() {
           No hosts in the buffer. Enter a target range and start a scan to run Phase 1 host discovery, then Phase 2 service enumeration.
         </p>
       </div>
+      {net?.primary_ip && (
+        <div className="flex flex-wrap items-center justify-center gap-1.5 font-mono text-[11px] text-slate-500">
+          <Icon.Server className="h-3.5 w-3.5 text-sky-400" />
+          <span>scanning from</span>
+          <span className="text-sky-300">{net.primary_ip}</span>
+          {net.hostname && <span className="text-slate-600">· {net.hostname}</span>}
+        </div>
+      )}
       <button onClick={() => startScan(target, deepScan)} className="inline-flex items-center gap-2 rounded-lg border border-matrix/50 bg-matrix/10 px-4 py-2 text-sm font-semibold text-matrix transition hover:bg-matrix hover:text-steel-950">
         <Icon.Play className="h-4 w-4" />
         Launch scan on {target}
@@ -1814,7 +1913,7 @@ function TopologyView({ hosts, onScan }) {
   const pos = nodes.map((nd) => ({ host: nd.host, x: cx + nd.r * Math.cos(nd.angle), y: cy + nd.r * Math.sin(nd.angle) }));
 
   return (
-    <div className="min-h-0 flex-1 overflow-auto p-4">
+    <div className="flex-1 p-4 lg:min-h-0 lg:overflow-auto">
       <svg viewBox={`0 0 ${size} ${size}`} className="mx-auto block w-full" style={{ maxWidth: Math.min(size, 1100), minHeight: 420 }} preserveAspectRatio="xMidYMid meet">
         {Array.from({ length: ringCount }, (_, i) => (
           <circle key={`ring-${i}`} cx={cx} cy={cy} r={baseR + i * ringStep} fill="none" stroke="rgb(var(--slate-800))" strokeWidth="1" strokeDasharray="2 5" />
@@ -1882,7 +1981,7 @@ function AssetMatrix({ hosts, view, setView }) {
   const activeFilterCount = filters.size + (upOnly ? 1 : 0) + (deviceFilter ? 1 : 0) + (osFilter ? 1 : 0) + (query.trim() ? 1 : 0);
   const toggleFilter = (key) => setFilters((prev) => { const next = new Set(prev); next.has(key) ? next.delete(key) : next.add(key); return next; });
   const onSort = (key) => setSort((prev) => (prev.key === key ? { key, dir: prev.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' }));
-  const toggleRow = (ip) => setExpanded((prev) => { const next = new Set(prev); next.has(ip) ? next.delete(ip) : next.add(ip); return next; });
+  const toggleRow = useCallback((ip) => setExpanded((prev) => { const next = new Set(prev); next.has(ip) ? next.delete(ip) : next.add(ip); return next; }), []);
 
   const visible = useMemo(() => {
     let rows = hosts;
@@ -1909,7 +2008,7 @@ function AssetMatrix({ hosts, view, setView }) {
   const mostlyClosed = scannedUp.length >= 5 && closedUp.length / scannedUp.length >= 0.8;
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div className="flex flex-1 flex-col lg:min-h-0">
       <FilterToolbar
         query={query} setQuery={setQuery}
         filters={filters} toggleFilter={toggleFilter}
@@ -1939,18 +2038,23 @@ function AssetMatrix({ hosts, view, setView }) {
           ) : (
             // Delegated arrow-key navigation between the focusable asset rows (the
             // rows are the real interactive elements); the container only forwards keys.
+            // Below lg the page scrolls vertically; the wide asset grid gets its own
+            // horizontal scroll here (min-w-max child) so it never pushes the page
+            // sideways. On lg this pane owns both axes (fixed-shell layout).
             // eslint-disable-next-line jsx-a11y/no-static-element-interactions
-            <div className="min-h-0 flex-1 overflow-auto" onKeyDown={onGridKey}>
-              <MatrixHeader sort={sort} onSort={onSort} allExpanded={allExpanded} onToggleAll={toggleAll} template={template} onResize={setColWidth} onResetCol={(col) => setColWidth(col, COL_DEFAULTS[col])} />
-              {visible.length === 0 ? (
-                <div className="px-6 py-16 text-center font-mono text-sm text-slate-500">{'// no hosts match the active search / filters'}</div>
-              ) : (
-                <div className="divide-y divide-slate-800/80">
-                  {visible.map((host) => (
-                    <AssetRow key={host.ip} host={host} expanded={expanded.has(host.ip)} onToggle={() => toggleRow(host.ip)} template={template} />
-                  ))}
-                </div>
-              )}
+            <div className="flex-1 overflow-x-auto lg:min-h-0 lg:overflow-auto" onKeyDown={onGridKey}>
+              <div className="min-w-max lg:min-w-0">
+                <MatrixHeader sort={sort} onSort={onSort} allExpanded={allExpanded} onToggleAll={toggleAll} template={template} onResize={setColWidth} onResetCol={(col) => setColWidth(col, COL_DEFAULTS[col])} />
+                {visible.length === 0 ? (
+                  <div className="px-6 py-16 text-center font-mono text-sm text-slate-500">{'// no hosts match the active search / filters'}</div>
+                ) : (
+                  <div className="divide-y divide-slate-800/80">
+                    {visible.map((host) => (
+                      <AssetRow key={host.ip} host={host} expanded={expanded.has(host.ip)} onToggle={toggleRow} template={template} />
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </>
@@ -2297,7 +2401,7 @@ function BootSplash({ onDone }) {
  */
 function CommandPalette() {
   const scan = useScan();
-  const { toggleTheme, toggleDensity } = usePreferences();
+  const { toggleTheme } = usePreferences();
   const { toast } = useToast();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -2368,10 +2472,9 @@ function CommandPalette() {
     }
     list.push({ id: 'search', label: 'Focus search', Icon: Icon.Search, keywords: ['find', 'filter'], run: () => document.querySelector('input[type="search"]')?.focus() });
     list.push({ id: 'theme', label: 'Toggle light / dark theme', Icon: Icon.Moon, keywords: ['dark', 'light', 'appearance'], run: toggleTheme });
-    list.push({ id: 'density', label: 'Toggle compact / cozy density', Icon: Icon.Rows, keywords: ['spacing', 'layout'], run: toggleDensity });
     list.push({ id: 'help', label: 'Keyboard shortcuts', Icon: Icon.Terminal, keywords: ['keys', 'cheatsheet'], run: () => window.dispatchEvent(new Event('eg:open-help')) });
     return list;
-  }, [running, target, deepScan, monitor, unscanned, hasHosts, startScan, stopScan, toggleDeep, toggleMonitor, scanAll, downloadReport, exportCsv, exportJson, toggleTheme, toggleDensity, runExport]);
+  }, [running, target, deepScan, monitor, unscanned, hasHosts, startScan, stopScan, toggleDeep, toggleMonitor, scanAll, downloadReport, exportCsv, exportJson, toggleTheme, runExport]);
 
   const filtered = filterCommands(commands, query);
   const safeActive = filtered.length ? Math.min(active, filtered.length - 1) : 0;
@@ -2477,12 +2580,12 @@ function HelpOverlay({ onClose }) {
 }
 
 /**
- * Binds the safe global shortcuts (search focus, theme, density, help) and owns
+ * Binds the safe global shortcuts (search focus, theme, help) and owns
  * the help overlay. Single-key shortcuts are suppressed while typing in a field.
  * Also opens on a window `eg:open-help` event so the Settings menu can trigger it.
  */
 function ShortcutsLayer() {
-  const { toggleTheme, toggleDensity } = usePreferences();
+  const { toggleTheme } = usePreferences();
   const [helpOpen, setHelpOpen] = useState(false);
 
   useEffect(() => {
@@ -2493,7 +2596,6 @@ function ShortcutsLayer() {
       if (e.key === '/') { e.preventDefault(); document.querySelector('input[type="search"]')?.focus(); }
       else if (e.key === '?') { e.preventDefault(); setHelpOpen((o) => !o); }
       else if (e.key === 't') { e.preventDefault(); toggleTheme(); }
-      else if (e.key === 'd') { e.preventDefault(); toggleDensity(); }
     };
     const openHelp = () => setHelpOpen(true);
     window.addEventListener('keydown', onKey);
@@ -2502,7 +2604,7 @@ function ShortcutsLayer() {
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('eg:open-help', openHelp);
     };
-  }, [toggleTheme, toggleDensity]);
+  }, [toggleTheme]);
 
   return helpOpen ? <HelpOverlay onClose={() => setHelpOpen(false)} /> : null;
 }
@@ -2950,7 +3052,7 @@ export default function IndustrialDashboard() {
   }, [toast]);
 
   return (
-    <div className="relative flex h-screen overflow-hidden text-slate-200">
+    <div className="relative flex min-h-screen text-slate-200 lg:h-screen lg:overflow-hidden">
       <ScanToasts />
       <ShortcutsLayer />
       <OperationsLayer />
@@ -2963,7 +3065,7 @@ export default function IndustrialDashboard() {
         <CommandBar onOpenNav={() => setNavOpen(true)} />
         <DriftAlertBanner />
         <ScanErrorBanner />
-        <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        <main className="flex min-w-0 flex-1 flex-col lg:min-h-0 lg:overflow-hidden">
           <KpiStrip />
           <ScanConfigPanel />
           <AssetMatrix hosts={hosts} view={view} setView={setView} />

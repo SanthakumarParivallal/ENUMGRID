@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 from datetime import datetime
 
 import adscan
@@ -30,6 +31,7 @@ import cve
 import history
 import jobs
 import notify
+import obs
 import osv
 import passive
 import provenance
@@ -90,6 +92,34 @@ _SSE_HEADERS = {
 
 
 @app.middleware("http")
+async def _auth_bruteforce_throttle(request, call_next):
+    """Rate-limit repeated auth failures from a *remote* IP (brute-force defence).
+
+    The token compare is constant-time, but unlimited guesses would still let a
+    token be brute-forced. This locks out a source IP after too many 401s in a
+    window. Loopback / same-machine peers are exempt: brute force is a network
+    threat, and exempting local keeps zero-config dev and the test client from
+    ever self-locking. In open (no-token) mode there is no token to guess and the
+    outer guard already blocks remote peers, so this only bites in token mode.
+    """
+    client_host = request.client.host if request.client else None
+    remote = request.url.path.startswith("/api/") and not security.client_is_local(client_host)
+    if remote and security.is_locked_out(client_host):
+        return JSONResponse(
+            {"error": "Too many failed authentication attempts; try again later."},
+            status_code=429,
+            headers={"Retry-After": str(security.lockout_remaining(client_host))},
+        )
+    response = await call_next(request)
+    if remote:
+        if response.status_code == 401:            # an auth failure on this API
+            security.register_auth_failure(client_host)
+        elif response.status_code < 400:           # a good request clears the streak
+            security.register_auth_success(client_host)
+    return response
+
+
+@app.middleware("http")
 async def _local_only_in_open_mode(request, call_next):
     """Fail-closed guard for the zero-config (no-token) deployment.
 
@@ -137,6 +167,37 @@ async def _security_headers(request, call_next):
     response = await call_next(request)
     for name, value in _SECURITY_HEADERS.items():
         response.headers.setdefault(name, value)
+    return response
+
+
+# Configure structured logging once at import (idempotent; honours env vars).
+obs.configure()
+
+
+@app.middleware("http")
+async def _request_context(request, call_next):
+    """Give every request a correlation id, log it, and echo it back.
+
+    The id is taken from an inbound ``X-Request-Id`` (so a proxy/client can
+    correlate) or generated, attached to every log line for this request via a
+    context var, and returned in the ``X-Request-Id`` response header. Only the
+    method/path/status/timing are logged — never the query string, which can
+    carry ``?token=``.
+    """
+    rid = obs.set_request_id(request.headers.get("x-request-id"))
+    obs.set_scan_id(None)  # each request starts with no scan in scope
+    start = time.monotonic()
+    try:
+        response = await call_next(request)
+    except Exception:
+        obs.error("request errored", method=request.method, path=request.url.path,
+                  dur_ms=int((time.monotonic() - start) * 1000))
+        raise
+    response.headers["X-Request-Id"] = rid
+    if request.url.path.startswith("/api/"):
+        obs.info("request", method=request.method, path=request.url.path,
+                 status=response.status_code, dur_ms=int((time.monotonic() - start) * 1000),
+                 client=(request.client.host if request.client else "-"))
     return response
 
 
@@ -188,10 +249,18 @@ def _sse_error(scan_id: str | None, target: str, reason: str) -> StreamingRespon
 
 @app.get("/api/network")
 def network() -> dict:
-    """Best-effort detection of the host's primary IP + a suggested /24 target,
-    so the dashboard pre-fills the network you're actually on."""
+    """Best-effort detection of THIS device's own network identity — the
+    operator's IP on the LAN, hostname, every detected local IPv4 address and a
+    suggested /24 target — so the dashboard can show "you are here" and pre-fill
+    the network you're actually on.
+
+    Everything returned is read locally from the OS (no packets are sent — the
+    UDP "connect" only asks the kernel which source address it would route
+    from). Nothing is fabricated: fields the OS won't reveal come back null/[]."""
     import socket
 
+    # Primary IP = the source address the kernel would use to reach the internet.
+    # This is the operator's real address on the network they're attached to.
     ip = None
     try:
         probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -201,11 +270,44 @@ def network() -> dict:
     except OSError:
         pass
 
+    hostname = None
+    try:
+        hostname = socket.gethostname()
+    except OSError:
+        pass
+
+    # Every local IPv4 the resolver knows about (loopback filtered out). This is
+    # best-effort — on some hosts the resolver only returns one — so the UI
+    # treats the route-based `primary_ip` as authoritative and this as extra.
+    addresses: list[str] = []
+    seen: set[str] = set()
+    for candidate in (ip,):
+        if candidate and candidate not in seen:
+            seen.add(candidate)
+            addresses.append(candidate)
+    if hostname:
+        try:
+            for res in socket.getaddrinfo(hostname, None, socket.AF_INET):
+                addr = res[4][0]
+                if addr and not addr.startswith("127.") and addr not in seen:
+                    seen.add(addr)
+                    addresses.append(addr)
+        except OSError:
+            pass
+
     suggested = "192.168.1.0/24"
+    cidr = None
     if ip:
         octets = ip.split(".")
         suggested = f"{octets[0]}.{octets[1]}.{octets[2]}.0/24"
-    return {"primary_ip": ip, "suggested_target": suggested}
+        cidr = suggested
+    return {
+        "primary_ip": ip,
+        "hostname": hostname,
+        "addresses": addresses,
+        "network_cidr": cidr,
+        "suggested_target": suggested,
+    }
 
 
 @app.get("/api/scan/stream")
@@ -232,11 +334,15 @@ async def scan_stream(
     if not admin_ok(token, authorization):
         raise HTTPException(status_code=401, detail="admin token required")
 
+    sid = obs.set_scan_id(id or obs.new_id())
     try:
         vet_target(target)
     except ScopeRejected as exc:
         audit.record("scan_refused", mode=mode, target=target, reason=exc.reason)
+        obs.warning("scan refused", mode=mode, target=target, reason=exc.reason)
         return _sse_error(id, target, exc.reason)
+
+    obs.info("scan started", mode=mode, target=target, deep=deep, scan_id=sid)
 
     async def event_source():
         # Hold one concurrency slot for the whole stream; refuse fast if the
@@ -266,6 +372,7 @@ async def scan_stream(
                     # Audit + outbound alerting (both best-effort, never block).
                     summary = notify.summarize(data)
                     audit.record("scan_complete", mode=mode, **summary)
+                    obs.info("scan complete", mode=mode, **summary)
                     try:
                         notify.scan_complete(summary)
                     except Exception:  # noqa: BLE001 - alerting is best-effort

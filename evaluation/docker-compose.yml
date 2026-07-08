@@ -1,34 +1,39 @@
 # Deterministic evaluation testbed for EnumGrid.
 #
-# Brings up four service containers at FIXED IPs on an isolated bridge network,
-# so the set of live hosts (and their open ports/services) is known exactly —
-# the ground truth for measuring precision/recall and confirming there are no
-# false positives.
+# Brings up service containers at FIXED IPs on an isolated bridge network, so the
+# set of live hosts AND their open ports/services/CVEs is known exactly — the
+# ground truth (evaluation/ground_truth.json) for measuring detection
+# precision/recall and confirming there are no false positives.
+#
+# Images are PINNED (not :latest) so the ground truth is reproducible run-to-run.
+# One host (172.28.0.11) deliberately runs a known-vulnerable Apache 2.4.49 so
+# that CVE *detection recall* can be measured against a planted, documented CVE.
 #
 #   docker compose up -d
+#   # host discovery (precision/recall of the live-host set):
 #   python benchmark.py 172.28.0.0/24 \
 #       --ground-truth 172.28.0.10,172.28.0.11,172.28.0.12,172.28.0.13
+#   # detection accuracy (ports / services / planted CVE):
+#   python detection_benchmark.py --md detection.md
 #   docker compose down
 #
-# Expected: EnumGrid finds all four (precision 1.00, recall 1.00) and its
-# on-demand nmap scan identifies nginx/apache (http), OpenSSH (22) and redis
-# (6379). Authorized by construction — you own these containers.
+# Authorized by construction — you own these containers.
 
 services:
-  web-nginx:          # 172.28.0.10 — http (80)
-    image: nginx:alpine
+  web-nginx:          # 172.28.0.10 — http (80), current/patched (no planted CVE)
+    image: nginx:1.25.3-alpine
     networks:
       testbed:
         ipv4_address: 172.28.0.10
 
-  web-apache:         # 172.28.0.11 — http (80)
-    image: httpd:alpine
+  web-apache:         # 172.28.0.11 — http (80), Apache 2.4.49: PLANTED CVE-2021-41773/42013
+    image: httpd:2.4.49
     networks:
       testbed:
         ipv4_address: 172.28.0.11
 
   ssh-server:         # 172.28.0.12 — ssh (2222 -> sshd)
-    image: linuxserver/openssh-server:latest
+    image: linuxserver/openssh-server:version-9.3_p2-r0
     environment:
       - PUID=1000
       - PGID=1000
@@ -37,8 +42,8 @@ services:
       testbed:
         ipv4_address: 172.28.0.12
 
-  redis:              # 172.28.0.13 — redis (6379)
-    image: redis:alpine
+  redis:              # 172.28.0.13 — redis (6379), current/patched (no planted CVE)
+    image: redis:7.2.3-alpine
     networks:
       testbed:
         ipv4_address: 172.28.0.13

@@ -213,7 +213,7 @@ def ollama_probe(timeout: float = 0.6) -> dict:
     if not _tcp_up():                       # avoid a slow HTTP wait when nothing listens
         return {"up": False, "models": []}
     try:
-        with urllib.request.urlopen(f"{_ollama_root()}/api/tags", timeout=timeout) as resp:
+        with urllib.request.urlopen(f"{_ollama_root()}/api/tags", timeout=timeout) as resp:  # nosec B310 - fixed local Ollama endpoint, scheme not user-controlled
             # Cap the read: a hostile process squatting on the port shouldn't be able
             # to balloon memory. A real tags listing is tiny.
             data = json.loads(resp.read(2_000_000).decode("utf-8", "replace") or "{}")
@@ -361,6 +361,46 @@ def _top_counts(items, key: str, limit: int = 6) -> list:
     return sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[:limit]
 
 
+# Canonical CVE identifier shape, used both to feed REAL ids into the context and
+# to catch any id a model emits that isn't backed by the scan (see the guard below).
+_CVE_ID_RE = re.compile(r"CVE-\d{4}-\d{3,7}", re.IGNORECASE)
+
+
+def _host_cve_ids(host: dict) -> list[str]:
+    """Every CVE id attached to one host (from vuln id/cve/name/output), upper-cased."""
+    out: list[str] = []
+    for v in (host or {}).get("vulns") or (host or {}).get("cves") or []:
+        if isinstance(v, dict):
+            blob = " ".join(str(v.get(k, "")) for k in ("id", "cve", "name", "title", "output"))
+        else:
+            blob = str(v)
+        out.extend(m.group(0).upper() for m in _CVE_ID_RE.finditer(blob))
+    return out
+
+
+def context_cve_ids(context: dict | None) -> set[str]:
+    """The set of CVE ids that actually appear anywhere in the scan context."""
+    ctx = context or {}
+    hosts = ctx.get("hosts") if isinstance(ctx.get("hosts"), list) else []
+    found: set[str] = set()
+    for h in hosts:
+        found.update(_host_cve_ids(h or {}))
+    return found
+
+
+def ungrounded_cves(text: str, known: set[str]) -> list[str]:
+    """CVE ids cited in `text` that are NOT in `known` (deduped, first-seen order).
+
+    This is the deterministic anti-hallucination guard: whatever a model writes,
+    any CVE id it invents (not present in the real scan) is caught here."""
+    seen: list[str] = []
+    for m in _CVE_ID_RE.finditer(text or ""):
+        cid = m.group(0).upper()
+        if cid not in known and cid not in seen:
+            seen.append(cid)
+    return seen
+
+
 def build_context_block(context: dict | None) -> str:
     """A short, real, deterministic summary of the current scan for the model.
 
@@ -392,6 +432,33 @@ def build_context_block(context: dict | None) -> str:
     devices = _top_counts(hosts, "device_type", limit=6)
     if devices:
         lines.append("- Device mix: " + ", ".join(f"{d}×{n}" for d, n in devices))
+
+    # The ACTUAL CVE ids found, with severity + host, so the model cites REAL ones
+    # and never has to invent an identifier to answer "name the CVEs". Capped so a
+    # busy scan can't blow up the prompt.
+    cve_rows: list[str] = []
+    seen_cve: set[str] = set()
+    for h in hosts:
+        h = h or {}
+        ip = h.get("ip") or h.get("address") or "?"
+        for v in (h.get("vulns") or h.get("cves") or []):
+            vd = v if isinstance(v, dict) else {}
+            ids = _host_cve_ids({"vulns": [v]})
+            if not ids:
+                continue
+            cid = ids[0]
+            if cid in seen_cve:
+                continue
+            seen_cve.add(cid)
+            sev = str(vd.get("severity") or "").strip().lower()
+            cve_rows.append(f"  · {cid}{f' [{sev}]' if sev else ''} on {ip}")
+            if len(cve_rows) >= 25:
+                break
+        if len(cve_rows) >= 25:
+            break
+    if cve_rows:
+        lines.append("- CVE findings (cite ONLY these exact ids; never invent another):")
+        lines.extend(cve_rows)
 
     # A few concrete host rows so the model can reference real IPs/hostnames.
     sample = []
@@ -617,7 +684,7 @@ def pull_model(name: str, timeout: float = 120.0):
         f"{_ollama_root()}/api/pull", data=payload,
         headers={"Content-Type": "application/json"})
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:  # nosec B310 - fixed local Ollama pull endpoint, scheme not user-controlled
             for raw in resp:                      # one JSON object per line
                 line = raw.decode("utf-8", "replace").strip()
                 if not line:
@@ -678,5 +745,16 @@ def summarize_scan(context, *, provider: str | None = None, model: str | None = 
         elif kind == "error":
             err = ev.get("message")
     text = "".join(parts).strip()
+    # Deterministic grounding guard: if the model cited any CVE not present in the
+    # real scan, append an explicit integrity note so a fabricated id can never
+    # reach the PDF report unflagged. (With real ids now in the context block this
+    # should be empty — this is the belt-and-braces safety net.)
+    stray = ungrounded_cves(text, context_cve_ids(context)) if text else []
+    if stray:
+        text += (
+            "\n\nData-integrity note: the following CVE identifier(s) in this summary "
+            "were not present in the scan data and must be independently verified "
+            "before use — " + ", ".join(stray) + "."
+        )
     return {"available": bool(text) and not err, "summary": text,
-            "provider": provider, "error": err}
+            "provider": provider, "error": err, "ungrounded_cves": stray}

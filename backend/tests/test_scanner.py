@@ -538,7 +538,7 @@ def test_drop_privileges_forgets_password(monkeypatch):
 
 def test_sudo_scan_feeds_password_via_stdin(monkeypatch):
     _reset_priv()
-    scanner._SUDO_PASSWORD = "pw"  # primed
+    scanner._SUDO_PASSWORD = "pw"  # primed  # nosec B105 - test fixture, not a real secret
     seen = {}
 
     def _fake_run(argv, **kw):
@@ -563,7 +563,7 @@ def test_sudo_scan_feeds_password_via_stdin(monkeypatch):
 
 def test_sudo_scan_password_argv_uses_S(monkeypatch):
     _reset_priv()
-    scanner._SUDO_PASSWORD = "pw"
+    scanner._SUDO_PASSWORD = "pw"  # nosec B105 - test fixture, not a real secret
     seen = {}
 
     def _fake_run(argv, **kw):

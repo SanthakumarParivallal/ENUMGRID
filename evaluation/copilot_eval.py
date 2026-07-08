@@ -27,8 +27,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
+import statistics
 import sys
 
 _CVE_RE = re.compile(r"CVE-\d{4}-\d{4,7}", re.I)
@@ -180,6 +182,29 @@ def aggregate(results: list[dict]) -> dict:
     }
 
 
+def summarize(values: list[float]) -> dict:
+    """Descriptive stats for a sample: n, mean, stdev, 95 % CI half-width, min, max.
+
+    Mirrors ``benchmark.py``'s statistics helper so both harnesses report variance
+    the same way. The CI uses the normal approximation (z = 1.96) and is 0 for a
+    single run (no variance to estimate) — small-n samples stay honest."""
+    vals = [float(v) for v in values]
+    n = len(vals)
+    if n == 0:
+        return {"n": 0, "mean": 0.0, "stdev": 0.0, "ci95": 0.0, "min": 0.0, "max": 0.0}
+    mean = statistics.fmean(vals)
+    stdev = statistics.stdev(vals) if n >= 2 else 0.0
+    ci95 = 1.96 * stdev / math.sqrt(n) if n >= 2 else 0.0
+    return {
+        "n": n,
+        "mean": round(mean, 3),
+        "stdev": round(stdev, 3),
+        "ci95": round(ci95, 3),
+        "min": round(min(vals), 3),
+        "max": round(max(vals), 3),
+    }
+
+
 # ---------------------------------------------------------------------------- #
 # Live runner (needs a configured provider; imports the backend copilot lazily)
 # ---------------------------------------------------------------------------- #
@@ -225,6 +250,41 @@ def run(provider=None, model=None) -> dict:
             "results": results, "summary": aggregate(results)}
 
 
+def aggregate_runs(runs: list[dict]) -> dict:
+    """Aggregate the headline metrics across whole-evaluation runs as mean ± 95 % CI.
+
+    ``runs`` is a list of :func:`run` results. We summarise only what was actually
+    measured — the per-run coverage/grounding/score — so nothing is invented; the
+    spread (stdev / CI) is what removes the single-run caveat from the writeup."""
+    cov = [r["summary"]["coverage"] for r in runs]
+    grd = [r["summary"]["grounding"] for r in runs]
+    sc = [r["summary"]["score"] for r in runs]
+    return {
+        "coverage": summarize(cov),
+        "grounding": summarize(grd),
+        "score": summarize(sc),
+    }
+
+
+def run_many(provider=None, model=None, runs: int = 1) -> dict:
+    """Run the full evaluation ``runs`` times and report mean ± 95 % CI.
+
+    Small local models vary run-to-run at temperature 0.2, so a single run's
+    coverage is a noisy point estimate. Repeating and reporting the mean ± CI is
+    the honest headline number (see docs/COPILOT.md §4.4). The individual runs are
+    retained under ``per_run`` so a reader can see the raw spread."""
+    n = max(1, int(runs))
+    per_run = [run(provider=provider, model=model) for _ in range(n)]
+    return {
+        "provider": per_run[0]["provider"],
+        "model": per_run[0]["model"],
+        "runs": n,
+        "aggregate": aggregate_runs(per_run),
+        "per_run": [r["summary"] for r in per_run],
+        "detail": per_run,
+    }
+
+
 def run_fixtures(fixtures: dict) -> dict:
     """Score a set of canned replies — used by --self-test and the unit tests."""
     known = context_cves(SCAN_CONTEXT)
@@ -251,11 +311,31 @@ def _print_report(res: dict) -> None:
           f"grounding={s['grounding']:.2f}  score={s['score']:.2f}\n")
 
 
+def _print_multi(res: dict) -> None:
+    """Print a multi-run report: each run's headline metrics, then mean ± 95 % CI."""
+    print(f"\nCopilot evaluation — provider: {res.get('provider')}"
+          + (f" · model: {res['model']}" if res.get("model") else "")
+          + f" · {res['runs']} run(s)")
+    print("-" * 60)
+    for i, s in enumerate(res["per_run"], 1):
+        print(f"  run {i}: cov={s['coverage']:.2f}  grd={s['grounding']:.2f}  score={s['score']:.2f}")
+    print("-" * 60)
+    agg = res["aggregate"]
+    for name in ("coverage", "grounding", "score"):
+        a = agg[name]
+        print(f"{name:>9}: {a['mean']:.3f} ± {a['ci95']:.3f}  "
+              f"(min {a['min']:.2f}, max {a['max']:.2f}, n={a['n']})")
+    print()
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Evaluate the ENUMGRID AI copilot (grounding + accuracy).")
     ap.add_argument("--provider", help="ollama | gemini | anthropic | openai (default: active)")
     ap.add_argument("--model", help="override the model (e.g. llama3.2)")
     ap.add_argument("--json", metavar="FILE", help="write the full result as JSON")
+    ap.add_argument("--runs", type=int, default=1, metavar="N",
+                    help="repeat the evaluation N times and report mean ± 95%% CI "
+                         "(removes single-run variance from the headline number)")
     ap.add_argument("--self-test", action="store_true",
                     help="score built-in grounded + hallucinated fixtures (no provider needed)")
     args = ap.parse_args(argv)
@@ -279,8 +359,12 @@ def main(argv=None) -> int:
               f"dashboard or run with --self-test. Nothing was fabricated.", file=sys.stderr)
         return 2
 
-    res = run(provider=args.provider, model=args.model)
-    _print_report(res)
+    if args.runs and args.runs > 1:
+        res = run_many(provider=args.provider, model=args.model, runs=args.runs)
+        _print_multi(res)
+    else:
+        res = run(provider=args.provider, model=args.model)
+        _print_report(res)
     if args.json:
         with open(args.json, "w", encoding="utf-8") as fh:
             json.dump(res, fh, indent=2)

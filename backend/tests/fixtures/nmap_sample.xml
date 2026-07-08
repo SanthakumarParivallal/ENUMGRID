@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Deterministic nmap XML fixture for golden-file tests. Hand-written to a
+     realistic service+vuln scan shape so the parser (scanner._service_scan) can
+     be exercised end to end WITHOUT running nmap. Values are fixed forever; the
+     golden output in nmap_sample.golden.json must reproduce exactly. -->
+<nmaprun scanner="nmap" args="nmap -sV --script vuln -oX - 172.28.0.11" start="1700000000"
+         startstr="Tue Nov 14 22:13:20 2023" version="7.95" xmloutputversion="1.05">
+  <scaninfo type="syn" protocol="tcp" numservices="1000" services="1-1000"/>
+  <verbose level="0"/>
+  <debugging level="0"/>
+  <host starttime="1700000000" endtime="1700000030">
+    <status state="up" reason="syn-ack" reason_ttl="63"/>
+    <address addr="172.28.0.11" addrtype="ipv4"/>
+    <hostnames>
+      <hostname name="web-apache" type="PTR"/>
+    </hostnames>
+    <ports>
+      <port protocol="tcp" portid="22">
+        <state state="open" reason="syn-ack" reason_ttl="63"/>
+        <service name="ssh" product="OpenSSH" version="9.2p1" extrainfo="protocol 2.0"
+                 method="probed" conf="10">
+          <cpe>cpe:/a:openbsd:openssh:9.2p1</cpe>
+        </service>
+      </port>
+      <port protocol="tcp" portid="80">
+        <state state="open" reason="syn-ack" reason_ttl="63"/>
+        <service name="http" product="Apache httpd" version="2.4.49" method="probed" conf="10">
+          <cpe>cpe:/a:apache:http_server:2.4.49</cpe>
+        </service>
+        <script id="vulners" output="cpe:/a:apache:http_server:2.4.49:&#10;    CVE-2021-42013  9.8  https://vulners.com/cve/CVE-2021-42013&#10;    CVE-2021-41773  7.5  https://vulners.com/cve/CVE-2021-41773"/>
+      </port>
+      <port protocol="tcp" portid="443">
+        <state state="open" reason="syn-ack" reason_ttl="63"/>
+        <service name="https" product="Apache httpd" version="2.4.49" tunnel="ssl" method="probed" conf="10">
+          <cpe>cpe:/a:apache:http_server:2.4.49</cpe>
+        </service>
+      </port>
+    </ports>
+    <hostscript>
+      <script id="smb-vuln-ms17-010" output="&#10;State: VULNERABLE&#10;IDs:  CVE:CVE-2017-0143&#10;Risk factor: HIGH"/>
+    </hostscript>
+    <os>
+      <osmatch name="Linux 5.4" accuracy="95" line="1234">
+        <osclass type="general purpose" vendor="Linux" osfamily="Linux" osgen="5.X" accuracy="95"/>
+      </osmatch>
+    </os>
+  </host>
+  <runstats>
+    <finished time="1700000030" timestr="Tue Nov 14 22:14:00 2023" elapsed="30.00"
+              summary="Nmap done" exit="success"/>
+    <hosts up="1" down="0" total="1"/>
+  </runstats>
+</nmaprun>

@@ -26,6 +26,8 @@ import hmac
 import ipaddress
 import os
 import sys
+import threading
+import time
 
 # Reuse the CLI's already-tested guardrails (one source of truth for scope).
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -231,3 +233,94 @@ class scan_slot:
             scan_semaphore.release()
             self._held = False
         return False
+
+
+# --------------------------------------------------------------------------- #
+# Auth brute-force throttle (per remote IP).
+#
+# The token check itself is constant-time (see role_for), but a token can still
+# be guessed by brute force if failures are unlimited. This throttle records
+# failed auth attempts per source IP in a sliding window and, past a threshold,
+# locks that IP out for a cooldown — so an exposed instance cannot be hammered.
+#
+# It is a *remote* defence: loopback / same-machine peers are exempt (a local
+# attacker already owns the host, and it keeps zero-config localhost dev and the
+# in-process test client from ever locking themselves out). Times use a monotonic
+# clock so a wall-clock change can't extend or void a lockout. State is process-
+# local (no shared store) — appropriate for the single-node deployment model.
+# --------------------------------------------------------------------------- #
+AUTH_MAX_FAILURES = _env_int("ENUMGRID_AUTH_MAX_FAILURES", 8)   # failures per window before lockout
+AUTH_WINDOW_S = _env_int("ENUMGRID_AUTH_WINDOW", 300)          # sliding window (5 min)
+AUTH_LOCKOUT_S = _env_int("ENUMGRID_AUTH_LOCKOUT", 900)        # lockout cooldown (15 min)
+
+_auth_lock = threading.Lock()
+_auth_failures: dict[str, list[float]] = {}   # ip -> recent failure timestamps (monotonic)
+_auth_lockouts: dict[str, float] = {}         # ip -> monotonic time the lockout expires
+
+
+def _mono(now: float | None) -> float:
+    return time.monotonic() if now is None else now
+
+
+def is_locked_out(ip: str | None, now: float | None = None) -> bool:
+    """True if `ip` is currently locked out for too many failed auth attempts.
+
+    Expired lockouts are cleared lazily on inspection, so a caller never sees a
+    stale lock."""
+    if not ip:
+        return False
+    now = _mono(now)
+    with _auth_lock:
+        until = _auth_lockouts.get(ip)
+        if until is None:
+            return False
+        if now >= until:
+            _auth_lockouts.pop(ip, None)
+            _auth_failures.pop(ip, None)
+            return False
+        return True
+
+
+def register_auth_failure(ip: str | None, now: float | None = None) -> bool:
+    """Record one failed auth from `ip`. Returns True if it just tripped a lockout.
+
+    Only failures within the sliding window count; the count resets by ageing out,
+    so sporadic typos never accumulate into a lock."""
+    if not ip:
+        return False
+    now = _mono(now)
+    with _auth_lock:
+        recent = [t for t in _auth_failures.get(ip, []) if now - t < AUTH_WINDOW_S]
+        recent.append(now)
+        if len(recent) >= AUTH_MAX_FAILURES:
+            _auth_lockouts[ip] = now + AUTH_LOCKOUT_S
+            _auth_failures.pop(ip, None)
+            return True
+        _auth_failures[ip] = recent
+        return False
+
+
+def register_auth_success(ip: str | None) -> None:
+    """Clear any accumulated failures/lockout for `ip` after a successful auth."""
+    if not ip:
+        return
+    with _auth_lock:
+        _auth_failures.pop(ip, None)
+        _auth_lockouts.pop(ip, None)
+
+
+def lockout_remaining(ip: str | None, now: float | None = None) -> int:
+    """Whole seconds until `ip`'s lockout expires (0 if not locked) — for Retry-After."""
+    if not ip:
+        return 0
+    now = _mono(now)
+    with _auth_lock:
+        until = _auth_lockouts.get(ip)
+        return int(max(0, until - now)) if until else 0
+
+
+def reset_auth_throttle() -> None:
+    """Clear all throttle state (used by tests; harmless in production)."""
+    with _auth_lock:
+        _auth_failures.clear()
+        _auth_lockouts.clear()

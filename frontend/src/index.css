@@ -20,8 +20,8 @@ html[data-theme='dark'] {
   --slate-200: 226 232 240;
   --slate-300: 203 213 225;
   --slate-400: 148 163 184;
-  --slate-500: 100 116 139; /* muted text */
-  --slate-600: 71 85 105;
+  --slate-500: 124 140 162; /* muted text — lightened to clear WCAG AA (4.5:1) on dark */
+  --slate-600: 108 122 145; /* placeholder/tertiary text — legible, not sub-3:1 */
   --slate-700: 51 65 85; /* hairline borders */
   --slate-800: 30 41 59; /* dividers */
   --app-bg: 2 6 23;
@@ -110,24 +110,6 @@ body {
   background: rgb(var(--scroll-thumb-hover));
 }
 
-/* ---- Density (compact ⇄ comfortable) -------------------------------------
- * Compact tightens the matrix header, host rows and per-host port rows. The
- * attribute+class selector outranks Tailwind's single-class padding utilities,
- * so the default (comfortable) Tailwind padding wins until compact is chosen.
- */
-html[data-density='compact'] .eg-matrix-header {
-  padding-top: 0.25rem;
-  padding-bottom: 0.25rem;
-}
-html[data-density='compact'] .eg-grid-row {
-  padding-top: 0.3rem;
-  padding-bottom: 0.3rem;
-}
-html[data-density='compact'] .eg-port-row {
-  padding-top: 0.12rem;
-  padding-bottom: 0.12rem;
-}
-
 /* ---- Sticky per-host detail toolbar ---------------------------------------
  * Keeps the host's IP + Re-scan controls pinned just below the (sticky) matrix
  * header while scrolling a long ports/vulns list. The top offset matches the
@@ -138,8 +120,26 @@ html[data-density='compact'] .eg-port-row {
   top: 34px;
   z-index: 6;
 }
-html[data-density='compact'] .eg-detail-toolbar {
-  top: 28px;
+/* Below lg the whole page scrolls (not an inner pane), so a sticky detail
+ * toolbar would stick under the sticky command bar and overlap it. Pin it only
+ * on large screens, where the matrix has its own internal scroll container. */
+@media (max-width: 1023px) {
+  .eg-detail-toolbar {
+    position: static;
+  }
+}
+
+/* ---- Large-inventory performance ------------------------------------------
+ * A wide scan (a /22 is ~1000 hosts) puts ~1000 rows in the matrix. `content-
+ * visibility: auto` lets the browser SKIP layout + paint for rows scrolled off
+ * screen — a near-virtualization win with no JS and no change to the sticky-
+ * header / horizontal-scroll layout. `contain-intrinsic-size` supplies a size
+ * placeholder for skipped rows so the scrollbar stays accurate; `auto` remembers
+ * the real measured height once a row has been rendered once.
+ */
+.eg-asset-row {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 44px;
 }
 
 /* Striped, energized progress fill used while a scan is live. */

@@ -256,6 +256,43 @@ def test_context_block_none_safe():
     assert "none set" in copilot.build_context_block(None)
 
 
+def test_context_block_lists_real_cve_ids():
+    # The model must be GIVEN the real CVE ids so it never has to invent one.
+    ctx = {
+        "target": "172.16.2.0/24",
+        "hosts": [
+            {"ip": "172.16.2.1", "vulns": [{"id": "CVE-2021-44228", "severity": "critical"}]},
+            {"ip": "172.16.2.5", "vulns": [{"id": "CVE-2022-0778", "severity": "high"}]},
+        ],
+    }
+    txt = copilot.build_context_block(ctx)
+    assert "CVE-2021-44228" in txt
+    assert "CVE-2022-0778" in txt
+    assert "cite ONLY these exact ids" in txt
+
+
+# --- deterministic grounding guard ------------------------------------------- #
+def test_context_cve_ids_extracts_from_hosts():
+    ctx = {"hosts": [
+        {"vulns": [{"id": "CVE-2021-44228"}]},
+        {"cves": [{"cve": "cve-2022-0778"}]},           # case + alt key
+        {"vulns": [{"output": "matched CVE-2017-5638 in banner"}]},  # id inside output
+    ]}
+    assert copilot.context_cve_ids(ctx) == {"CVE-2021-44228", "CVE-2022-0778", "CVE-2017-5638"}
+
+
+def test_ungrounded_cves_flags_only_novel_ids():
+    known = {"CVE-2021-44228"}
+    text = "Found CVE-2021-44228 (real) and CVE-2099-0001 (invented), plus CVE-2099-0001 again."
+    # The real one passes; the fabricated one is flagged exactly once.
+    assert copilot.ungrounded_cves(text, known) == ["CVE-2099-0001"]
+
+
+def test_ungrounded_cves_empty_when_all_grounded():
+    known = {"CVE-2021-44228", "CVE-2022-0778"}
+    assert copilot.ungrounded_cves("both CVE-2021-44228 and CVE-2022-0778 present", known) == []
+
+
 # --- request hygiene --------------------------------------------------------- #
 def test_sanitize_messages_cleans_and_bounds():
     msgs = [

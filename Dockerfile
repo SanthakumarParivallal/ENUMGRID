@@ -10,7 +10,11 @@
 # ⚠️ Authorized use only. With --network host the API listens on the host's
 #    interfaces; set ENUMGRID_API_TOKEN so it isn't open on your LAN.
 
-FROM python:3.12-slim
+# Base image pinned by DIGEST for a reproducible, supply-chain-verifiable build:
+# Docker resolves the immutable sha256 (the tag is kept only for readability, so a
+# silently-retagged upstream image can never change what we build).
+# Refresh with:  docker buildx imagetools inspect python:3.12-slim
+FROM python:3.12-slim@sha256:423ed6ab25b1921a477529254bfeeabf5855151dc2c3141699a1bfc852199fbf
 
 # Runtime tools the scanner shells out to: nmap (service/version), ping + arp/ndp
 # (discovery). Pinned base + cleaned apt lists for a small, reproducible image.

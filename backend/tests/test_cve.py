@@ -152,3 +152,131 @@ def test_clearing_api_key_removes_persisted_file(tmp_path, monkeypatch):
 def test_load_persisted_key_missing_file_is_none(tmp_path, monkeypatch):
     monkeypatch.setattr(cve, "KEY_FILE", str(tmp_path / "does-not-exist"))
     assert cve._load_persisted_key() is None
+
+
+# --- severity mapping + richer NVD parsing --------------------------------- #
+def test_sev_from_score_bands():
+    assert cve._sev_from_score(9.0) == Severity.CRITICAL
+    assert cve._sev_from_score(7.0) == Severity.HIGH
+    assert cve._sev_from_score(4.0) == Severity.MEDIUM
+    assert cve._sev_from_score(0.1) == Severity.LOW
+    assert cve._sev_from_score(0.0) == Severity.INFO
+
+
+def test_parse_nvd_skips_entry_without_id():
+    data = {"vulnerabilities": [{"cve": {"descriptions": []}}, {"cve": {"id": "CVE-2020-0001"}}]}
+    assert [v.id for v in cve.parse_nvd(data)] == ["CVE-2020-0001"]
+
+
+def test_parse_nvd_uses_cvss_v2_and_handles_missing_metrics():
+    data = {"vulnerabilities": [
+        {"cve": {"id": "CVE-A", "metrics": {"cvssMetricV2": [{"cvssData": {"baseScore": 4.0}}]}}},
+        {"cve": {"id": "CVE-B", "metrics": {}, "descriptions": [{"lang": "en", "value": "x"}]}},
+    ]}
+    by = {v.id: v for v in cve.parse_nvd(data)}
+    assert by["CVE-A"].severity == Severity.MEDIUM and by["CVE-A"].cvss == 4.0
+    assert by["CVE-B"].cvss is None and by["CVE-B"].severity == Severity.INFO  # no metrics → INFO
+
+
+def test_parse_nvd_truncates_long_description():
+    long_desc = "x" * 500
+    data = {"vulnerabilities": [{"cve": {"id": "CVE-C",
+             "descriptions": [{"lang": "en", "value": long_desc}]}}]}
+    assert len(cve.parse_nvd(data)[0].title) == 140  # capped for a tidy UI/report
+
+
+# --- live query path (mocked urlopen — still no network) -------------------- #
+def test_query_nvd_builds_request_and_sends_api_key(monkeypatch):
+    import json as _json
+
+    captured = {}
+
+    class _FakeResp:
+        def __init__(self, body): self._body = body
+        def read(self): return self._body
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    def fake_urlopen(req, timeout=None):
+        captured["url"] = req.full_url
+        captured["apikey"] = req.get_header("Apikey")  # urllib title-cases header names
+        return _FakeResp(_json.dumps(_SAMPLE).encode())
+
+    monkeypatch.setattr(cve, "API_KEY", "SECRET-KEY")
+    monkeypatch.setattr(cve.urllib.request, "urlopen", fake_urlopen)
+    data = cve._query_nvd("cpe:2.3:a:openbsd:openssh:7.2p2")
+    assert data == _SAMPLE
+    assert "virtualMatchString=" in captured["url"] and "resultsPerPage=50" in captured["url"]
+    assert captured["apikey"] == "SECRET-KEY"       # key is sent, never logged
+
+
+def test_key_active_and_rate_max_track_the_key(monkeypatch):
+    monkeypatch.setattr(cve, "API_KEY", None)
+    assert cve.key_active() is False and cve._rate_max() == 5     # anonymous limit
+    monkeypatch.setattr(cve, "API_KEY", "K")
+    assert cve.key_active() is True and cve._rate_max() == 45     # keyed limit
+
+
+# --- cache expiry / corruption / DB-error resilience ------------------------ #
+def test_cache_get_expired_entry_is_a_miss(monkeypatch):
+    monkeypatch.setattr(cve, "CACHE_TTL", 10)
+    with cve._conn() as conn:
+        conn.execute("INSERT OR REPLACE INTO cve_cache VALUES (?, ?, ?)",
+                     ("stale", cve.time.time() - 1000, "[]"))
+    assert cve._cache_get("stale") is None           # older than TTL → refetch
+
+
+def test_cache_get_corrupt_payload_is_a_miss():
+    with cve._conn() as conn:
+        conn.execute("INSERT OR REPLACE INTO cve_cache VALUES (?, ?, ?)",
+                     ("bad", cve.time.time(), "{not-json"))
+    assert cve._cache_get("bad") is None             # unparseable → miss, no crash
+
+
+def test_cache_ops_survive_db_errors(monkeypatch, tmp_path):
+    # Point the cache at a directory so sqlite can't open it: every cache op must
+    # degrade quietly (best-effort contract), never raise into a scan.
+    monkeypatch.setattr(cve, "CACHE_DB", str(tmp_path))
+    assert cve.cache_count() == 0
+    assert cve._cache_get("k") is None
+    cve._cache_put("k", [])                           # no raise
+
+
+def test_persist_key_survives_filesystem_error(monkeypatch, tmp_path):
+    monkeypatch.setattr(cve, "KEY_FILE", str(tmp_path / "missing-dir" / "key"))
+    cve._persist_key("x")                             # os.open fails → swallowed
+
+
+# --- rate limiter (rolling window) ----------------------------------------- #
+def test_acquire_slot_evicts_old_calls_and_allows(monkeypatch):
+    monkeypatch.setattr(cve, "_calls", [cve.time.time() - 100])   # outside the window
+    assert cve._acquire_slot(None) is True
+    assert len(cve._calls) == 1                        # old evicted, new recorded
+
+
+def test_acquire_slot_refuses_when_waiting_would_blow_budget(monkeypatch):
+    now = cve.time.time()
+    monkeypatch.setattr(cve, "API_KEY", None)          # cap = 5
+    monkeypatch.setattr(cve, "_calls", [now] * 5)      # at the cap, all fresh
+    assert cve._acquire_slot(deadline=now) is False    # would wait ~30s past deadline
+
+
+def test_acquire_slot_waits_then_allows_without_deadline(monkeypatch):
+    now = cve.time.time()
+    monkeypatch.setattr(cve, "API_KEY", None)
+    monkeypatch.setattr(cve, "_calls", [now - 29.9] * 5)   # at cap, oldest nearly aged out
+    slept = {}
+    monkeypatch.setattr(cve.time, "sleep", lambda s: slept.__setitem__("s", s))
+    assert cve._acquire_slot(None) is True             # no deadline → waits, then allows
+    assert slept["s"] > 0
+
+
+def test_lookup_over_budget_returns_empty(monkeypatch):
+    monkeypatch.setattr(cve, "_query_nvd", lambda c: pytest.fail("must not query over budget"))
+    assert cve.lookup("cpe:/a:v:p:1", deadline=cve.time.time() - 1) == []
+
+
+def test_lookup_rate_limited_returns_empty(monkeypatch):
+    monkeypatch.setattr(cve, "_acquire_slot", lambda d: False)
+    monkeypatch.setattr(cve, "_query_nvd", lambda c: pytest.fail("must not query when throttled"))
+    assert cve.lookup("cpe:/a:v:p:1", deadline=cve.time.time() + 100) == []

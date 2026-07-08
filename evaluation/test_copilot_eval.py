@@ -97,3 +97,59 @@ def test_self_test_mode_passes(capsys):
     assert ce.main(["--self-test"]) == 0
     out = capsys.readouterr().out
     assert "metric sanity: PASS" in out
+
+
+# --------------------------------------------------------------------------- #
+# Multi-run statistics (mean ± 95 % CI) — pure math, no provider/network.
+# --------------------------------------------------------------------------- #
+def test_summarize_single_value_has_zero_spread():
+    s = ce.summarize([0.8])
+    assert s["n"] == 1 and s["mean"] == 0.8
+    assert s["stdev"] == 0.0 and s["ci95"] == 0.0        # one run → no variance to estimate
+    assert s["min"] == 0.8 and s["max"] == 0.8
+
+
+def test_summarize_reports_mean_and_ci():
+    s = ce.summarize([0.6, 0.8, 1.0])
+    assert s["n"] == 3 and abs(s["mean"] - 0.8) < 1e-9
+    assert s["stdev"] > 0.0 and s["ci95"] > 0.0          # real spread across runs
+    assert s["min"] == 0.6 and s["max"] == 1.0
+
+
+def test_summarize_empty_is_zero_not_crash():
+    assert ce.summarize([]) == {"n": 0, "mean": 0.0, "stdev": 0.0, "ci95": 0.0, "min": 0.0, "max": 0.0}
+
+
+def _fake_run_result(coverage, grounding):
+    """A minimal run() result shaped like the real one, for aggregation tests."""
+    return {
+        "provider": "fixture", "model": "m",
+        "results": [],
+        "summary": {"cases": 5, "coverage": coverage, "grounding": grounding,
+                    "score": round((coverage + grounding) / 2, 3)},
+    }
+
+
+def test_aggregate_runs_summarizes_headline_metrics():
+    runs = [_fake_run_result(0.6, 1.0), _fake_run_result(1.0, 1.0), _fake_run_result(0.8, 1.0)]
+    agg = ce.aggregate_runs(runs)
+    assert abs(agg["coverage"]["mean"] - 0.8) < 1e-9     # (0.6+1.0+0.8)/3
+    assert agg["grounding"]["mean"] == 1.0 and agg["grounding"]["ci95"] == 0.0  # stable
+    assert agg["coverage"]["ci95"] > 0.0                 # coverage varies → non-zero CI
+
+
+def test_run_many_repeats_and_aggregates(monkeypatch):
+    # Deterministic canned runs so no provider/network is needed: run_many must call
+    # run() N times and fold the per-run summaries into mean ± CI.
+    seq = iter([_fake_run_result(0.6, 1.0), _fake_run_result(1.0, 1.0)])
+    monkeypatch.setattr(ce, "run", lambda provider=None, model=None: next(seq))
+    res = ce.run_many(runs=2)
+    assert res["runs"] == 2 and len(res["per_run"]) == 2 and len(res["detail"]) == 2
+    assert abs(res["aggregate"]["coverage"]["mean"] - 0.8) < 1e-9
+    assert res["aggregate"]["grounding"]["mean"] == 1.0
+
+
+def test_run_many_clamps_runs_to_at_least_one(monkeypatch):
+    monkeypatch.setattr(ce, "run", lambda provider=None, model=None: _fake_run_result(1.0, 1.0))
+    res = ce.run_many(runs=0)
+    assert res["runs"] == 1 and len(res["per_run"]) == 1
