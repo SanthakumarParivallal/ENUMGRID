@@ -406,6 +406,20 @@ def test_report_pdf():
     assert "attachment" in r.headers.get("content-disposition", "")
 
 
+def test_report_pdf_is_read_gated_in_token_mode(monkeypatch):
+    """The PDF endpoint must not be drivable by an unauthenticated caller when
+    RBAC is on — it can spend the operator's LLM key (include_ai_summary) and burn
+    CPU, exactly like /api/copilot/summary, which is also read-gated."""
+    monkeypatch.setattr(security, "API_TOKEN", "s3cret")
+    payload = {"target": "192.168.0.0/24", "hosts": [{"ip": "192.168.0.1"}]}
+    # No token → 401 (was previously served to anyone).
+    assert client.post("/api/report/pdf", json=payload).status_code == 401
+    # A viewer token is enough (read-gated): correct token → renders the PDF.
+    monkeypatch.setattr(security, "VIEWER_TOKEN", "look")
+    ok = client.post("/api/report/pdf?token=look", json=payload)
+    assert ok.status_code == 200 and ok.content[:5] == b"%PDF-"
+
+
 # --- history + drift ------------------------------------------------------- #
 def test_history_empty_then_populated():
     assert client.get("/api/history").json() == {"scans": []}

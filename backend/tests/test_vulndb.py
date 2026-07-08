@@ -80,3 +80,36 @@ def test_version_parser():
     assert _ver("OpenSSH 7.2p2") == (7, 2)
     assert _ver("2.4.49") == (2, 4, 49)
     assert _ver("no-version-here") == ()
+
+
+def test_product_keyword_matches_whole_token_not_substring():
+    """'httpd' must match "Apache httpd" but NOT inside "lighttpd".
+
+    Regression guard for a real false positive: naive substring matching flagged
+    a patched lighttpd with Apache's path-traversal CVE-2021-41773 because
+    "httpd" is a substring of "lighttpd". Keyword matching is now token-bounded.
+    """
+    # the collision: a lighttpd build whose version happens to equal Apache's
+    # vulnerable build must NOT inherit the Apache CVE.
+    assert lookup_offline_cves("lighttpd 2.4.49") == []
+    # the genuine Apache build is still detected.
+    assert "CVE-2021-41773" in {v.id for v in lookup_offline_cves("Apache httpd 2.4.49")}
+    # a version digit immediately after the product name still matches.
+    assert "CVE-2021-41773" in {v.id for v in lookup_offline_cves("Apache/2.4.49")}
+
+
+def test_kw_hit_helper_is_token_bounded():
+    from vulndb import _kw_hit
+    assert _kw_hit("apache httpd 2.4.49", ("httpd",)) is True
+    assert _kw_hit("lighttpd 2.4.49", ("httpd",)) is False
+    assert _kw_hit("microsoft-iis/6.0", ("iis",)) is True      # hyphen is a boundary
+    assert _kw_hit("apache/2.4.49", ("apache",)) is True       # slash/digit boundary
+
+
+def test_severity_bands_cover_all_thresholds():
+    from vulndb import _sev
+
+    assert _sev(9.8) == Severity.CRITICAL
+    assert _sev(7.5) == Severity.HIGH
+    assert _sev(5.3) == Severity.MEDIUM
+    assert _sev(3.1) == Severity.LOW

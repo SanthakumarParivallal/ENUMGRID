@@ -1,3 +1,35 @@
+# Evaluation — results
+
+## Offline CVE-matching precision / recall (`cve_precision.json`)
+
+The highest-stakes accuracy artifact: does the matcher attach the *right* CVE to
+the *right* version and **never a wrong one**? A 33-case labelled corpus
+(`../cve_corpus.json`) run through the real offline matcher
+(`backend/vulndb.lookup_offline_cves`) with closed-world scoring.
+
+| Metric | Value | 95 % Wilson CI | Counts |
+| --- | ---: | :---: | --- |
+| **Precision** | **1.000** | [0.816, 1.000] | 17/17 predicted-positive |
+| **Recall** | **1.000** | [0.816, 1.000] | 17/17 actual-positive |
+| **F1** | **1.000** |  | 0 false positives, 0 false negatives |
+
+Per-category (all 1.00): `exact` 16 · `boundary` 8 · `wrong-product` 4 ·
+`backport` 1 · `control` 4. The corpus deliberately includes the traps that break
+naive matchers — version-range boundaries (`2.4.49` matches, `2.4.51` must not),
+substring collisions (`lighttpd 2.4.49` must not inherit Apache's CVE), magic
+version collisions (`OpenSSH 2.3.4` must not become vsftpd's CVE), and a RHEL
+backport build. Deterministic and CI-gated
+(`cve_precision.py --min-precision 1.0 --min-recall 1.0`). Full methodology:
+[`../../docs/ACCURACY.md`](../../docs/ACCURACY.md).
+
+Reproduce:
+
+```bash
+python evaluation/cve_precision.py --json evaluation/results/cve_precision.json
+```
+
+---
+
 # Copilot evaluation — results
 
 Real runs of `evaluation/copilot_eval.py` against the local Ollama backend.

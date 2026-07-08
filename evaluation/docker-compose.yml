@@ -12,10 +12,15 @@
 #   docker compose up -d
 #   # host discovery (precision/recall of the live-host set):
 #   python benchmark.py 172.28.0.0/24 \
-#       --ground-truth 172.28.0.10,172.28.0.11,172.28.0.12,172.28.0.13
-#   # detection accuracy (ports / services / planted CVE):
+#       --ground-truth 172.28.0.10,172.28.0.11,172.28.0.12,172.28.0.13,172.28.0.14,172.28.0.15
+#   # detection accuracy (ports / services / versions / planted CVE):
 #   python detection_benchmark.py --md detection.md
 #   docker compose down
+#
+# Device diversity is deliberate: two web servers (nginx/apache), an SSH server on a
+# non-standard port (2222), a key-value store (redis), a relational database
+# (postgres), AND a redis on a NON-STANDARD port (1999) to prove service detection
+# follows the banner rather than the port number.
 #
 # Authorized by construction — you own these containers.
 
@@ -47,6 +52,21 @@ services:
     networks:
       testbed:
         ipv4_address: 172.28.0.13
+
+  db-postgres:        # 172.28.0.14 — postgresql (5432), relational-DB diversity
+    image: postgres:14.2
+    environment:
+      - POSTGRES_PASSWORD=benchmark
+    networks:
+      testbed:
+        ipv4_address: 172.28.0.14
+
+  redis-nonstd:       # 172.28.0.15 — redis on a NON-STANDARD port (1999): the
+    image: redis:7.2.3-alpine   # service must be identified by banner, not by port
+    command: ["redis-server", "--port", "1999"]
+    networks:
+      testbed:
+        ipv4_address: 172.28.0.15
 
 networks:
   testbed:

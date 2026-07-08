@@ -68,6 +68,8 @@ jobs:
         run: python -m pytest -v --cov=purple_recon --cov-report=term-missing --cov-fail-under=50
       - name: Evaluation harness unit tests (benchmark + detection + copilot scoring)
         run: python -m pytest evaluation/ -v
+      - name: Accuracy gate — offline CVE matching (precision & recall == 1.0, no false CVE)
+        run: python evaluation/cve_precision.py --min-precision 1.0 --min-recall 1.0
 
   backend:
     name: Backend pytest (FastAPI / scope guard / NSE parsing)

@@ -678,6 +678,9 @@ def _service_scan(
                 for part in (info.get("product", ""), info.get("version", ""), info.get("extrainfo", ""))
                 if part
             ).strip()
+            # nmap service/version-detection confidence (1–10); None if absent.
+            conf_raw = str(info.get("conf", "")).strip()
+            conf = int(conf_raw) if conf_raw.isdigit() else None
             # CVEs from NSE scripts (online) + the curated offline version map.
             vulns = _dedupe(_parse_scripts(info.get("script", {})) + lookup_offline_cves(version))
             cpe_by_port[port_num] = _app_cpe(info)
@@ -691,6 +694,7 @@ def _service_scan(
                     protocol=proto_enum,
                     service=name,
                     version=version,
+                    conf=conf,
                     state=state,
                     critical=critical,
                     vulns=vulns,
