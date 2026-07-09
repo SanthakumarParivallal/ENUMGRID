@@ -67,33 +67,38 @@ def _download_kev() -> set[str]:
 
 
 def kev_set() -> set[str]:
-    """Return the set of KEV CVE ids (memory → file cache → live download)."""
+    """Return the set of KEV CVE ids (memory → file cache → live download).
+
+    Guarded by ``_lock`` so concurrent host scans (this runs in the scanner's
+    thread pool) can't each trigger a duplicate download or race the module-level
+    memory cache — the first caller on a cold cache fetches, the rest reuse it."""
     global _kev_mem, _kev_mem_at
     if DISABLED:
         return set()
     now = time.time()
-    if _kev_mem is not None and now - _kev_mem_at < KEV_TTL:
-        return _kev_mem
-    # File cache, if fresh.
-    try:
-        if os.path.exists(KEV_CACHE) and now - os.path.getmtime(KEV_CACHE) < KEV_TTL:
-            with open(KEV_CACHE, encoding="utf-8") as fh:
-                _kev_mem = {c.upper() for c in json.load(fh)}
-                _kev_mem_at = now
-                return _kev_mem
-    except (OSError, ValueError):
-        pass
-    # Live download (fall back to any stale file cache on failure).
-    try:
-        _kev_mem = _download_kev()
-    except (urllib.error.URLError, OSError, ValueError, TimeoutError):
+    with _lock:
+        if _kev_mem is not None and now - _kev_mem_at < KEV_TTL:
+            return _kev_mem
+        # File cache, if fresh.
         try:
-            with open(KEV_CACHE, encoding="utf-8") as fh:
-                _kev_mem = {c.upper() for c in json.load(fh)}
+            if os.path.exists(KEV_CACHE) and now - os.path.getmtime(KEV_CACHE) < KEV_TTL:
+                with open(KEV_CACHE, encoding="utf-8") as fh:
+                    _kev_mem = {c.upper() for c in json.load(fh)}
+                    _kev_mem_at = now
+                    return _kev_mem
         except (OSError, ValueError):
-            _kev_mem = set()
-    _kev_mem_at = now
-    return _kev_mem
+            pass
+        # Live download (fall back to any stale file cache on failure).
+        try:
+            _kev_mem = _download_kev()
+        except (urllib.error.URLError, OSError, ValueError, TimeoutError):
+            try:
+                with open(KEV_CACHE, encoding="utf-8") as fh:
+                    _kev_mem = {c.upper() for c in json.load(fh)}
+            except (OSError, ValueError):
+                _kev_mem = set()
+        _kev_mem_at = now
+        return _kev_mem
 
 
 # --------------------------------------------------------------------------- #

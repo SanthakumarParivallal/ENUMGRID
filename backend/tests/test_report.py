@@ -104,6 +104,33 @@ def test_markup_in_scan_data_does_not_crash():
     assert _is_pdf(pdf)
 
 
+def test_nonnumeric_cvss_and_port_still_render():
+    # /api/report/pdf takes a RAW dict (not a validated model), so a hand-crafted
+    # authenticated POST can carry a string `cvss` or mixed-type `port`. The
+    # renderer must coerce/skip them and still produce a PDF — not raise a 500 —
+    # to keep its "a partial snapshot still renders" contract. Regression guard.
+    payload = {
+        "target": "10.0.0.0/24",
+        "hosts": [
+            {
+                "ip": "10.0.0.1",
+                "status": "up",
+                "ports": [
+                    # Mixed/garbage port types must not break the sort.
+                    {"port": "443", "protocol": "tcp", "state": "open", "service": "https",
+                     "vulns": [{"id": "CVE-2021-1111", "severity": "high", "cvss": "not-a-number"}]},
+                    {"port": 80, "protocol": "tcp", "state": "open", "service": "http",
+                     "vulns": [{"id": "CVE-2021-2222", "severity": "medium", "cvss": None}]},
+                    {"port": None, "protocol": "tcp", "state": "open", "service": "weird"},
+                ],
+                "vulns": [{"id": "CVE-2021-3333", "severity": "low", "cvss": "9.8"}],
+            },
+        ],
+    }
+    pdf = build_pdf(payload)
+    assert _is_pdf(pdf)
+
+
 def test_scanned_host_with_no_open_ports_is_noted():
     # A host with a (host-level) finding but no open ports still appears in the
     # per-host detail, with an explicit "no open ports" note rather than being omitted.

@@ -5,6 +5,27 @@ All notable changes to **ENUMGRID: the Enumeration Platform**. Format based on
 
 ## [Unreleased]
 
+### Hardened — full-repo audit (2026-07-10)
+- A line-by-line read of every backend module + the CLI + the non-line-gated React
+  views. Verdict: no reachable bugs — injection guards, SSRF surfaces (all fixed
+  HTTPS/local endpoints), the RBAC/scope/throttle layer, the raw-packet parsers
+  (NBNS/SNMP-BER/passive), and the XSS/PDF-markup sinks are all sound. Two minor
+  robustness items were fixed:
+  - **`report.py` — defensive numeric coercion.** `/api/report/pdf` accepts a raw
+    client dict (not a validated model), so a hand-crafted authenticated POST with a
+    string `cvss` or a mixed-type `port` would raise inside `build_pdf` (an unhandled
+    500), contradicting its documented "a partial snapshot still renders" contract.
+    Numeric fields are now coerced via a `_num()` helper (bad values are skipped, not
+    fatal). Unreachable from the real UI (`schema.js` coerces to numbers) — this is
+    defence-in-depth. Regression-guarded by `test_nonnumeric_cvss_and_port_still_render`.
+  - **`threatintel.py` — wired up the dead cache lock.** `_lock` was declared but never
+    acquired while `kev_set()` mutates the process-wide KEV memory cache — which the
+    scanner calls concurrently from its thread pool. Benign under the GIL (worst case: a
+    duplicate CISA-KEV download on a cold-cache burst), but the lock is now held around
+    the cache check/download as intended, so the first caller fetches and the rest reuse.
+- No behaviour change for the normal UI/CLI flow. Backend test count 725 → **726**;
+  repo total 1221 → **1222**, all suites green, all source modules still 100% line-covered.
+
 ### Tested — 100% coverage on the frontend logic layer too (CI-gated)
 - **The whole frontend `src/lib/**` layer (the pure logic + security surface) is now
   held at a full 100% line coverage** (statements + functions too), CI-gated per file
