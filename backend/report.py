@@ -70,6 +70,19 @@ def _attr(value) -> str:
     return '"' + _esc(value).replace('"', "&quot;") + '"'
 
 
+def _num(value) -> float | None:
+    """Coerce a payload value to float for safe formatting, or None if not numeric.
+
+    The report is rendered from a client-POSTed snapshot (``/api/report/pdf`` takes
+    a raw dict, not a validated model), so a numeric field like ``cvss`` or ``port``
+    can arrive as a string — or garbage. This keeps the renderer's "a partial
+    snapshot still renders" promise instead of raising on a bad type."""
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _styles():
     ss = getSampleStyleSheet()
     ss.add(ParagraphStyle("PRTitle", parent=ss["Title"], textColor=_INK, fontSize=20, spaceAfter=2))
@@ -192,7 +205,7 @@ def _inventory_table(hosts, styles):
 def _ports_table(ports, styles):
     head = ["Port", "Proto", "State", "Service", "Version"]
     data = [[Paragraph(f"<b>{c}</b>", styles["PRMutedBody"]) for c in head]]
-    for p in sorted(ports, key=lambda x: x.get("port", 0)):
+    for p in sorted(ports, key=lambda x: _num(x.get("port")) if _num(x.get("port")) is not None else 0):
         data.append([
             Paragraph(_esc(p.get("port", "")), styles["PRMono"]),
             Paragraph(_esc(p.get("protocol", "tcp")), styles["PRMutedBody"]),
@@ -338,7 +351,8 @@ def build_pdf(payload: dict) -> bytes:
                 story.append(Spacer(1, 3))
                 for v in vulns:
                     sev = (v.get("severity") or "info").lower()
-                    cvss = f" · CVSS {v['cvss']:.1f}" if v.get("cvss") is not None else ""
+                    cv = _num(v.get("cvss"))
+                    cvss = f" · CVSS {cv:.1f}" if cv is not None else ""
                     port = f" :{v['port']}" if v.get("port") else ""
                     sev_hex = _SEV_COLOR.get(sev, _MUTED).hexval()[2:]
                     # CVE id is a live link to NVD; confidence flags verify-needed.
