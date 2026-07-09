@@ -17,10 +17,13 @@ pydantic>=2.0
 reportlab>=4.0  # PDF report generation (test_report.py)
 zeroconf>=0.130  # mDNS device discovery (test_mdns.py)
 
-# Optional feature dependencies. The code degrades gracefully without them and
-# the tests cover the pure logic + the "unavailable" paths, so they stay optional:
-#   scapy>=2.5        # passive (zero-packet) discovery — backend/passive.py
-#   matplotlib>=3.8   # benchmark recall/time plot — evaluation/benchmark.py --plot
-#   anthropic>=0.40   # AI copilot — Anthropic Claude (paid)      — backend/copilot.py
-#   openai>=1.40      # AI copilot — OpenAI (paid) + Google Gemini (free tier) +
-#                     #   Ollama (free, local, keyless): all use the openai SDK.
+# Optional feature dependencies. In production the code degrades gracefully
+# without them; in CI we install them so the credentialed/live code paths run
+# under mocked I/O (no real network) and the 100% coverage gate is meaningful.
+paramiko>=3.4     # credentialed SSH host facts        — backend/credscan.py
+boto3>=1.34       # AWS cloud asset discovery          — backend/cloudscan.py
+ldap3>=2.9        # Active Directory (LDAP) enumeration — backend/adscan.py
+scapy>=2.5        # passive (zero-packet) discovery    — backend/passive.py
+anthropic>=0.40   # AI copilot — Anthropic Claude       — backend/copilot.py
+openai>=1.40      # AI copilot — OpenAI / Gemini / Ollama (shared SDK) — backend/copilot.py
+#   matplotlib>=3.8   # benchmark recall/time plot — evaluation/benchmark.py --plot (plotting only)

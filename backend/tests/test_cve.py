@@ -271,6 +271,27 @@ def test_acquire_slot_waits_then_allows_without_deadline(monkeypatch):
     assert slept["s"] > 0
 
 
+def test_acquire_slot_reprunes_expired_calls_after_waiting(monkeypatch):
+    # After the rate-limit wait, any call that aged out of the window *during* the
+    # sleep is re-pruned by the second eviction loop before the slot is granted.
+    class _Clock:
+        def __init__(self, t):
+            self.t = t
+
+        def time(self):
+            return self.t
+
+        def sleep(self, s):
+            self.t += s + 31.0            # the wait pushes the oldest call out of the window
+
+    clock = _Clock(1000.0)
+    monkeypatch.setattr(cve, "time", clock)
+    monkeypatch.setattr(cve, "API_KEY", None)                    # cap = 5
+    monkeypatch.setattr(cve, "_calls", [1000.0 - 29.9] + [1000.0] * 4)  # at the cap
+    assert cve._acquire_slot(None) is True
+    assert cve._calls == [clock.t]        # all prior calls aged out; only the new slot remains
+
+
 def test_lookup_over_budget_returns_empty(monkeypatch):
     monkeypatch.setattr(cve, "_query_nvd", lambda c: pytest.fail("must not query over budget"))
     assert cve.lookup("cpe:/a:v:p:1", deadline=cve.time.time() - 1) == []

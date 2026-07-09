@@ -475,3 +475,407 @@ def test_history_requires_token_when_configured(monkeypatch):
     assert client.get("/api/history/diff?target=10.0.0.0/24").status_code == 401
     assert client.get("/api/history?token=secret").status_code == 200
     assert client.get("/api/history/diff?target=10.0.0.0/24&token=secret").status_code == 200
+
+
+# --- endpoint success paths (heavy internals mocked; no scan/network) ------- #
+import asyncio  # noqa: E402
+from datetime import datetime  # noqa: E402
+
+import app as A  # noqa: E402
+from models import Host, HostStatus, ScanPhase, ScanState  # noqa: E402
+
+
+def test_root_endpoint():
+    body = client.get("/").json()
+    assert "service" in body and body["health"] == "/api/health"
+
+
+def test_profiles_lists_scan_profiles():
+    body = client.get("/api/profiles").json()
+    assert "default" in body["profiles"] and "args" in body["profiles"]["default"]
+    assert body["capability"] in ("root", "sudo", "unprivileged")
+
+
+def test_audit_endpoint():
+    assert "entries" in client.get("/api/audit").json()
+
+
+def test_network_collects_addresses(monkeypatch):
+    # Call the endpoint function directly: patching the shared `socket` module
+    # would otherwise break the in-process TestClient's own transport sockets.
+    import socket as S
+
+    class _Probe:
+        def connect(self, addr): pass
+        def getsockname(self): return ("192.168.7.20", 0)
+        def close(self): pass
+
+    monkeypatch.setattr(S, "socket", lambda *a, **k: _Probe())
+    monkeypatch.setattr(S, "gethostname", lambda: "myhost")
+    monkeypatch.setattr(S, "getaddrinfo", lambda h, p, fam: [(0, 0, 0, "", ("192.168.7.21", 0))])
+    body = A.network()
+    assert body["primary_ip"] == "192.168.7.20" and "192.168.7.21" in body["addresses"]
+    assert body["network_cidr"] == "192.168.7.0/24"
+
+
+def test_network_all_none_when_socket_fails(monkeypatch):
+    import socket as S
+
+    def _boom(*a, **k):
+        raise OSError("no route")
+
+    monkeypatch.setattr(S, "socket", _boom)
+    monkeypatch.setattr(S, "gethostname", _boom)
+    body = A.network()
+    assert body["primary_ip"] is None and body["hostname"] is None
+    assert body["suggested_target"] == "192.168.1.0/24"
+
+
+def test_scan_stream_discover_success(monkeypatch):
+    async def fake_disc(target, sid):
+        yield ScanState(scan_id=sid, target=target, phase=ScanPhase.PING_SWEEP, progress=10, hosts=[])
+        yield ScanState(scan_id=sid, target=target, phase=ScanPhase.COMPLETE, progress=100,
+                        hosts=[], finished_at=1.0)
+
+    monkeypatch.setattr(A, "run_discovery", fake_disc)
+    r = client.get("/api/scan/stream?target=192.168.50.5&id=t1")
+    assert r.status_code == 200 and _sse_frame(r.text)  # first frame parses
+    assert _sse_frames(r.text)[-1]["phase"] == "Complete"
+
+
+def test_scan_stream_full_mode_uses_pipeline(monkeypatch):
+    async def fake_pipe(target, sid, deep):
+        yield ScanState(scan_id=sid, target=target, phase=ScanPhase.COMPLETE, progress=100,
+                        hosts=[], finished_at=1.0)
+
+    monkeypatch.setattr(A, "run_pipeline", fake_pipe)
+    r = client.get("/api/scan/stream?target=192.168.50.5&mode=full&deep=1")
+    assert _sse_frames(r.text)[-1]["phase"] == "Complete"
+
+
+def test_host_scan_success(monkeypatch):
+    async def fake_scan(ip, deep, profile, scripts, ports, adaptive=False):
+        return Host(ip=ip, status=HostStatus.UP, os="Linux")
+
+    monkeypatch.setattr(A, "scan_single_host", fake_scan)
+    r = client.get("/api/host/scan?ip=192.168.50.5")
+    assert r.status_code == 200 and r.json()["ip"] == "192.168.50.5"
+
+
+def test_host_scan_timeout_and_error(monkeypatch):
+    async def _timeout(*a, **k):
+        raise asyncio.TimeoutError()
+
+    monkeypatch.setattr(A, "scan_single_host", _timeout)
+    assert client.get("/api/host/scan?ip=192.168.50.5").status_code == 504
+
+    async def _boom(*a, **k):
+        raise RuntimeError("scan blew up")
+
+    monkeypatch.setattr(A, "scan_single_host", _boom)
+    assert client.get("/api/host/scan?ip=192.168.50.5").status_code == 502
+
+
+def test_host_credscan_success_and_validation(monkeypatch):
+    monkeypatch.setattr(A.credscan, "ssh_facts",
+                        lambda ip, user, **k: {"ok": True, "os": "Ubuntu",
+                                               "package_list": [("openssl", "3.0")], "vulns": []})
+    monkeypatch.setattr(A.osv, "ecosystem_from_os", lambda os_: "Ubuntu")
+    monkeypatch.setattr(A.osv, "scan_packages", lambda pkgs, eco: [])
+    monkeypatch.setattr(A.threatintel, "enrich", lambda findings: findings)
+    body = {"ip": "192.168.50.5", "username": "admin", "password": "x"}  # nosec B105 - test fixture
+    r = client.post("/api/host/credscan", json=body)
+    assert r.status_code == 200 and r.json()["ok"] is True and "package_list" not in r.json()
+    assert client.post("/api/host/credscan", json={"ip": "", "username": ""}).status_code == 400
+
+
+def test_host_webscan_success(monkeypatch):
+    monkeypatch.setattr(A.webscan, "scan", lambda ip, port, https: {"ok": True, "server": "nginx", "vulns": []})
+    r = client.get("/api/host/webscan?ip=192.168.50.5&port=80")
+    assert r.status_code == 200 and r.json()["ok"] is True
+
+
+def test_cloud_aws(monkeypatch):
+    monkeypatch.setattr(A.cloudscan, "aws_inventory",
+                        lambda region: {"ok": True, "assets": [], "findings": []})
+    assert client.get("/api/cloud/aws").json()["ok"] is True
+
+
+def test_ad_enum_success_and_validation(monkeypatch):
+    monkeypatch.setattr(A.adscan, "enumerate_domain",
+                        lambda *a, **k: {"ok": True, "computers": [], "users": []})
+    ok = client.post("/api/ad/enum",
+                     json={"dc_host": "dc", "domain": "corp.local", "username": "u", "password": "p"})  # nosec B105 - test fixture
+    assert ok.status_code == 200 and ok.json()["ok"] is True
+    assert client.post("/api/ad/enum", json={"dc_host": "dc"}).status_code == 400   # missing fields
+
+
+def test_passive_success(monkeypatch):
+    monkeypatch.setattr(A.passive, "discover_passive",
+                        lambda s, i: {"available": True, "seconds": s, "hosts": [], "count": 0})
+    assert client.post("/api/passive?seconds=5").json()["available"] is True
+
+
+def test_copilot_chat_and_summary_success(monkeypatch, _copilot_isolated):
+    def fake_stream(messages, context, provider=None):
+        yield {"type": "delta", "text": "grounded answer"}
+        yield {"type": "done"}
+
+    monkeypatch.setattr(A.copilot, "stream_reply", fake_stream)
+    frames = _sse_frames(client.post("/api/copilot/chat",
+                                     json={"messages": [{"role": "user", "content": "hi"}],
+                                           "context": {"target": "x"}}).text)
+    assert any(f.get("text") == "grounded answer" for f in frames)
+
+    monkeypatch.setattr(A.copilot, "summarize_scan", lambda ctx, provider=None: {"available": True, "summary": "S"})
+    assert client.post("/api/copilot/summary", json={"context": {"target": "x"}}).json()["available"] is True
+
+
+def test_jobs_submit_list_get(monkeypatch, tmp_path):
+    import jobs
+    monkeypatch.setattr(jobs, "DB_PATH", str(tmp_path / "jobs.db"))
+    jid = client.post("/api/jobs/submit", json={"kind": "host_scan", "ip": "192.168.50.5"}).json()["job_id"]
+    assert any(j["id"] == jid for j in client.get("/api/jobs").json()["jobs"])
+    assert client.get(f"/api/jobs/{jid}").json()["kind"] == "host_scan"
+    assert client.get("/api/jobs/999999").status_code == 404
+    assert client.post("/api/jobs/submit", json={"kind": "bogus"}).status_code == 400
+    assert client.post("/api/jobs/submit", json={"kind": "host_scan", "ip": "8.8.8.8"}).status_code == 400
+
+
+def test_job_handlers_run_scans(monkeypatch):
+    async def fake_scan(ip, deep, profile, scripts, ports, adaptive=False):
+        return Host(ip=ip, status=HostStatus.UP)
+
+    monkeypatch.setattr(A, "scan_single_host", fake_scan)
+    assert A._job_host_scan({"ip": "192.168.50.5"})["ip"] == "192.168.50.5"
+
+    async def fake_disc(target, sid):
+        yield ScanState(scan_id=sid, target=target, phase=ScanPhase.COMPLETE, progress=100,
+                        hosts=[], finished_at=1.0)
+
+    monkeypatch.setattr(A, "run_discovery", fake_disc)
+    res = A._job_network_scan({"target": "192.168.50.0/24", "mode": "discover"})
+    assert res["ok"] is True and res["target"] == "192.168.50.0/24"
+
+
+def test_job_network_scan_no_result(monkeypatch):
+    async def empty(target, sid, deep):
+        return
+        yield  # pragma: no cover - marks this an async generator
+
+    monkeypatch.setattr(A, "run_pipeline", empty)
+    res = A._job_network_scan({"target": "192.168.50.0/24", "mode": "full"})
+    assert res["ok"] is False
+
+
+def test_scheduler_loop_enqueues_due_rules(monkeypatch, tmp_path):
+    import jobs
+    import schedule as sch
+    monkeypatch.setattr(jobs, "DB_PATH", str(tmp_path / "jobs.db"))
+    store = sch.ScheduleStore(str(tmp_path / "s.json"))
+    now = datetime.now()
+    store.add(target="192.168.50.0/24", at=f"{now.hour:02d}:{now.minute:02d}", days="*")
+    monkeypatch.setattr(A, "_schedules", store)
+
+    async def _run():
+        A._sched_stop.clear()
+        task = asyncio.create_task(A._scheduler_loop())
+        await asyncio.sleep(0.1)          # let one iteration enqueue the due rule
+        A._sched_stop.set()
+        await asyncio.wait_for(task, timeout=2)
+
+    asyncio.run(_run())
+    A._sched_stop.clear()
+    assert len(jobs.list_jobs()) >= 1     # the due rule fired a job
+
+
+def test_throttle_clears_streak_on_remote_success(monkeypatch):
+    security.reset_auth_throttle()
+    monkeypatch.setattr(security, "ADMIN_TOKEN", "adm1n")
+    monkeypatch.setattr(security, "client_is_local", lambda h: False)   # treat peer as remote
+    security.register_auth_failure("testclient")                        # seed a failure streak
+    assert client.get("/api/history?token=adm1n").status_code == 200    # success clears it
+    assert security.is_locked_out("testclient") is False
+    security.reset_auth_throttle()
+
+
+def test_request_context_logs_and_reraises(monkeypatch):
+    from fastapi.testclient import TestClient as _TC
+
+    def _boom(*a, **k):
+        raise RuntimeError("provenance blew up")
+
+    monkeypatch.setattr(A.provenance, "build_info", _boom)
+    c = _TC(A.app, raise_server_exceptions=False)
+    assert c.get("/api/health").status_code == 500      # middleware logs the error and re-raises
+
+
+_GATED_ENDPOINTS = [
+    ("post", "/api/privilege/elevate", {"password": "x"}),  # nosec B105 - test fixture
+    ("post", "/api/privilege/drop", None),
+    ("get", "/api/copilot", None),
+    ("post", "/api/copilot/provider", {"provider": "openai"}),
+    ("post", "/api/copilot/chat", {"messages": []}),
+    ("post", "/api/copilot/summary", {"context": {}}),
+    ("post", "/api/host/credscan", {"ip": "192.168.50.5", "username": "u"}),
+    ("get", "/api/host/webscan?ip=192.168.50.5", None),
+    ("get", "/api/campaign?targets=192.168.50.0/24", None),
+    ("get", "/api/cloud/aws", None),
+    ("post", "/api/ad/enum", {"dc_host": "d", "domain": "c", "username": "u", "password": "p"}),  # nosec B105 - test fixture
+    ("post", "/api/passive?seconds=5", None),
+    ("post", "/api/jobs/submit", {"kind": "host_scan", "ip": "192.168.50.5"}),
+    ("get", "/api/jobs", None),
+    ("get", "/api/jobs/1", None),
+    ("get", "/api/schedules", None),
+    ("post", "/api/schedules", {"target": "192.168.50.0/24", "at": "02:00"}),
+    ("post", "/api/schedules/x/toggle?enabled=false", None),
+    ("delete", "/api/schedules/x", None),
+    ("get", "/api/audit", None),
+]
+
+
+@pytest.mark.parametrize("method,path,body", _GATED_ENDPOINTS)
+def test_gated_endpoints_require_auth(monkeypatch, method, path, body):
+    # In token mode with no token supplied, every gated endpoint refuses (401).
+    monkeypatch.setattr(security, "ADMIN_TOKEN", "adm1n")
+    monkeypatch.setattr(security, "VIEWER_TOKEN", None)
+    monkeypatch.setattr(security, "API_TOKEN", None)
+    fn = getattr(client, method)
+    r = fn(path, json=body) if body is not None else fn(path)
+    assert r.status_code == 401
+
+
+def test_privilege_elevate_rejects_non_string_password():
+    r = client.post("/api/privilege/elevate", json={"password": 123})  # nosec B105 - test fixture (non-string)
+    assert r.status_code == 422       # password must be a string
+
+
+def test_job_network_scan_full_mode_with_result(monkeypatch):
+    async def fake_pipe(target, sid, deep):
+        yield ScanState(scan_id=sid, target=target, phase=ScanPhase.COMPLETE, progress=100,
+                        hosts=[Host(ip="192.168.50.5", status=HostStatus.UP)], finished_at=1.0)
+
+    monkeypatch.setattr(A, "run_pipeline", fake_pipe)
+    res = A._job_network_scan({"target": "192.168.50.0/24", "mode": "full"})
+    assert res["ok"] is True and res["mode"] == "full" and res["hosts"] == 1
+
+
+def test_app_lifespan_starts_and_stops_workers(monkeypatch, tmp_path):
+    import jobs
+    from fastapi.testclient import TestClient as _TC
+    monkeypatch.setattr(jobs, "DB_PATH", str(tmp_path / "jobs.db"))
+    A._job_stop.clear()
+    A._sched_stop.clear()
+    with _TC(A.app) as c:                 # triggers the startup + shutdown event handlers
+        assert c.get("/api/health").status_code == 200
+
+
+class _BusySlot:
+    async def __aenter__(self): return False      # at capacity
+    async def __aexit__(self, *a): return False
+
+
+def test_scan_stream_server_busy(monkeypatch):
+    monkeypatch.setattr(A, "scan_slot", lambda: _BusySlot())
+    frames = _sse_frames(client.get("/api/scan/stream?target=192.168.50.5").text)
+    assert any("busy" in f.get("message", "") for f in frames)
+
+
+def test_host_scan_server_busy(monkeypatch):
+    monkeypatch.setattr(A, "scan_slot", lambda: _BusySlot())
+    assert client.get("/api/host/scan?ip=192.168.50.5").status_code == 429
+
+
+def test_scan_stream_swallows_history_and_notify_errors(monkeypatch):
+    async def fake_disc(target, sid):
+        yield ScanState(scan_id=sid, target=target, phase=ScanPhase.COMPLETE, progress=100,
+                        hosts=[], finished_at=1.0)
+
+    def _raise(*a, **k):
+        raise RuntimeError("sink down")
+
+    monkeypatch.setattr(A, "run_discovery", fake_disc)
+    monkeypatch.setattr(A.history, "save_scan", _raise)
+    monkeypatch.setattr(A.notify, "scan_complete", _raise)
+    frames = _sse_frames(client.get("/api/scan/stream?target=192.168.50.5").text)
+    assert frames[-1]["phase"] == "Complete"      # best-effort sinks failed, stream still completed
+
+
+def test_host_credscan_and_webscan_reject_out_of_scope():
+    assert client.post("/api/host/credscan", json={"ip": "8.8.8.8", "username": "u"}).status_code == 400
+    assert client.get("/api/host/webscan?ip=8.8.8.8").status_code == 400
+
+
+def test_report_pdf_renders_despite_copilot_error(monkeypatch):
+    def _raise(*a, **k):
+        raise RuntimeError("llm down")
+
+    monkeypatch.setattr(A.copilot, "summarize_scan", _raise)
+    r = client.post("/api/report/pdf",
+                    json={"target": "x", "hosts": [{"ip": "10.0.0.1"}], "include_ai_summary": True})
+    assert r.status_code == 200 and r.content[:5] == b"%PDF-"   # copilot failure swallowed
+
+
+def test_latest_snapshot_handles_missing_row(monkeypatch):
+    monkeypatch.setattr(A.history, "list_scans", lambda t, limit=1: [{"id": 1, "finished_at": "t"}])
+    monkeypatch.setattr(A.history, "get_scan", lambda i: None)
+    assert A._latest_snapshot("x") == (None, None)
+
+
+def test_job_network_scan_swallows_save_error(monkeypatch):
+    async def fake_disc(target, sid):
+        yield ScanState(scan_id=sid, target=target, phase=ScanPhase.COMPLETE, progress=100,
+                        hosts=[], finished_at=1.0)
+
+    monkeypatch.setattr(A, "run_discovery", fake_disc)
+    monkeypatch.setattr(A.history, "save_scan", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("db")))
+    assert A._job_network_scan({"target": "192.168.50.0/24", "mode": "discover"})["ok"] is True
+
+
+def test_network_getaddrinfo_error_is_tolerated(monkeypatch):
+    import socket as S
+
+    class _Probe:
+        def connect(self, addr): pass
+        def getsockname(self): return ("192.168.7.20", 0)
+        def close(self): pass
+
+    monkeypatch.setattr(S, "socket", lambda *a, **k: _Probe())
+    monkeypatch.setattr(S, "gethostname", lambda: "myhost")
+    monkeypatch.setattr(S, "getaddrinfo", lambda *a: (_ for _ in ()).throw(OSError()))
+    assert A.network()["primary_ip"] == "192.168.7.20"      # getaddrinfo failure tolerated
+
+
+def test_schedule_toggle_missing_returns_404():
+    assert client.post("/api/schedules/nonexistent/toggle?enabled=false").status_code == 404
+
+
+def test_scheduler_loop_covers_enqueue_error_and_timeout(monkeypatch, tmp_path):
+    import jobs
+    import schedule as sch
+    monkeypatch.setattr(jobs, "DB_PATH", str(tmp_path / "jobs.db"))
+    store = sch.ScheduleStore(str(tmp_path / "s.json"))
+    now = datetime.now()
+    store.add(target="192.168.50.0/24", at=f"{now.hour:02d}:{now.minute:02d}", days="*")
+    monkeypatch.setattr(A, "_schedules", store)
+
+    def _enqueue_boom(*a, **k):
+        raise RuntimeError("queue full")          # a bad enqueue must not kill the ticker
+
+    monkeypatch.setattr(A.jobs, "enqueue", _enqueue_boom)
+    calls = {"n": 0}
+
+    async def fake_wait(fut, timeout):
+        calls["n"] += 1
+        fut.close()                               # we don't await the stop-event coroutine
+        if calls["n"] == 1:
+            raise asyncio.TimeoutError()          # exercise the 30s-tick timeout branch
+        A._sched_stop.set()                       # end the loop on the second tick
+
+    async def _run():
+        A._sched_stop.clear()
+        monkeypatch.setattr(A.asyncio, "wait_for", fake_wait)
+        await A._scheduler_loop()
+
+    asyncio.run(_run())
+    A._sched_stop.clear()

@@ -7,6 +7,9 @@ The live ping is not unit-tested (needs a host); this pins the bucketing and the
 
 from __future__ import annotations
 
+import types
+
+import osfp
 import pytest
 from osfp import os_from_ttl, refine_os
 
@@ -20,6 +23,7 @@ from osfp import os_from_ttl, refine_os
         (120, "Windows"),
         (255, "Network device / IoT"),
         (250, "Network device / IoT"),
+        (300, ""),   # above any real initial TTL (a byte maxes at 255) → honest empty
         (None, ""),
         (0, ""),
         (-1, ""),
@@ -107,3 +111,58 @@ def test_refine_no_signal_keeps_family():
 def test_refine_empty_family_with_apple_type():
     # Even with no TTL reply, a known Apple device still gets a label.
     assert refine_os("", device_type="Apple device") == "macOS / iOS (Apple)"
+
+
+# --- ping command + TTL probe (subprocess mocked) --------------------------- #
+def test_ping_command_per_platform(monkeypatch):
+    monkeypatch.setattr(osfp.platform, "system", lambda: "Windows")
+    assert osfp._ping_command("1.2.3.4", 2.0)[:2] == ["ping", "-n"]
+    monkeypatch.setattr(osfp.platform, "system", lambda: "Darwin")
+    assert "-t" in osfp._ping_command("1.2.3.4", 2.0)
+    monkeypatch.setattr(osfp.platform, "system", lambda: "Linux")
+    assert "-W" in osfp._ping_command("1.2.3.4", 2.0)
+
+
+def test_ping_ttl_parses_reply(monkeypatch):
+    monkeypatch.setattr(osfp.subprocess, "run",
+                        lambda *a, **k: types.SimpleNamespace(stdout="64 bytes from x: ttl=57 time=1 ms"))
+    assert osfp.ping_ttl("1.2.3.4") == 57
+
+
+def test_ping_ttl_no_ttl_or_error(monkeypatch):
+    monkeypatch.setattr(osfp.subprocess, "run",
+                        lambda *a, **k: types.SimpleNamespace(stdout="Request timed out"))
+    assert osfp.ping_ttl("1.2.3.4") is None                 # no TTL in output
+
+    def _boom(*a, **k):
+        raise OSError("ping missing")
+
+    monkeypatch.setattr(osfp.subprocess, "run", _boom)
+    assert osfp.ping_ttl("1.2.3.4") is None                 # subprocess failure → None
+
+
+def test_os_hint_maps_ttl(monkeypatch):
+    monkeypatch.setattr(osfp, "ping_ttl", lambda ip, timeout_s=2.0: 128)
+    assert osfp.os_hint("1.2.3.4") == "Windows"
+
+
+# --- direct helper + remaining refine branches ------------------------------ #
+def test_apple_os_from_hostname_direct():
+    assert osfp._apple_os_from_hostname("my-iPhone") == "iOS (Apple)"
+    assert osfp._apple_os_from_hostname("work-iPad") == "iPadOS (Apple)"
+    assert osfp._apple_os_from_hostname("MacBookPro") == "macOS (Apple)"
+    assert osfp._apple_os_from_hostname("mystery-box") == "macOS / iOS (Apple)"
+
+
+def test_refine_firewall_families():
+    for vendor, expected in (("SonicWall Inc", "SonicOS"),
+                             ("Palo Alto Networks", "PAN-OS"),
+                             ("Sophos Ltd", "Sophos Firewall OS")):
+        assert refine_os("Network device / IoT", vendor=vendor,
+                         device_type="Router / Gateway") == expected
+
+
+def test_refine_embedded_device_types():
+    assert refine_os("", device_type="Camera") == "Embedded Linux (camera)"
+    assert refine_os("", device_type="IoT / Embedded") == "Embedded / RTOS"
+    assert refine_os("", device_type="NAS / Storage") == "Linux (NAS)"

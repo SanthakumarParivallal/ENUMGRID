@@ -8,12 +8,37 @@ everything caches + degrades gracefully offline.
 
 from __future__ import annotations
 
+import json
+import os
+import time
+
 import threatintel as ti
 from models import Severity, Vuln
 
 
 def _v(cid, sev=Severity.MEDIUM, cvss=5.0):
     return Vuln(id=cid, severity=sev, cvss=cvss)
+
+
+class _FakeResp:
+    """Minimal context-manager stand-in for an ``urlopen`` response."""
+
+    def __init__(self, payload: bytes):
+        self._payload = payload
+
+    def read(self, *a):
+        return self._payload
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *a):
+        return False
+
+
+def _mock_urlopen(monkeypatch, payload: dict):
+    data = json.dumps(payload).encode()
+    monkeypatch.setattr(ti.urllib.request, "urlopen", lambda *a, **k: _FakeResp(data))
 
 
 def _isolate(tmp_path, monkeypatch):
@@ -97,3 +122,112 @@ def test_risk_key_orders_kev_then_epss_then_cvss():
     hi_cvss = Vuln(id="CVE-C", cvss=9.9)
     ranked = sorted([hi_cvss, hi_epss, kev], key=ti.risk_key)
     assert [v.id for v in ranked] == ["CVE-A", "CVE-B", "CVE-C"]
+
+
+# --- the real feed/cache code paths (network mocked at urlopen) ------------- #
+def test_download_kev_parses_upper_cases_and_caches(tmp_path, monkeypatch):
+    _isolate(tmp_path, monkeypatch)
+    _mock_urlopen(monkeypatch, {"vulnerabilities": [
+        {"cveID": "CVE-2021-44228"}, {"cveID": "cve-2017-0144"}, {"nope": 1},
+    ]})
+    ids = ti._download_kev()
+    assert ids == {"CVE-2021-44228", "CVE-2017-0144"}          # upper-cased, blanks skipped
+    assert set(json.loads(open(ti.KEV_CACHE, encoding="utf-8").read())) == ids   # written to disk
+
+
+def test_kev_set_disabled_returns_empty(tmp_path, monkeypatch):
+    _isolate(tmp_path, monkeypatch)
+    monkeypatch.setattr(ti, "DISABLED", True)
+    assert ti.kev_set() == set()
+
+
+def test_kev_set_reads_fresh_file_cache(tmp_path, monkeypatch):
+    _isolate(tmp_path, monkeypatch)
+    with open(ti.KEV_CACHE, "w", encoding="utf-8") as fh:
+        json.dump(["cve-2020-0001"], fh)
+
+    def _no_download():
+        raise AssertionError("must not download while the file cache is fresh")
+
+    monkeypatch.setattr(ti, "_download_kev", _no_download)
+    assert ti.kev_set() == {"CVE-2020-0001"}                   # served (upper-cased) from disk
+
+
+def test_kev_set_falls_back_to_stale_cache_on_download_error(tmp_path, monkeypatch):
+    _isolate(tmp_path, monkeypatch)
+    with open(ti.KEV_CACHE, "w", encoding="utf-8") as fh:
+        json.dump(["CVE-2019-0001"], fh)
+    old = time.time() - ti.KEV_TTL - 10
+    os.utime(ti.KEV_CACHE, (old, old))                         # age the file cache out
+
+    def _boom():
+        raise OSError("network down")
+
+    monkeypatch.setattr(ti, "_download_kev", _boom)
+    assert ti.kev_set() == {"CVE-2019-0001"}                   # stale cache used as last resort
+
+
+def test_query_epss_parses_and_skips_bad_values(tmp_path, monkeypatch):
+    _isolate(tmp_path, monkeypatch)
+    _mock_urlopen(monkeypatch, {"data": [
+        {"cve": "CVE-2021-44228", "epss": "0.97"},
+        {"cve": "CVE-2016-0001", "epss": "not-a-number"},      # unparseable → skipped
+    ]})
+    assert ti._query_epss(["CVE-2021-44228", "CVE-2016-0001"]) == {"CVE-2021-44228": 0.97}
+
+
+def test_epss_for_no_cve_ids_is_empty(tmp_path, monkeypatch):
+    _isolate(tmp_path, monkeypatch)
+    assert ti.epss_for(["not-a-cve", ""]) == {}
+
+
+def test_epss_for_records_zero_when_query_fails(tmp_path, monkeypatch):
+    _isolate(tmp_path, monkeypatch)
+
+    def _boom(chunk):
+        raise OSError("down")
+
+    monkeypatch.setattr(ti, "_query_epss", _boom)
+    assert ti.epss_for(["CVE-2021-44228"]) == {"CVE-2021-44228": 0.0}   # miss recorded, not dropped
+
+
+def test_epss_cache_read_and_write_errors_degrade(tmp_path, monkeypatch):
+    _isolate(tmp_path, monkeypatch)
+    monkeypatch.setattr(ti, "EPSS_CACHE", str(tmp_path))       # a directory → sqlite can't open a DB
+    hits, misses = ti._epss_cached(["CVE-2021-44228"])
+    assert hits == {} and misses == ["CVE-2021-44228"]         # read error → treat all as misses
+    ti._epss_store({"CVE-2021-44228": 0.5})                    # write error is swallowed (no raise)
+
+
+def test_epss_store_empty_is_noop(tmp_path, monkeypatch):
+    _isolate(tmp_path, monkeypatch)
+    ti._epss_store({})                                         # early return, nothing written
+
+
+def test_download_kev_cache_write_error_is_swallowed(tmp_path, monkeypatch):
+    _isolate(tmp_path, monkeypatch)
+    monkeypatch.setattr(ti, "KEV_CACHE", str(tmp_path))       # a directory → the cache write fails
+    _mock_urlopen(monkeypatch, {"vulnerabilities": [{"cveID": "CVE-2021-44228"}]})
+    assert ti._download_kev() == {"CVE-2021-44228"}           # ids returned despite the write error
+
+
+def test_kev_set_ignores_corrupt_fresh_cache_then_downloads(tmp_path, monkeypatch):
+    _isolate(tmp_path, monkeypatch)
+    with open(ti.KEV_CACHE, "w", encoding="utf-8") as fh:
+        fh.write("{ not json")                               # fresh mtime, but unparseable
+    monkeypatch.setattr(ti, "_download_kev", lambda: {"CVE-2020-0002"})
+    assert ti.kev_set() == {"CVE-2020-0002"}                 # corrupt read skipped → live download
+
+
+def test_kev_set_empty_when_download_and_cache_both_fail(tmp_path, monkeypatch):
+    _isolate(tmp_path, monkeypatch)                          # no cache file exists
+
+    def _boom():
+        raise OSError("network down")
+
+    monkeypatch.setattr(ti, "_download_kev", _boom)
+    assert ti.kev_set() == set()                             # nothing to fall back to → empty
+
+
+def test_enrich_empty_list_passes_through():
+    assert ti.enrich([]) == []

@@ -591,3 +591,416 @@ def test_privilege_status_shape(monkeypatch):
     assert st["capability"] == "unprivileged"
     assert st["can_elevate"] is True  # not root + sudo present → elevation offered
     _reset_priv()
+
+
+# --- async pipeline (nmap boundary stubbed at _run_scan — no binary/network) - #
+import asyncio  # noqa: E402
+
+
+class _FakeFullNode:
+    """A python-nmap host node stand-in for the pipeline (state + ports + scripts)."""
+
+    def __init__(self, *, state="up", hostname=None, protocols=None, hostscript=None):
+        self._state = state
+        self._hostname = hostname
+        self._protocols = protocols or {}          # {"tcp": {80: {info}}}
+        self._hostscript = hostscript or []
+
+    def state(self):
+        return self._state
+
+    def hostname(self):
+        return self._hostname or ""
+
+    def all_protocols(self):
+        return list(self._protocols)
+
+    def __getitem__(self, proto):
+        return self._protocols[proto]
+
+    def get(self, key, default=None):
+        if key == "hostscript":
+            return self._hostscript
+        if key == "osmatch":
+            return []
+        return default
+
+
+class _FakeHostScanner:
+    def __init__(self, nodes):
+        self._nodes = nodes
+
+    def all_hosts(self):
+        return list(self._nodes)
+
+    def __getitem__(self, ip):
+        return self._nodes[ip]
+
+
+def _neutralize_enrichers(monkeypatch):
+    """Keep the pipeline offline: no curated CVE table, no NVD/KEV/EPSS network."""
+    monkeypatch.setattr(scanner, "lookup_offline_cves", lambda v: [])
+    monkeypatch.setattr(scanner, "can_raw_scan", lambda: False)
+    monkeypatch.setattr(scanner.cvedb, "enrich", lambda cpe_by_port: {})
+    monkeypatch.setattr(scanner.threatintel, "kev_set", lambda: set())
+    monkeypatch.setattr(scanner.threatintel, "epss_for", lambda ids: {})
+
+
+def test_run_pipeline_end_to_end(monkeypatch):
+    up = _FakeFullNode(state="up", hostname="web.local", protocols={"tcp": {
+        80: {"state": "open", "name": "http", "product": "nginx", "version": "1.25", "conf": "10"}}})
+    down = _FakeFullNode(state="down")
+    fake = _FakeHostScanner({"10.0.0.1": up, "10.0.0.2": down})
+    monkeypatch.setattr(scanner, "nmap_available", lambda: True)
+    monkeypatch.setattr(scanner, "_run_scan", lambda hosts, args: (fake, ""))
+    monkeypatch.setattr(scanner, "guess_device_type", lambda **k: "Web server")
+    _neutralize_enrichers(monkeypatch)
+
+    async def _run():
+        return [s async for s in scanner.run_pipeline("10.0.0.0/24", "sid", deep=False)]
+
+    snaps = asyncio.run(_run())
+    final = snaps[-1]
+    assert final.phase == scanner.ScanPhase.COMPLETE and final.progress == 100
+    web = next(h for h in final.hosts if h.ip == "10.0.0.1")
+    assert web.status == scanner.HostStatus.UP and any(p.port == 80 for p in web.ports)
+    assert web.device_type == "Web server"                      # result device_type flows onto the host
+    assert any(h.ip == "10.0.0.2" and h.status == scanner.HostStatus.DOWN for h in final.hosts)
+
+
+def test_run_pipeline_errors_without_nmap(monkeypatch):
+    monkeypatch.setattr(scanner, "nmap_available", lambda: False)
+
+    async def _run():
+        return [s async for s in scanner.run_pipeline("10.0.0.0/24", None)]
+
+    assert asyncio.run(_run())[-1].phase == scanner.ScanPhase.ERROR
+
+
+def test_run_pipeline_ping_sweep_error(monkeypatch):
+    monkeypatch.setattr(scanner, "nmap_available", lambda: True)
+
+    def _boom(hosts, args):
+        raise scanner.nmap.PortScannerError("sweep failed")
+
+    monkeypatch.setattr(scanner, "_run_scan", _boom)
+
+    async def _run():
+        return [s async for s in scanner.run_pipeline("10.0.0.0/24", None)]
+
+    assert asyncio.run(_run())[-1].phase == scanner.ScanPhase.ERROR
+
+
+def test_run_pipeline_service_scan_error_degrades_host(monkeypatch):
+    up = _FakeFullNode(state="up")
+    ping_fake = _FakeHostScanner({"10.0.0.1": up})
+    monkeypatch.setattr(scanner, "nmap_available", lambda: True)
+
+    def _run_scan(hosts, args):
+        if "-sn" in args:                       # the ping-sweep pass succeeds
+            return ping_fake, ""
+        raise scanner.nmap.PortScannerError("service scan failed")   # the -sV pass fails
+
+    monkeypatch.setattr(scanner, "_run_scan", _run_scan)
+    _neutralize_enrichers(monkeypatch)
+
+    async def _run():
+        return [s async for s in scanner.run_pipeline("10.0.0.0/24", None)]
+
+    final = asyncio.run(_run())[-1]
+    host = next(h for h in final.hosts if h.ip == "10.0.0.1")
+    assert host.os == "Unknown" and host.ports == []   # degraded honestly, pipeline completed
+    assert final.phase == scanner.ScanPhase.COMPLETE
+
+
+def test_scan_single_host_basic(monkeypatch):
+    node = _FakeFullNode(state="up", hostname="h", protocols={"tcp": {
+        22: {"state": "open", "name": "ssh", "conf": "10"}}})
+    fake = _FakeHostScanner({"10.0.0.5": node})
+    monkeypatch.setattr(scanner, "_run_scan", lambda h, a: (fake, ""))
+    _neutralize_enrichers(monkeypatch)
+    host = asyncio.run(scanner.scan_single_host("10.0.0.5", deep=False, confirm=False))
+    assert host.ip == "10.0.0.5" and any(p.port == 22 for p in host.ports)
+
+
+def test_scan_single_host_adaptive_merges_full_sweep(monkeypatch):
+    # Quick pass finds an open port → adaptive triggers a full-port pass; results merge.
+    quick = _FakeFullNode(state="up", protocols={"tcp": {80: {"state": "open", "name": "http", "conf": "10"}}})
+    deep = _FakeFullNode(state="up", protocols={"tcp": {
+        80: {"state": "open", "name": "http", "conf": "10"},
+        8443: {"state": "open", "name": "https-alt", "conf": "10"}}})
+    calls = {"n": 0}
+
+    def _run_scan(h, a):
+        calls["n"] += 1
+        return (_FakeHostScanner({"10.0.0.5": deep if "-p-" in a else quick}), "")
+
+    monkeypatch.setattr(scanner, "_run_scan", _run_scan)
+    _neutralize_enrichers(monkeypatch)
+    host = asyncio.run(scanner.scan_single_host("10.0.0.5", deep=False, adaptive=True, confirm=False))
+    assert {p.port for p in host.ports} == {80, 8443}   # merged both passes
+
+
+def test_scan_single_host_confirms_filtered_ports(monkeypatch):
+    filtered = _FakeFullNode(state="up", protocols={"tcp": {445: {"state": "filtered", "name": "microsoft-ds"}}})
+    reprobe = _FakeHostScanner({"10.0.0.5": _FakeFullNode(protocols={"tcp": {445: {"state": "open"}}})})
+
+    def _run_scan(h, a):
+        # The confirmation pass uses --max-retries; the initial scan does not.
+        return (reprobe if "--max-retries" in a else _FakeHostScanner({"10.0.0.5": filtered}), "")
+
+    monkeypatch.setattr(scanner, "_run_scan", _run_scan)
+    _neutralize_enrichers(monkeypatch)
+    host = asyncio.run(scanner.scan_single_host("10.0.0.5", deep=False, confirm=True))
+    p445 = next(p for p in host.ports if p.port == 445)
+    assert p445.state == scanner.PortState.OPEN and p445.critical is True   # re-probe resolved it
+
+
+# --- _confirm_filtered (direct) --------------------------------------------- #
+def test_confirm_filtered_reprobes_states(monkeypatch):
+    node = _FakeHostScanner({"10.0.0.5": _FakeFullNode(protocols={"tcp": {445: {"state": "open"}}})})
+    monkeypatch.setattr(scanner, "_run_scan", lambda h, a: (node, ""))
+    assert scanner._confirm_filtered("10.0.0.5", [445], privileged=True)[445] == scanner.PortState.OPEN
+
+
+def test_confirm_filtered_empty_and_missing_host(monkeypatch):
+    assert scanner._confirm_filtered("10.0.0.5", [], privileged=False) == {}   # no ports → {}
+    other = _FakeHostScanner({"10.0.0.9": _FakeFullNode()})                     # our ip absent
+    monkeypatch.setattr(scanner, "_run_scan", lambda h, a: (other, ""))
+    assert scanner._confirm_filtered("10.0.0.5", [445], privileged=False) == {}
+
+
+def test_confirm_filtered_scan_error_is_empty(monkeypatch):
+    def _boom(h, a):
+        raise scanner.nmap.PortScannerError("x")
+
+    monkeypatch.setattr(scanner, "_run_scan", _boom)
+    assert scanner._confirm_filtered("10.0.0.5", [445], privileged=False) == {}
+
+
+# --- enrichment paths inside _service_scan (auto_cve) ----------------------- #
+def test_service_scan_applies_nvd_and_threatintel(monkeypatch):
+    from models import Severity, Vuln
+
+    node = _FakeFullNode(state="up", protocols={"tcp": {
+        80: {"state": "open", "name": "http", "product": "nginx", "version": "1.25",
+             "conf": "10", "cpe": "cpe:/a:nginx:nginx:1.25"}}})
+    fake = _FakeHostScanner({"10.0.0.5": node})
+    monkeypatch.setattr(scanner, "_run_scan", lambda h, a: (fake, ""))
+    monkeypatch.setattr(scanner, "lookup_offline_cves", lambda v: [])
+    # NVD returns a critical CVE for port 80; KEV marks it exploited.
+    cve = Vuln(id="CVE-2099-0001", severity=Severity.CRITICAL, cvss=9.8)
+    monkeypatch.setattr(scanner.cvedb, "enrich", lambda cpe_by_port: {80: [cve]})
+    monkeypatch.setattr(scanner.threatintel, "kev_set", lambda: {"CVE-2099-0001"})
+    monkeypatch.setattr(scanner.threatintel, "epss_for", lambda ids: {"CVE-2099-0001": 0.9})
+    result = scanner._service_scan("10.0.0.5", privileged=False, deep=False, auto_cve=True)
+    p80 = next(p for p in result["ports"] if p.port == 80)
+    assert p80.critical is True
+    vuln = next(v for v in p80.vulns if v.id == "CVE-2099-0001")
+    assert vuln.kev is True and vuln.epss == 0.9
+
+
+def test_service_scan_ipv6_and_missing_host(monkeypatch):
+    monkeypatch.setattr(scanner, "_run_scan", lambda h, a: (_FakeHostScanner({}), "note"))
+    _neutralize_enrichers(monkeypatch)
+    res = scanner._service_scan("fe80::1", privileged=False, deep=False)   # IPv6 → adds -6
+    assert res["ports"] == [] and res["os"] == "Unknown" and res["note"] == "note"
+
+
+def test_service_scan_enrich_exception_swallowed(monkeypatch):
+    node = _FakeFullNode(state="up", protocols={"tcp": {80: {"state": "open", "name": "http", "conf": "10"}}})
+    monkeypatch.setattr(scanner, "_run_scan", lambda h, a: (_FakeHostScanner({"10.0.0.5": node}), ""))
+    monkeypatch.setattr(scanner, "lookup_offline_cves", lambda v: [])
+
+    def _boom(cpe_by_port):
+        raise RuntimeError("nvd down")
+
+    monkeypatch.setattr(scanner.cvedb, "enrich", _boom)
+    monkeypatch.setattr(scanner.threatintel, "kev_set", lambda: set())
+    monkeypatch.setattr(scanner.threatintel, "epss_for", lambda ids: {})
+    assert scanner._service_scan("10.0.0.5", privileged=False, deep=False, auto_cve=True)["ports"]
+
+
+def test_apply_threatintel_swallows_feed_error(monkeypatch):
+    from models import Severity, Vuln
+    ports = [scanner.Port(port=80, service="http", vulns=[Vuln(id="CVE-2021-1", severity=Severity.HIGH)])]
+
+    def _boom():
+        raise RuntimeError("kev feed down")
+
+    monkeypatch.setattr(scanner.threatintel, "kev_set", _boom)
+    scanner._apply_threatintel(ports, [])          # feed failure must not raise
+
+
+def test_ip_key_bad_input():
+    assert scanner._ip_key("not.an.ip") == 0
+
+
+# --- privilege probes + scan-runner error paths ----------------------------- #
+def test_nmap_available(monkeypatch):
+    monkeypatch.setattr(scanner.nmap, "PortScanner", lambda: object())
+    assert scanner.nmap_available() is True
+
+    def _boom():
+        raise scanner.nmap.PortScannerError("no nmap")
+
+    monkeypatch.setattr(scanner.nmap, "PortScanner", _boom)
+    assert scanner.nmap_available() is False
+
+
+def test_sudo_available(monkeypatch):
+    monkeypatch.setattr(scanner.shutil, "which", lambda x: "/usr/bin/sudo")
+    assert scanner.sudo_available() is True
+    monkeypatch.setattr(scanner.shutil, "which", lambda x: None)
+    assert scanner.sudo_available() is False
+
+
+def test_probe_sudo_paths(monkeypatch):
+    monkeypatch.setattr(scanner, "_AUTO_SUDO", False)
+    assert scanner._probe_sudo() is False                       # opted out
+    monkeypatch.setattr(scanner, "_AUTO_SUDO", True)
+    monkeypatch.setattr(scanner.shutil, "which", lambda x: None)
+    assert scanner._probe_sudo() is False                       # sudo binary absent
+    monkeypatch.setattr(scanner.shutil, "which", lambda x: "/usr/bin/" + x)
+    monkeypatch.setattr(scanner.subprocess, "run", lambda *a, **k: _Proc(0))
+    assert scanner._probe_sudo() is True                        # sudo -n nmap succeeds
+
+    def _boom(*a, **k):
+        raise OSError("no sudo")
+
+    monkeypatch.setattr(scanner.subprocess, "run", _boom)
+    assert scanner._probe_sudo() is False                       # subprocess error → False
+
+
+def test_adapt_dedupes_duplicate_scan_flag():
+    out, _note = scanner._adapt_args("-sV -sV -Pn")
+    assert out.split().count("-sV") == 1                        # duplicate scan flag collapsed
+
+
+def test_run_scan_sudo_success(monkeypatch):
+    monkeypatch.setattr(scanner, "scan_capability", lambda: "sudo")
+    sentinel = object()
+    monkeypatch.setattr(scanner, "_sudo_scan", lambda h, a: sentinel)
+    sc, note = scanner._run_scan("10.0.0.1", "-sS -Pn")
+    assert sc is sentinel and note == ""                        # sudo path returns the scanner as-is
+
+
+def test_script_likely_vulnerable_is_medium_confirmed():
+    v = scanner._script_to_vuln("http-x", "State: LIKELY VULNERABLE")
+    assert v is not None and v.severity == Severity.MEDIUM and v.confidence == "confirmed"
+
+
+def test_elevate_sudo_disabled_no_password_and_error(monkeypatch):
+    _reset_priv()
+    monkeypatch.setattr(scanner.os, "geteuid", lambda: 1000, raising=False)
+    monkeypatch.setattr(scanner, "_AUTO_SUDO", False)
+    assert scanner.elevate_sudo("pw")[0] is False               # disabled
+    monkeypatch.setattr(scanner, "_AUTO_SUDO", True)
+    monkeypatch.setattr(scanner, "sudo_available", lambda: True)
+    assert scanner.elevate_sudo("")[0] is False                 # no password
+
+    def _boom(*a, **k):
+        raise OSError("cannot exec")
+
+    monkeypatch.setattr(scanner.subprocess, "run", _boom)
+    ok, msg = scanner.elevate_sudo("pw")
+    assert ok is False and "invoke" in msg.lower()              # subprocess error
+    _reset_priv()
+
+
+def test_drop_privileges_runs_sudo_k_and_swallows_error(monkeypatch):
+    _reset_priv()
+    monkeypatch.setattr(scanner, "sudo_available", lambda: True)
+    seen = {}
+    monkeypatch.setattr(scanner.subprocess, "run", lambda argv, **k: seen.update(argv=argv) or _Proc(0))
+    scanner.drop_privileges()
+    assert "-k" in seen["argv"]
+
+    def _boom(*a, **k):
+        raise OSError("sudo gone")
+
+    monkeypatch.setattr(scanner.subprocess, "run", _boom)
+    scanner.drop_privileges()                                   # error swallowed
+    _reset_priv()
+
+
+def test_run_scan_root_leaves_args_unchanged(monkeypatch):
+    monkeypatch.setattr(scanner, "scan_capability", lambda: "root")
+    captured = {}
+
+    class _S:
+        def scan(self, hosts, arguments): captured["args"] = arguments
+
+    monkeypatch.setattr(scanner.nmap, "PortScanner", _S)
+    _sc, note = scanner._run_scan("10.0.0.1", "-sS -Pn")
+    assert note == "" and "-sS" in captured["args"]             # root → raw args run as-is
+
+
+def test_sudo_scan_noninteractive_and_failures(monkeypatch):
+    _reset_priv()                                               # _SUDO_PASSWORD None → `sudo -n`
+    seen = {}
+
+    class _S:
+        def analyse_nmap_xml_scan(self, **kw): pass
+
+    monkeypatch.setattr(scanner.nmap, "PortScanner", _S)
+    monkeypatch.setattr(scanner.subprocess, "run", lambda argv, **k: seen.update(argv=argv) or type(
+        "P", (), {"returncode": 0, "stdout": b"<x/>", "stderr": b""})())
+    assert scanner._sudo_scan("10.0.0.1", "-sS -Pn") is not None and "-n" in seen["argv"]
+
+    monkeypatch.setattr(scanner.subprocess, "run", lambda *a, **k: (_ for _ in ()).throw(OSError()))
+    assert scanner._sudo_scan("10.0.0.1", "-sS") is None        # subprocess error → None
+
+    monkeypatch.setattr(scanner.subprocess, "run", lambda *a, **k: type(
+        "P", (), {"returncode": 1, "stdout": b"", "stderr": b""})())
+    assert scanner._sudo_scan("10.0.0.1", "-sS") is None        # nonzero exit → None
+
+    monkeypatch.setattr(scanner.subprocess, "run", lambda *a, **k: type(
+        "P", (), {"returncode": 0, "stdout": b"<x/>", "stderr": b""})())
+
+    class _SBoom:
+        def analyse_nmap_xml_scan(self, **kw): raise scanner.nmap.PortScannerError("bad xml")
+
+    monkeypatch.setattr(scanner.nmap, "PortScanner", _SBoom)
+    assert scanner._sudo_scan("10.0.0.1", "-sS") is None        # XML parse error → None
+    _reset_priv()
+
+
+def test_confirm_filtered_ipv6_privileged(monkeypatch):
+    node = _FakeHostScanner({"fe80::5": _FakeFullNode(protocols={"tcp": {445: {"state": "open"}}})})
+    seen = {}
+
+    def _run_scan(h, a):
+        seen["args"] = a
+        return node, ""
+
+    monkeypatch.setattr(scanner, "_run_scan", _run_scan)
+    out = scanner._confirm_filtered("fe80::5", [445], privileged=True)
+    assert "-6" in seen["args"] and "--source-port" in seen["args"] and out[445] == scanner.PortState.OPEN
+
+
+def test_scan_single_host_adaptive_timeout_keeps_quick(monkeypatch):
+    quick = _FakeFullNode(state="up", protocols={"tcp": {80: {"state": "open", "name": "http", "conf": "10"}}})
+
+    def _run_scan(h, a):
+        if "-p-" in a:
+            raise scanner.nmap.PortScannerError("full sweep failed")
+        return _FakeHostScanner({"10.0.0.5": quick}), ""
+
+    monkeypatch.setattr(scanner, "_run_scan", _run_scan)
+    _neutralize_enrichers(monkeypatch)
+    host = asyncio.run(scanner.scan_single_host("10.0.0.5", deep=False, adaptive=True, confirm=False))
+    assert {p.port for p in host.ports} == {80}                 # full-pass error → kept quick result
+
+
+def test_scan_single_host_confirm_error_keeps_filtered(monkeypatch):
+    filtered = _FakeFullNode(state="up", protocols={"tcp": {445: {"state": "filtered", "name": "microsoft-ds"}}})
+    monkeypatch.setattr(scanner, "_run_scan", lambda h, a: (_FakeHostScanner({"10.0.0.5": filtered}), ""))
+    _neutralize_enrichers(monkeypatch)
+
+    def _timeout(*a, **k):                       # the re-probe times out at the wait_for boundary
+        raise TimeoutError("reprobe timed out")
+
+    monkeypatch.setattr(scanner, "_confirm_filtered", _timeout)
+    host = asyncio.run(scanner.scan_single_host("10.0.0.5", deep=False, confirm=True))
+    assert next(p for p in host.ports if p.port == 445).state == scanner.PortState.FILTERED

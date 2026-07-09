@@ -124,3 +124,20 @@ def test_drift_no_changes_when_identical(db):
     d = history.drift_for_target("net/24")
     assert d["available"] is True
     assert d["has_changes"] is False
+
+
+def test_ensure_on_path_inserts_once():
+    path = ["/existing"]
+    history._ensure_on_path("/root", path)
+    assert path == ["/root", "/existing"]         # inserted at the front
+    history._ensure_on_path("/root", path)        # already present
+    assert path == ["/root", "/existing"]         # → no duplicate
+
+
+def test_get_scan_tolerates_corrupt_snapshot_json(db):
+    # A row whose snapshot column isn't valid JSON degrades to {} rather than raising.
+    history.save_scan(_snap("10.0.0.0/24", [_host("10.0.0.1")]))
+    with history._connect() as conn:
+        conn.execute("UPDATE scans SET snapshot = ? WHERE id = 1", ("not-json",))
+    row = history.get_scan(1)
+    assert row is not None and row["snapshot"] == {}

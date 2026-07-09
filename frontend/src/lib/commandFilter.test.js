@@ -24,6 +24,13 @@ describe('scoreCommand', () => {
     expect(scoreCommand({ label: 'Start scan' }, 'stsc')).toBe(10);
     expect(scoreCommand({ label: 'Start scan' }, 'zzz')).toBe(0);
   });
+
+  it('scores an empty query as a neutral 1 (primitive has no early-out)', () => {
+    // filterCommands short-circuits empty queries, but the primitive itself
+    // must still return the neutral score for any direct caller.
+    expect(scoreCommand({ label: 'Start scan' }, '')).toBe(1);
+    expect(scoreCommand({}, '')).toBe(1); // no label / keywords either
+  });
 });
 
 describe('filterCommands', () => {

@@ -100,7 +100,7 @@ try:
     import nmap  # type: ignore
 
     _HAVE_PYNMAP = True
-except ImportError:
+except ImportError:  # pragma: no cover - optional dependency
     nmap = None  # type: ignore
     _HAVE_PYNMAP = False
 
@@ -149,6 +149,10 @@ STATE_STYLE: dict[str, tuple[str, str]] = {
 # Label for devices using a randomized / locally-administered MAC (modern phones
 # with "private Wi-Fi address" — there is no real vendor to look up).
 VENDOR_RANDOM = "(private/random)"
+
+# IEEE OUI registry download source. A module constant so the HTTPS-only guard in
+# download_oui_registry() is exercisable and the endpoint stays auditable.
+_OUI_REGISTRY_URL = "https://standards-oui.ieee.org/oui/oui.csv"
 
 # A curated OUI→vendor subset of the IEEE registry so common devices get a
 # vendor name out-of-the-box. For FULL coverage, download the IEEE registry
@@ -2013,7 +2017,7 @@ def download_oui_registry(console: Console) -> str | None:
     dest = os.path.join(cache_dir, "oui.csv")
     console.print(f"[dim]» Downloading IEEE OUI registry → {dest} …[/]")
     try:
-        url = "https://standards-oui.ieee.org/oui/oui.csv"
+        url = _OUI_REGISTRY_URL
         # Defence-in-depth: refuse anything but HTTPS so urlopen can never be
         # steered to a file:// or other local scheme.
         if not url.startswith("https://"):

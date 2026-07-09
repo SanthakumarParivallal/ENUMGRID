@@ -83,3 +83,20 @@ def test_log_helpers_emit_records_with_fields():
     assert [r.getMessage() for r in captured] == ["did a thing", "careful", "nope"]
     assert captured[0].fields == {"count": 5}
     assert captured[0].levelno == logging.INFO and captured[2].levelno == logging.ERROR
+
+
+def test_text_formatter_includes_exception():
+    import sys
+    try:
+        raise ValueError("boom")
+    except ValueError:
+        rec = logging.LogRecord("enumgrid", logging.ERROR, __file__, 1, "failed", None, sys.exc_info())
+    line = obs._TextFormatter().format(rec)
+    assert "failed" in line and "ValueError" in line     # traceback appended to the text line
+
+
+def test_get_logger_configures_on_first_use(monkeypatch):
+    monkeypatch.setattr(obs, "_configured", False)       # simulate a fresh, unconfigured process
+    logger = obs.get_logger()                            # first use must auto-configure
+    assert obs._configured is True
+    assert any(getattr(h, "_enumgrid", False) for h in logger.handlers)

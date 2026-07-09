@@ -6,7 +6,7 @@
 
 [![CI](https://github.com/SanthakumarParivallal/ENUMGRID/actions/workflows/ci.yml/badge.svg)](https://github.com/SanthakumarParivallal/ENUMGRID/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-FFB300.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-802%20passing-brightgreen.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-1221%20passing-brightgreen.svg)](#testing)
 [![Python](https://img.shields.io/badge/python-3.10%E2%80%933.14-blue.svg)](pyproject.toml)
 [![Node](https://img.shields.io/badge/node-%E2%89%A520-blue.svg)](frontend/package.json)
 [![SAST: bandit](https://img.shields.io/badge/SAST-bandit%200%20high%2Fmed-blue.svg)](#security)
@@ -334,17 +334,33 @@ make test      # ruff lint + CLI pytest + backend pytest + frontend Vitest
 
 | Suite | Count | Scope |
 |---|---|---|
-| `tests/test_purple_recon.py` | 92 | guardrails (incl. IPv6 scope, empty/delimiter-only specs), NDP/ARP/OUI parsing, discovery policy, reports, export, renderers, **reproducibility manifest**, **fuzzing** |
-| `backend/tests/test_*.py` | 509 | scope/**RBAC** (constant-time tokens) **+ per-IP auth brute-force throttle** **+ read-gated PDF/report endpoint**, **11 scan profiles** + injection safety + **adaptive all-ports scan**, **privilege auto-adaptation** (root/sudo/unprivileged downgrade) **+ runtime sudo elevation** (in-memory password, drop), **live NVD** (+ persisted API key) **+ offline CVE DB** (**whole-token product match — no `httpd`-in-`lighttpd` false positive**) **+ OSV backport-aware**, **KEV+EPSS prioritization**, **service-detection confidence propagation**, **credentialed SSH + package parsers**, **web-DAST audit** (TLS cert parse), **SNMP BER codec**, **AWS/LDAP parsers** (incl. IPv6 SG), **job-queue**, **passive (zero-packet) discovery**, **cron-style scheduling** (`due`/`next_run`), **multi-subnet campaign aggregation**, **provenance manifest**, **golden-file determinism** (nmap-XML→model + byte-stable PDF), **structured JSON logging** (request/scan correlation ids), **outbound alerting + audit**, NSE/CVSS, **multi-signal OS fingerprinting** (hostname > vendor, honest random-MAC OS), device discovery + mDNS + **NBNS** + **SSDP** + **port probe**, history + drift, **PDF escaping**, **FastAPI integration**, **AI copilot** (4 providers incl. free **Ollama**/**Gemini**, keyless-local routing + live server/model probe, base-URL dispatch, one-click model-pull streaming, model-name validation, scan-grounding, **intent-gated** tool arming, proposed-action validation, **grounded executive-summary** generation for the PDF), **hypothesis fuzzing** |
-| `frontend/src/**/*.test.js` | 108 | schema coercion / null-safety + scan-state transients (incl. **service-detection confidence**), CVE link + confidence + **KEV/EPSS risk-rank**, derived counters, **API-token helpers**, **CSV/JSON export** (formula-injection-safe), **privilege-tier badge logic**, **modal focus-trap logic** (a11y), **toast tone/role mapping**, **keyboard-shortcut guard**, **⌘K command-palette ranking**, **Operations-panel helpers** (schedule/campaign parsing), **copilot helpers** (scan-context grounding, SSE parsing, key-form validation, Ollama setup-state machine, byte formatting), **safe Markdown renderer** (HTML-escaped, scheme-allow-listed links, CVE→NVD autolink, XSS-tested) |
+| `tests/test_purple_recon*.py` | 197 | guardrails (incl. IPv6 scope, empty/delimiter-only specs), NDP/ARP/OUI parsing, discovery policy, reports, export, renderers, **reproducibility manifest**, **fuzzing** — **plus** the full threaded engines (sweep/ICMP/TCP/ARP-proxy, nmap + socket enumeration), the orchestrator, both run-loops (cockpit + headless, incl. Ctrl-C), and the `main`/`cli` entrypoints driven through mocked boundaries (sockets/subprocess/nmap/DNS) → **100 % line coverage** |
+| `backend/tests/test_*.py` | 725 | scope/**RBAC** (constant-time tokens) **+ per-IP auth brute-force throttle** **+ read-gated PDF/report endpoint**, **full async scan-pipeline + FastAPI-endpoint drive-through** (nmap/SSH/AWS/LDAP/LLM boundaries mocked → 100% line coverage), **11 scan profiles** + injection safety + **adaptive all-ports scan**, **privilege auto-adaptation** (root/sudo/unprivileged downgrade) **+ runtime sudo elevation** (in-memory password, drop), **live NVD** (+ persisted API key) **+ offline CVE DB** (**whole-token product match — no `httpd`-in-`lighttpd` false positive**) **+ OSV backport-aware**, **KEV+EPSS prioritization**, **service-detection confidence propagation**, **credentialed SSH + package parsers**, **web-DAST audit** (TLS cert parse), **SNMP BER codec**, **AWS/LDAP parsers** (incl. IPv6 SG), **job-queue**, **passive (zero-packet) discovery**, **cron-style scheduling** (`due`/`next_run`), **multi-subnet campaign aggregation**, **provenance manifest**, **golden-file determinism** (nmap-XML→model + byte-stable PDF), **structured JSON logging** (request/scan correlation ids), **outbound alerting + audit**, NSE/CVSS, **multi-signal OS fingerprinting** (hostname > vendor, honest random-MAC OS), device discovery + mDNS + **NBNS** + **SSDP** + **port probe**, history + drift, **PDF escaping**, **FastAPI integration**, **AI copilot** (4 providers incl. free **Ollama**/**Gemini**, keyless-local routing + live server/model probe, base-URL dispatch, one-click model-pull streaming, model-name validation, scan-grounding, **intent-gated** tool arming, proposed-action validation, **grounded executive-summary** generation for the PDF), **hypothesis fuzzing** |
+| `frontend/src/**/*.test.{js,jsx}` | 206 | the whole `src/lib/**` layer at **100 % line coverage** (CI-gated, jsdom + real timers) — schema coercion / null-safety + scan-state transients (incl. **service-detection confidence**), CVE link + confidence + **KEV/EPSS risk-rank**, derived counters, **API-token helpers + persistence** (localStorage, `EventSource` token, throwing/absent store), **CSV/JSON export** (formula-injection-safe) **+ blob-download**, **view-preference store** (theme/column widths, corrupt-JSON recovery), **the offline scan engine** (deterministic seeded battery: archetypes, filtered/UDP ports, mid-run stop), **privilege-tier badge logic**, **modal focus-trap** (pure math + real Tab/Shift-Tab + focus restore), **toast provider** (queue, polite/assertive roles, auto-dismiss, keyed replace), **keyboard-shortcut guard**, **⌘K command-palette ranking**, **Operations-panel helpers** (schedule/campaign parsing), **copilot helpers** (scan-context grounding, SSE parsing, key-form validation, Ollama setup-state machine, byte formatting), **safe Markdown renderer** (HTML-escaped, scheme-allow-listed links, CVE→NVD autolink, XSS-tested) |
 | `evaluation/test_*.py` | 93 | discovery-benchmark metric math (precision/recall/Jaccard), **multi-run stats** (mean ± 95 % CI), **arp-scan / netdiscover / masscan** baseline parsers, **privileged (ARP) baseline** command/summary, **detection-benchmark scoring** (ports/services/**version-string**/planted-CVE vs a pinned 6-host testbed, **accuracy-by-confidence**, **repeated-scan stability**), **offline CVE-matching precision·recall** (labelled 33-case corpus, boundary/wrong-product/backport traps, Wilson CIs), **AI-copilot eval** (grounding vs. coverage scoring, novel-CVE-hallucination detection, any-of fact matching, **multi-run mean ± CI**) |
 
-**802 tests, all green.** Static analysis is clean: **ruff** 0 findings, **ESLint**
+**1221 tests, all green.** Static analysis is clean: **ruff** 0 findings, **ESLint**
 0 (react-hooks + jsx-a11y accessibility rules), **bandit** SAST 0 high/medium,
 **pip-audit** 0 known CVEs (starlette/msgpack/cryptography kept patched), **npm audit** 0 (vite 8 / vitest 4). CI
 (`.github/workflows/ci.yml`) runs **5 jobs** — lint (ruff), **security** (bandit +
 pip-audit + npm audit), CLI (Python 3.10–3.14 matrix), backend, and frontend
-(ESLint + Vitest + build) — with coverage gates on every push.
+(ESLint + Vitest + build) — with coverage gates on every push. **The CLI
+(`purple_recon.py`, 1 095 statements), every one of the 30 backend modules
+(3 990 statements), and the whole frontend `src/lib/**` logic layer are held at
+a full 100 % line coverage** — the CLI's threaded scan engines, orchestrator,
+run-loops and entrypoints; the FastAPI service, async scan engine, scope/auth
+guardrails, CVE matchers, and every parser / persistence / credentialed-integration
+module; and the browser-side schema coercion, markdown/CSV escaping, auth-token
+handling, view-preference store, toast/focus-trap primitives and offline engine.
+The live-I/O paths (nmap, raw sockets, SSH, AWS, LDAP, the LLM SDKs, and — in
+jsdom — the DOM/timers/`localStorage`) are driven through real or mocked
+boundaries, so **a regression anywhere in the CLI, backend, or frontend logic
+fails the build** — this is a real gate, not a stub (the optional SDKs are
+installed in CI so it can exercise those paths). The big React view components
+(`IndustrialDashboard`, `ScanContext`, `CopilotPanel`) are held by ESLint
+(react-hooks + jsx-a11y) and the E2E path rather than a line gate — a 3 000-line
+stateful DOM view driven to 100 % in jsdom would be coverage theatre, not a
+guarantee.
 
 ### Project docs
 

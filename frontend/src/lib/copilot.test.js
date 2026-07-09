@@ -49,6 +49,28 @@ describe('buildScanContext', () => {
     const many = Array.from({ length: 300 }, (_, i) => ({ ip: `10.0.0.${i}` }));
     expect(buildScanContext({ hosts: many }).hosts).toHaveLength(128);
   });
+
+  it('applies every fallback branch (null host, bare port/vuln, defaults)', () => {
+    const ctx = buildScanContext({
+      hosts: [
+        null, // `h || {}` — a null host must not throw
+        {
+          // `src.services` fallback (neither ports nor open_ports), a port with
+          // no service/name, a vuln keyed only by `id`, no ip/status/os.
+          services: [{ port: 5 }],
+          cves: [{ id: 'CVE-9' }],
+          deviceType: 'Printer', // camelCase alt for device_type
+        },
+      ],
+    });
+    expect(ctx.hosts[0]).toEqual({
+      ip: '', hostname: '', os: '', device_type: '', status: 'up', ports: [], vulns: [],
+    });
+    expect(ctx.hosts[1].ports[0]).toEqual({ port: 5, service: '' }); // service defaulted
+    expect(ctx.hosts[1].vulns[0]).toEqual({ id: 'CVE-9', severity: '' }); // severity defaulted
+    expect(ctx.hosts[1].device_type).toBe('Printer'); // camelCase alt read
+    expect(ctx.hosts[1].status).toBe('up'); // status defaulted
+  });
 });
 
 describe('parseSSE', () => {
@@ -74,6 +96,11 @@ describe('parseSSE', () => {
     expect(parseSSE('').events).toEqual([]);
     expect(parseSSE(null).events).toEqual([]);
   });
+
+  it('ignores non-data lines inside a frame (event:/comment lines)', () => {
+    const { events } = parseSSE('event: message\n: keep-alive\ndata: {"type":"delta","text":"x"}\n\n');
+    expect(events).toEqual([{ type: 'delta', text: 'x' }]);
+  });
 });
 
 describe('validateKeyForm', () => {
@@ -89,6 +116,10 @@ describe('validateKeyForm', () => {
     expect(validateKeyForm({ provider: 'grok', key: 'x'.repeat(20) }).ok).toBe(false);
     expect(validateKeyForm({ provider: 'openai', key: '  ' }).ok).toBe(false);
     expect(validateKeyForm({ provider: 'gemini', key: 'short' }).ok).toBe(false);
+  });
+  it('handles being called with no argument at all', () => {
+    // Default `= {}` param: provider is undefined → not a known provider.
+    expect(validateKeyForm()).toEqual({ ok: false, error: 'Choose a provider.' });
   });
 });
 

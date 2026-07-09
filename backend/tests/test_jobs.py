@@ -70,3 +70,35 @@ def test_process_one_handler_exception_is_caught():
     assert jobs.process_one({"scan": boom}) is True
     job = jobs.get(jid)
     assert job["status"] == jobs.STATUS_ERROR and "kaboom" in job["error"]
+
+
+def test_row_to_dict_tolerates_non_json_columns():
+    # A row whose params/result columns aren't valid JSON is returned as raw
+    # strings rather than raising (defensive against a hand-edited DB).
+    jobs.enqueue("scan")
+    with jobs._conn() as conn:
+        conn.execute("UPDATE jobs SET params = ?, result = ? WHERE id = 1", ("not-json", "{bad"))
+    job = jobs.get(1)
+    assert job["params"] == "not-json" and job["result"] == "{bad"
+
+
+def test_run_workers_drains_the_queue_until_stopped():
+    import asyncio
+
+    seen: dict = {}
+
+    async def _run():
+        stop = asyncio.Event()
+        jobs.enqueue("scan", {"target": "y"})
+        task = asyncio.create_task(
+            jobs.run_workers({"scan": lambda p: seen.update(p) or {"ok": True}}, stop))
+        for _ in range(100):                      # let a worker claim + finish the job
+            await asyncio.sleep(0.02)
+            if jobs.get(1)["status"] == jobs.STATUS_DONE:
+                break
+        stop.set()
+        await asyncio.wait_for(task, timeout=2)
+
+    asyncio.run(_run())
+    assert seen == {"target": "y"}
+    assert jobs.get(1)["status"] == jobs.STATUS_DONE

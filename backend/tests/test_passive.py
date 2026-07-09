@@ -121,3 +121,78 @@ def test_discover_passive_maps_generic_capture_failure(monkeypatch):
     res = passive.discover_passive(5)
     assert res["available"] is False
     assert "device" in res["reason"].lower()
+
+
+# --- packet handling (real scapy packets — parsing only, no capture) -------- #
+from scapy.all import ARP, BOOTP, DHCP, IP, UDP, Ether  # noqa: E402
+
+
+def test_ip_key_tolerates_bad_ip():
+    assert passive._ip_key("not-an-ip") == (1, 0, 0)
+
+
+def test_handle_packet_arp_records_sender():
+    m = passive.PassiveMonitor()
+    passive._handle_packet(m, Ether(src="aa:bb:cc:dd:ee:ff") / ARP(
+        op=1, psrc="10.0.0.7", hwsrc="aa:bb:cc:dd:ee:ff"))
+    snap = m.snapshot()
+    assert snap and snap[0]["ip"] == "10.0.0.7" and snap[0]["methods"] == ["ARP"]
+    assert snap[0]["mac"] == "aa:bb:cc:dd:ee:ff"
+
+
+def test_handle_packet_udp_mdns_and_dhcp_hostname():
+    m = passive.PassiveMonitor()
+    passive._handle_packet(m, Ether() / IP(src="10.0.0.8") / UDP(sport=5353, dport=5353))
+    passive._handle_packet(m, Ether(src="11:22:33:44:55:66") / IP(src="10.0.0.9")
+                           / UDP(sport=68, dport=67) / BOOTP()
+                           / DHCP(options=[("message-type", "request"), ("hostname", b"my-pc"), "end"]))
+    by_ip = {h["ip"]: h for h in m.snapshot()}
+    assert by_ip["10.0.0.8"]["methods"] == ["mDNS"]
+    assert by_ip["10.0.0.9"]["methods"] == ["DHCP"] and by_ip["10.0.0.9"]["hostname"] == "my-pc"
+
+
+def test_handle_packet_malformed_is_swallowed():
+    m = passive.PassiveMonitor()
+    passive._handle_packet(m, object())        # not a scapy packet → caught, no crash
+    assert m.snapshot() == []
+
+
+def test_dhcp_hostname_direct_and_missing_layer():
+    pkt = Ether() / IP() / UDP() / BOOTP() / DHCP(options=[("hostname", "plain-str"), "end"])
+    assert passive._dhcp_hostname(pkt) == "plain-str"
+    assert passive._dhcp_hostname(Ether() / IP()) is None   # no DHCP layer → None
+
+
+def test_discover_passive_permission_error(monkeypatch):
+    monkeypatch.setattr(passive, "_HAVE_SCAPY", True)
+
+    def boom(*_a, **_k):
+        raise PermissionError("cannot open bpf")
+
+    monkeypatch.setattr(passive, "sniff", boom, raising=False)
+    res = passive.discover_passive(5)
+    assert res["available"] is False and "root" in res["reason"].lower()
+
+
+def test_discover_passive_success_returns_hosts(monkeypatch):
+    monkeypatch.setattr(passive, "_HAVE_SCAPY", True)
+    arp = Ether() / ARP(op=2, psrc="10.0.0.20", hwsrc="aa:bb:cc:dd:ee:01")
+
+    def fake_sniff(prn=None, **_k):
+        prn(arp)                                # feed one observed packet, then "timeout"
+
+    monkeypatch.setattr(passive, "sniff", fake_sniff, raising=False)
+    res = passive.discover_passive(3)
+    assert res["available"] is True and res["count"] == 1
+    assert res["hosts"][0]["ip"] == "10.0.0.20"
+
+
+def test_main_prints_json_and_exit_codes(capsys, monkeypatch):
+    monkeypatch.setattr(passive, "discover_passive",
+                        lambda s, i: {"available": True, "reason": None, "seconds": s, "hosts": [], "count": 0})
+    assert passive._main(["--seconds", "5"]) == 0
+    assert '"available": true' in capsys.readouterr().out
+
+    monkeypatch.setattr(passive, "discover_passive",
+                        lambda s, i: {"available": False, "reason": "no scapy", "seconds": 0, "hosts": [], "count": 0})
+    assert passive._main([]) == 1

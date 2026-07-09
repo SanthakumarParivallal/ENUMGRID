@@ -34,7 +34,7 @@ try:  # scapy is optional (raw-socket capture); gate on it like ldap3/boto3.
     from scapy.all import ARP, DHCP, IP, UDP, Ether, sniff  # type: ignore
 
     _HAVE_SCAPY = True
-except Exception:  # noqa: BLE001 - any import/link error means "no passive capture"
+except Exception:  # noqa: BLE001  # pragma: no cover - optional dependency; import/link error means unavailable
     _HAVE_SCAPY = False
 
 # UDP ports whose mere presence names the discovery protocol (host is live).
@@ -202,5 +202,5 @@ def _main(argv: list[str] | None = None) -> int:
     return 0 if result["available"] else 1
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover - CLI entrypoint; _main() is unit-tested
     raise SystemExit(_main())

@@ -1,5 +1,5 @@
-import { describe, it, expect } from 'vitest';
-import { csvField, hostsToCsv, snapshotToJson, exportFilename } from './exporters.js';
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import { csvField, hostsToCsv, snapshotToJson, exportFilename, downloadText } from './exporters.js';
 
 describe('csvField', () => {
   it('quotes fields containing comma, quote or newline', () => {
@@ -72,5 +72,42 @@ describe('exportFilename', () => {
     const f = exportFilename('192.168.0.0/24', 'csv');
     expect(f).toMatch(/^enumgrid_192-168-0-0-24_[0-9T-]+\.csv$/);
     expect(exportFilename('', 'json')).toMatch(/^enumgrid_scan_.*\.json$/);
+  });
+});
+
+describe('downloadText', () => {
+  // jsdom implements neither object URLs nor real anchor navigation, so we
+  // stub those boundaries and assert the DOM choreography (blob → anchor →
+  // click → cleanup) that actually triggers a browser download.
+  afterEach(() => {
+    vi.restoreAllMocks();
+    delete URL.createObjectURL;
+    delete URL.revokeObjectURL;
+  });
+
+  it('builds a typed blob, clicks a throwaway anchor, and revokes the URL', () => {
+    URL.createObjectURL = vi.fn(() => 'blob:mock-url');
+    URL.revokeObjectURL = vi.fn();
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    const appendSpy = vi.spyOn(document.body, 'appendChild');
+
+    downloadText('report.csv', 'text/csv', 'a,b\n1,2\n');
+
+    // The blob carries the caller's MIME type.
+    expect(URL.createObjectURL).toHaveBeenCalledTimes(1);
+    const blob = URL.createObjectURL.mock.calls[0][0];
+    expect(blob).toBeInstanceOf(Blob);
+    expect(blob.type).toBe('text/csv');
+
+    // A download anchor was attached, named, pointed at the blob, and clicked.
+    const a = appendSpy.mock.calls[0][0];
+    expect(a.tagName).toBe('A');
+    expect(a.download).toBe('report.csv');
+    expect(a.getAttribute('href')).toBe('blob:mock-url');
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+
+    // ...then cleaned up: removed from the DOM and the object URL revoked.
+    expect(document.body.contains(a)).toBe(false);
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith('blob:mock-url');
   });
 });
