@@ -24,10 +24,19 @@ import sqlite3
 import sys
 from contextlib import contextmanager
 
+
 # Reuse the CLI's diff engine (single source of truth for drift).
+def _ensure_on_path(root: str, path: list[str] | None = None) -> None:
+    """Put `root` at the front of the import path if absent — so the flat
+    `import purple_recon` resolves when the backend is started from `backend/`.
+    Factored out (mirrors security._ensure_on_path) so it is unit-testable."""
+    target = sys.path if path is None else path
+    if root not in target:
+        target.insert(0, root)
+
+
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if _ROOT not in sys.path:
-    sys.path.insert(0, _ROOT)
+_ensure_on_path(_ROOT)
 import purple_recon as pr  # noqa: E402
 
 DB_PATH = os.environ.get(

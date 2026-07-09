@@ -29,10 +29,22 @@ import sys
 import threading
 import time
 
+
 # Reuse the CLI's already-tested guardrails (one source of truth for scope).
+def _ensure_on_path(root: str, path: list[str] | None = None) -> None:
+    """Put `root` at the front of the import path if absent.
+
+    The backend uses flat imports (`import purple_recon`, `from scanner import …`),
+    so the repo root must be importable even when the process is started from
+    `backend/` (e.g. `uvicorn app:app`). Factored out so the bootstrap is unit-
+    testable rather than an untestable module-level branch."""
+    target = sys.path if path is None else path
+    if root not in target:
+        target.insert(0, root)
+
+
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if _ROOT not in sys.path:
-    sys.path.insert(0, _ROOT)
+_ensure_on_path(_ROOT)
 from scanner import validate_target as _safe_chars  # noqa: E402
 
 import purple_recon as pr  # noqa: E402  (path set above)

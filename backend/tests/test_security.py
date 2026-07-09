@@ -187,3 +187,14 @@ def test_throttle_ignores_empty_ip():
     assert security.register_auth_failure(None) is False
     assert security.is_locked_out(None) is False
     assert security.lockout_remaining(None) == 0
+    security.register_auth_success(None)  # no ip → early return, never raises
+
+
+def test_ensure_on_path_inserts_once():
+    """The import-path bootstrap: inserts the repo root when absent, no-ops when
+    already present (so `uvicorn app:app` from backend/ resolves the flat imports)."""
+    path = ["/existing"]
+    security._ensure_on_path("/root", path)
+    assert path == ["/root", "/existing"]   # inserted at the front
+    security._ensure_on_path("/root", path)  # already present
+    assert path == ["/root", "/existing"]   # → no duplicate

@@ -143,8 +143,12 @@ Full detail in [`THREAT_MODEL.md`](THREAT_MODEL.md).
   PDF, history) using *rejected* targets so nothing scans.
 - **Property-based fuzzing** (hypothesis) of every parser that touches hostile
   network/API input — they must never raise.
-- **Coverage gates** (CLI ≥50%, backend ≥60%; the uncovered remainder is the
-  live-network/`rich`-UI I/O that unit tests deliberately don't exercise).
+- **Coverage gates** — the CLI (`purple_recon.py`), every backend module, and the
+  whole frontend `src/lib/**` logic layer are held at a full **100% line coverage**
+  in CI, with the live-network / nmap / SDK / `rich`-UI / DOM I/O driven through
+  real (jsdom) or mocked boundaries rather than skipped. The large React view
+  components stay lint- + E2E-verified rather than line-gated (driving a
+  3 000-line stateful DOM view to 100% in jsdom would be coverage theatre).
 - **SAST + dependency audit** (bandit, pip-audit, npm audit) in CI.
 - A **black-box benchmark** vs nmap for measured accuracy.
 

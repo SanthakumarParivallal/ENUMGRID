@@ -9,6 +9,7 @@ live LAN); this covers the pure classification logic.
 
 from __future__ import annotations
 
+import mdns
 import pytest
 from mdns import _txt_get, device_type_from_mdns, os_from_model, product_from_model
 
@@ -94,3 +95,66 @@ def test_os_from_model_without_osxvers_falls_back_to_family():
     assert os_from_model("MacBookPro18,3") == "macOS (Apple)"
     # osxvers only sharpens Macs, never iPhones/iPads.
     assert os_from_model("iPhone14,5", "23") == "iOS (Apple)"
+
+
+# --- hostname cleaning + the live browse (zeroconf mocked, no network) ------- #
+def test_clean_hostname():
+    assert mdns._clean_hostname("Living-Room.local.") == "Living-Room"
+    assert mdns._clean_hostname("host.") == "host"
+    assert mdns._clean_hostname(None) is None
+    assert mdns._clean_hostname(".local") is None       # empty after stripping → None
+
+
+def test_discover_mdns_without_zeroconf(monkeypatch):
+    monkeypatch.setattr(mdns, "_HAVE_ZEROCONF", False)
+    assert mdns.discover_mdns(1) == {}
+
+
+class _FakeInfo:
+    def __init__(self, server, addrs, properties=None):
+        self.server = server
+        self._addrs = addrs
+        self.properties = properties or {}
+
+    def parsed_addresses(self):
+        return self._addrs
+
+
+def _discover_with(monkeypatch, info, stype="_device-info._tcp.local."):
+    monkeypatch.setattr(mdns, "_HAVE_ZEROCONF", True)
+
+    class _ZC:
+        def get_service_info(self, type_, name, timeout=None): return info
+        def close(self): pass
+
+    def _browser(zc, s, listener):
+        listener.add_service(zc, s, "n")
+        listener.update_service(zc, s, "n")     # exercise the interface no-ops
+        listener.remove_service(zc, s, "n")
+        return object()
+
+    monkeypatch.setattr(mdns, "Zeroconf", _ZC)
+    monkeypatch.setattr(mdns, "_SERVICE_TYPES", (stype,))
+    monkeypatch.setattr(mdns, "ServiceBrowser", _browser)
+    monkeypatch.setattr(mdns.time, "sleep", lambda s: None)
+    return mdns.discover_mdns(timeout=1)
+
+
+def test_discover_mdns_resolves_apple_product_and_os(monkeypatch):
+    info = _FakeInfo("Studio.local.", ["10.0.0.30"],
+                     {b"model": b"MacBookPro18,3", b"osxvers": b"23"})
+    out = _discover_with(monkeypatch, info)
+    assert out["10.0.0.30"]["hostname"] == "Studio"
+    assert out["10.0.0.30"]["device_type"] == "MacBook Pro"      # exact product beats generic type
+    assert "Sonoma" in out["10.0.0.30"]["os"]
+
+
+def test_discover_mdns_skips_ipv6_and_classifies_by_service(monkeypatch):
+    info = _FakeInfo("printer.local.", ["fe80::1", "10.0.0.31"], {})
+    out = _discover_with(monkeypatch, info, stype="_ipp._tcp.local.")
+    assert list(out) == ["10.0.0.31"]                            # IPv6 skipped, IPv4 kept
+    assert out["10.0.0.31"]["device_type"] == "Printer" and out["10.0.0.31"]["hostname"] == "printer"
+
+
+def test_discover_mdns_handles_missing_service_info(monkeypatch):
+    assert _discover_with(monkeypatch, None) == {}               # get_service_info None → nothing

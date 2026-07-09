@@ -15,10 +15,15 @@ import {
   HostModel,
   VulnModel,
   ScanStateModel,
+  emptyScanState,
   countOpenPorts,
+  hostMatchesCategory,
   isCriticalHost,
+  criticalCount,
+  vulnCount,
   summarizeHosts,
   collectVulns,
+  PORT_CATEGORIES,
 } from './schema.js';
 
 describe('PortModel', () => {
@@ -143,6 +148,21 @@ describe('ScanStateModel', () => {
     expect(() => ScanStateModel(null)).not.toThrow();
     expect(ScanStateModel(undefined).hosts).toEqual([]);
   });
+
+  it('carries scan_id + timestamps through when the backend supplies them', () => {
+    const s = ScanStateModel({
+      scan_id: 4242, // coerced to string
+      target: '10.0.0.0/24',
+      phase: 'Complete',
+      progress: 100,
+      started_at: 1_700_000_000.5,
+      finished_at: 1_700_000_050.25,
+    });
+    expect(s.scan_id).toBe('4242');
+    expect(s.started_at).toBe(1_700_000_000.5);
+    expect(s.finished_at).toBe(1_700_000_050.25);
+    expect(s.phase).toBe(ScanPhase.COMPLETE);
+  });
 });
 
 describe('derived helpers', () => {
@@ -185,16 +205,117 @@ describe('derived helpers', () => {
     expect(ranked[2]).toBe('CVE-HIGH-CVSS');
   });
 
-  it('summarizeHosts rolls up counts', () => {
+  it('collectVulns falls through to raw CVSS when KEV + EPSS tie', () => {
+    // Two findings that tie on KEV (neither) and EPSS (both absent) so the sort
+    // decides on CVSS — exercising the CVSS tie-breaker rung of the comparator.
+    const host = HostModel({
+      ip: '10.0.0.13',
+      ports: [{ port: 443, vulns: [
+        { id: 'CVE-LOWER-CVSS', severity: 'high', cvss: 5.0 },
+        { id: 'CVE-HIGHER-CVSS', severity: 'high', cvss: 8.8 },
+      ] }],
+    });
+    expect(collectVulns(host).map((v) => v.id)).toEqual(['CVE-HIGHER-CVSS', 'CVE-LOWER-CVSS']);
+  });
+
+  it('summarizeHosts rolls up counts (open ports, services, criticals, vulns)', () => {
     const hosts = [
-      HostModel({ ip: '10.0.0.1', status: 'up', ports: [{ port: 80, state: 'open', service: 'http' }] }),
+      HostModel({
+        ip: '10.0.0.1',
+        status: 'up',
+        ports: [
+          { port: 80, state: 'open', service: 'http', critical: true, vulns: [{ id: 'CVE-1' }] },
+          { port: 8080, state: 'open', service: 'unknown' }, // 'unknown' service is not counted
+          { port: 22, state: 'closed', service: 'ssh' }, // closed → not an open port
+        ],
+        vulns: [{ id: 'CVE-host' }],
+      }),
       HostModel({ ip: '10.0.0.2', status: 'down' }),
     ];
     const s = summarizeHosts(hosts);
     expect(s.total).toBe(2);
     expect(s.up).toBe(1);
     expect(s.down).toBe(1);
-    expect(s.openPorts).toBe(1);
-    expect(s.services).toBe(1);
+    expect(s.openPorts).toBe(2); // 80 + 8080 (22 is closed)
+    expect(s.services).toBe(1); // only 'http' — 'unknown' is filtered out
+    expect(s.critical).toBe(1); // the flagged port 80
+    expect(s.vulns).toBe(2); // 1 host-level + 1 port-level
+  });
+
+  it('emptyScanState is a pristine, validated Idle snapshot', () => {
+    const s = emptyScanState();
+    expect(s.phase).toBe(ScanPhase.IDLE);
+    expect(s.progress).toBe(0);
+    expect(s.hosts).toEqual([]);
+    expect(s.target).toBe('');
+    expect(s.scan_id).toBeNull();
+  });
+
+  it('countOpenPorts / criticalCount return 0 for a host with no ports', () => {
+    expect(countOpenPorts(HostModel({ ip: '10.0.0.4' }))).toBe(0);
+    expect(countOpenPorts(null)).toBe(0);
+    expect(criticalCount(HostModel({ ip: '10.0.0.4' }))).toBe(0);
+    expect(criticalCount(null)).toBe(0);
+  });
+
+  it('criticalCount counts only port-level critical flags', () => {
+    const h = HostModel({
+      ip: '10.0.0.5',
+      ports: [
+        { port: 445, state: 'open', critical: true },
+        { port: 3389, state: 'open', critical: true },
+        { port: 80, state: 'open' },
+      ],
+    });
+    expect(criticalCount(h)).toBe(2);
+  });
+
+  it('hostMatchesCategory matches an open port in the category, else false', () => {
+    const web = HostModel({ ip: '10.0.0.6', ports: [{ port: 443, state: 'open' }] });
+    const filtered = HostModel({ ip: '10.0.0.7', ports: [{ port: 443, state: 'filtered' }] });
+    expect(hostMatchesCategory(web, 'web')).toBe(true);
+    expect(hostMatchesCategory(web, 'ssh')).toBe(false); // no SSH port open
+    expect(hostMatchesCategory(filtered, 'web')).toBe(false); // filtered ≠ open
+    expect(hostMatchesCategory(web, 'nonsense-key')).toBe(false); // unknown category
+    expect(hostMatchesCategory(null, 'web')).toBe(false); // no host
+    expect(Object.keys(PORT_CATEGORIES)).toContain('web'); // catalogue is exported
+  });
+
+  it('isCriticalHost also flags a host-level (non-port) severe vuln', () => {
+    const hostVuln = HostModel({
+      ip: '10.0.0.8',
+      ports: [{ port: 80, state: 'open' }],
+      vulns: [{ id: 'CVE-hostlevel', severity: 'critical' }],
+    });
+    const portFlag = HostModel({ ip: '10.0.0.9', ports: [{ port: 445, state: 'open', critical: true }] });
+    expect(isCriticalHost(hostVuln)).toBe(true); // via host-level vuln
+    expect(isCriticalHost(portFlag)).toBe(true); // via port critical flag
+    expect(isCriticalHost(null)).toBe(false);
+  });
+
+  it('collectVulns merges host-level vulns and tolerates unknown severity in the rank', () => {
+    const host = HostModel({
+      ip: '10.0.0.10',
+      ports: [{ port: 80, vulns: [{ id: 'PORT-VULN', severity: 'low' }] }],
+      vulns: [{ id: 'HOST-VULN', severity: 'weird-band' }], // coerced to 'info' by VulnModel
+    });
+    const all = collectVulns(host);
+    const byId = Object.fromEntries(all.map((v) => [v.id, v]));
+    expect(byId['PORT-VULN'].port).toBe(80); // tagged with its port
+    expect(byId['HOST-VULN'].port).toBeNull(); // host-level → null port
+    expect(all).toHaveLength(2);
+  });
+
+  it('vulnCount totals host-level + every port-level finding', () => {
+    const host = HostModel({
+      ip: '10.0.0.11',
+      ports: [
+        { port: 80, vulns: [{ id: 'A' }, { id: 'B' }] },
+        { port: 22 },
+      ],
+      vulns: [{ id: 'C' }],
+    });
+    expect(vulnCount(host)).toBe(3);
+    expect(vulnCount(HostModel({ ip: '10.0.0.12' }))).toBe(0);
   });
 });

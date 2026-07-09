@@ -140,3 +140,46 @@ def test_due_now_fires_once_per_minute(tmp_path):
     now = datetime(2026, 7, 6, 2, 0, 10)
     assert len(store.due_now(now)) == 1          # first tick fires it
     assert store.due_now(datetime(2026, 7, 6, 2, 0, 40)) == []  # second tick, same minute
+
+
+def test_default_path_points_at_a_json_file():
+    assert sch.default_path().endswith("schedules.json")
+
+
+def test_next_run_none_when_no_weekday_ever_matches():
+    # Defensive fallback: a rule whose day-set can't match any real weekday (0..6)
+    # has no next fire, and next_run reports that honestly instead of looping forever.
+    s = sch.Schedule(id="x", target="t", days=frozenset({99}), hour=3, minute=0)
+    assert sch.next_run(s, datetime(2026, 7, 8, 12, 0)) is None
+
+
+def test_store_load_ignores_missing_and_corrupt_files(tmp_path):
+    corrupt = tmp_path / "bad.json"
+    corrupt.write_text("{ not json", encoding="utf-8")
+    assert sch.ScheduleStore(str(corrupt)).list() == []         # corrupt file → empty, no raise
+
+
+def test_store_load_skips_corrupt_entries(tmp_path):
+    import json
+    path = tmp_path / "s.json"
+    good = {"id": "a", "target": "10.0.0.0/24", "at": "02:00", "mode": "discover",
+            "deep": False, "days": "*", "enabled": True}
+    path.write_text(json.dumps({"schedules": [good, {"id": "b"}]}), encoding="utf-8")  # 2nd lacks 'target'
+    rules = sch.ScheduleStore(str(path)).list()
+    assert [r.id for r in rules] == ["a"]                       # corrupt entry skipped, good kept
+
+
+def test_store_without_path_does_not_persist():
+    store = sch.ScheduleStore(None)                             # in-memory only
+    rule = store.add(target="10.0.0.0/24", at="02:00")         # _save early-returns (no path)
+    assert store.list() == [rule]
+
+
+def test_store_save_swallows_write_errors(tmp_path):
+    # Point the store at a path whose parent is a file, not a dir → the atomic write
+    # fails; persistence is best-effort so the in-memory store stays authoritative.
+    blocker = tmp_path / "blocker"
+    blocker.write_text("x", encoding="utf-8")
+    store = sch.ScheduleStore(str(blocker / "s.json"))
+    rule = store.add(target="10.0.0.0/24", at="02:00")         # write fails, no raise
+    assert store.list() == [rule]

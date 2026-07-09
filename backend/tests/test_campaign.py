@@ -82,3 +82,13 @@ def test_only_open_ports_counted():
     result = campaign.aggregate_campaign(subnets)
     assert result["totals"]["open_ports"] == 1          # closed port excluded
     assert result["hosts"][0]["open_ports"] == 1
+
+
+def test_unparseable_ip_sorts_last_without_crashing():
+    # A host whose IP won't parse must sort after real IPs, never crash the view.
+    assert campaign._ip_key("not-an-ip") == (1, 0, 0)
+    subnets = [{"target": "n", "scanned_at": "t", "snapshot": {"hosts": [
+        _host("garbage"), _host("10.0.0.1"),
+    ]}}]
+    result = campaign.aggregate_campaign(subnets)
+    assert [h["ip"] for h in result["hosts"]] == ["10.0.0.1", "garbage"]

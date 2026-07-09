@@ -440,3 +440,234 @@ def test_openai_tool_args_json_roundtrip():
     frags = ['{"target":"192.168', '.0.0/24","mode":"full"}']
     action = copilot.sanitize_action(json.loads("".join(frags)))
     assert action["target"] == "192.168.0.0/24" and action["mode"] == "full"
+
+
+# --- misc branch coverage ---------------------------------------------------- #
+def test_sdk_available_unknown_provider():
+    assert copilot.sdk_available("bogus") is False
+
+
+def test_load_key_unknown_provider_is_none():
+    assert copilot.load_key("bogus") is None
+
+
+def test_model_installed_empty_name():
+    assert copilot._model_installed("", ["llama3.1:latest"]) is False
+
+
+def test_ollama_root_without_v1_suffix(monkeypatch):
+    monkeypatch.setitem(copilot._BASE_URLS, "ollama", "http://host:11434")
+    assert copilot._ollama_root() == "http://host:11434"
+
+
+def test_write_secret_removes_existing_file(state):
+    copilot.save_key("anthropic", "sk-x")                      # create the 0600 file
+    assert copilot.has_key("anthropic") is True
+    copilot.save_key("anthropic", "")                          # blank → _write_secret removes it
+    assert copilot.has_key("anthropic") is False
+
+
+def test_host_cve_ids_from_string_vuln():
+    assert copilot._host_cve_ids({"vulns": ["banner mentions CVE-2021-44228 here"]}) == ["CVE-2021-44228"]
+
+
+def test_wants_scan_empty_turns():
+    assert copilot.wants_scan([]) is False
+
+
+def test_context_block_full_rollup_and_caps():
+    hosts = [{
+        "ip": f"10.0.0.{i}", "hostname": f"h{i}", "os": "Linux 5.4",
+        "device_type": "Server", "ports": [{"service": "http"}],
+        "vulns": [{"id": f"CVE-2021-{1000 + i}", "severity": "high"}],
+    } for i in range(30)]                                       # >25 CVEs → exercises the cap
+    txt = copilot.build_context_block({"target": "10.0.0.0/24", "hosts": hosts})
+    assert "Top services" in txt and "Device mix" in txt
+    assert "CVE findings" in txt and "Sample hosts" in txt
+    assert "Linux 5.4" in txt                                  # os (≠ Unknown) rendered in a sample row
+
+
+# --- ollama probe (socket + tags HTTP mocked) -------------------------------- #
+class _Ctx:
+    def __enter__(self): return self
+    def __exit__(self, *a): return False
+
+
+def test_ollama_probe_lists_models_when_up(monkeypatch):
+    monkeypatch.setattr(copilot.socket, "create_connection", lambda *a, **k: _Ctx())
+
+    class _Resp:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self, n=None): return b'{"models":[{"name":"llama3.1:latest"},{"nope":1}]}'
+
+    monkeypatch.setattr(copilot.urllib.request, "urlopen", lambda *a, **k: _Resp())
+    out = copilot.ollama_probe()
+    assert out["up"] is True and out["models"] == ["llama3.1:latest"]
+
+
+def test_ollama_probe_down_when_tcp_fails(monkeypatch):
+    def _boom(*a, **k):
+        raise OSError("connection refused")
+
+    monkeypatch.setattr(copilot.socket, "create_connection", _boom)
+    assert copilot.ollama_probe() == {"up": False, "models": []}
+
+
+def test_ollama_probe_up_but_tags_fail(monkeypatch):
+    monkeypatch.setattr(copilot.socket, "create_connection", lambda *a, **k: _Ctx())
+
+    def _boom(*a, **k):
+        raise OSError("tags endpoint 500")
+
+    monkeypatch.setattr(copilot.urllib.request, "urlopen", _boom)
+    assert copilot.ollama_probe() == {"up": True, "models": []}
+
+
+# --- streaming internals (SDK clients mocked — no network) ------------------- #
+class _AntStream:
+    text_stream = ["Hello ", "world"]
+
+    def __enter__(self): return self
+    def __exit__(self, *a): return False
+
+    def get_final_message(self):
+        block = type("Block", (), {"type": "tool_use", "name": "propose_scan",
+                                   "input": {"target": "10.0.0.1", "mode": "discover"}})()
+        return type("Final", (), {"content": [block]})()
+
+
+class _AntClient:
+    def __init__(self, api_key=None):
+        self.messages = type("M", (), {"stream": lambda _self, **kw: _AntStream()})()
+
+
+def test_stream_anthropic_yields_text_and_action(monkeypatch):
+    monkeypatch.setattr(copilot.anthropic, "Anthropic", _AntClient)
+    events = list(copilot._stream_anthropic("k", "claude", "sys",
+                                            [{"role": "user", "content": "scan 10.0.0.1"}], tools_on=True))
+    assert {"type": "delta", "text": "Hello "} in events
+    assert any(e["type"] == "action" and e["action"]["target"] == "10.0.0.1" for e in events)
+
+
+def _oai_chunk(content=None, tool_arg=None):
+    delta = type("D", (), {"content": content, "tool_calls": None})()
+    if tool_arg is not None:
+        tc = type("TC", (), {"index": 0, "function": type("F", (), {"arguments": tool_arg})()})()
+        delta.tool_calls = [tc]
+    return type("Chunk", (), {"choices": [type("Ch", (), {"delta": delta})()]})()
+
+
+class _OAIClient:
+    def __init__(self, api_key=None, base_url=None):
+        chunks = [
+            _oai_chunk(content="Hi "),
+            _oai_chunk(tool_arg='{"target":"10.0.0.1",'),
+            _oai_chunk(tool_arg='"mode":"discover"}'),
+            type("Chunk", (), {"choices": [None]})(),          # choice None → skipped
+        ]
+        self.chat = type("C", (), {
+            "completions": type("Co", (), {"create": lambda _self, **kw: iter(chunks)})()
+        })()
+
+
+def test_stream_openai_yields_text_and_assembles_tool_action(monkeypatch):
+    monkeypatch.setattr(copilot.openai, "OpenAI", _OAIClient)
+    events = list(copilot._stream_openai("k", "gpt", "sys",
+                                         [{"role": "user", "content": "scan 10.0.0.1"}],
+                                         base_url="http://localhost:11434/v1", tools_on=True))
+    assert {"type": "delta", "text": "Hi "} in events
+    assert any(e["type"] == "action" and e["action"]["target"] == "10.0.0.1" for e in events)
+
+
+def test_stream_reply_dispatches_to_anthropic(state, monkeypatch):
+    monkeypatch.setattr(copilot, "_HAVE_ANTHROPIC", True)
+    monkeypatch.setattr(copilot.anthropic, "Anthropic", _AntClient)
+    copilot.save_key("anthropic", "k")
+    events = list(copilot.stream_reply([{"role": "user", "content": "scan 10.0.0.1"}], provider="anthropic"))
+    assert {"type": "delta", "text": "world"} in events
+    assert events[-1] == {"type": "done"}
+
+
+def test_stream_reply_ollama_connection_error_message(state, monkeypatch):
+    monkeypatch.setattr(copilot, "_HAVE_OPENAI", True)
+
+    class _Boom:
+        def __init__(self, api_key=None, base_url=None):
+            raise ConnectionError("connection refused")
+
+    monkeypatch.setattr(copilot.openai, "OpenAI", _Boom)
+    events = list(copilot.stream_reply([{"role": "user", "content": "hi"}], provider="ollama"))
+    assert events[0]["type"] == "error" and "Ollama" in events[0]["message"]
+    assert events[-1] == {"type": "done"}
+
+
+def test_summarize_scan_flags_ungrounded_cve(state, monkeypatch):
+    def fake_stream(messages, context=None, **k):
+        yield {"type": "delta", "text": "Overall risk is high due to CVE-2099-0001."}
+        yield {"type": "done"}
+
+    monkeypatch.setattr(copilot, "stream_reply", fake_stream)
+    r = copilot.summarize_scan({"target": "x", "hosts": []})
+    assert "Data-integrity note" in r["summary"]                # fabricated id flagged, not hidden
+    assert r["ungrounded_cves"] == ["CVE-2099-0001"]
+
+
+def test_pull_model_skips_undecodable_lines(state, monkeypatch):
+    lines = [b"this is not json\n", b'{"status":"success"}\n']
+    monkeypatch.setattr(copilot.urllib.request, "urlopen", lambda *a, **k: _FakePullResp(lines))
+    events = list(copilot.pull_model("llama3.1"))
+    assert events[-1] == {"type": "done"}                       # bad line skipped, success reached
+
+
+def test_pull_model_connection_error(state, monkeypatch):
+    def _boom(*a, **k):
+        raise OSError("connection refused")
+
+    monkeypatch.setattr(copilot.urllib.request, "urlopen", _boom)
+    events = list(copilot.pull_model("llama3.1"))
+    assert events[0]["type"] == "error" and "Ollama" in events[0]["message"]
+    assert events[-1] == {"type": "done"}
+
+
+def test_write_secret_swallows_os_error(tmp_path):
+    d = tmp_path / "a-directory"
+    d.mkdir()
+    copilot._write_secret(str(d), "secret")   # os.open on a directory → OSError → swallowed
+
+
+def test_context_block_dedupes_repeated_cve_ids():
+    ctx = {"target": "10.0.0.0/24", "hosts": [
+        {"ip": "10.0.0.1", "vulns": [{"id": "CVE-2021-44228", "severity": "high"}]},
+        {"ip": "10.0.0.2", "vulns": [{"id": "CVE-2021-44228", "severity": "high"}]},  # same id
+    ]}
+    txt = copilot.build_context_block(ctx)
+    assert txt.count("CVE-2021-44228") == 1   # listed once despite two hosts
+
+
+def test_sanitize_messages_skips_non_dict_and_blank():
+    out = copilot.sanitize_messages([123, {"role": "user", "content": "   "},
+                                     {"role": "user", "content": "ok"}])
+    assert out == [{"role": "user", "content": "ok"}]   # non-dict + blank dropped
+
+
+class _OAIBadToolClient:
+    def __init__(self, api_key=None, base_url=None):
+        chunks = [_oai_chunk(tool_arg="{not valid json")]
+        self.chat = type("C", (), {
+            "completions": type("Co", (), {"create": lambda _self, **kw: iter(chunks)})()
+        })()
+
+
+def test_stream_openai_tolerates_bad_tool_json(monkeypatch):
+    monkeypatch.setattr(copilot.openai, "OpenAI", _OAIBadToolClient)
+    events = list(copilot._stream_openai("k", "gpt", "sys",
+                                         [{"role": "user", "content": "scan x"}], tools_on=True))
+    assert all(e["type"] != "action" for e in events)   # unparseable args → no action, no crash
+
+
+def test_pull_model_skips_blank_lines_and_ends_without_success(state, monkeypatch):
+    lines = [b"\n", b'{"status":"downloading","total":10,"completed":10}\n']  # blank + no "success"
+    monkeypatch.setattr(copilot.urllib.request, "urlopen", lambda *a, **k: _FakePullResp(lines))
+    events = list(copilot.pull_model("llama3.1"))
+    assert events[-1] == {"type": "done"}   # blank skipped; final done when stream ends

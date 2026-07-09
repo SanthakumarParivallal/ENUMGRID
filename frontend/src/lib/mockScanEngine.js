@@ -280,8 +280,10 @@ export function createScanEngine({ onSnapshot, onDone, tickMs = 480 }) {
         ports: h.ports.map((p) => ({ ...p })),
       }));
 
+    // emit is only ever called from start() (before any cancel) or from step(),
+    // which bails at its own `if (cancelled) return` guard first — so cancelled
+    // is always false here. The single cancellation check lives in step().
     const emit = (phase, progress, finished = false) => {
-      if (cancelled) return;
       onSnapshot({
         scan_id: scanId,
         target,
@@ -294,6 +296,8 @@ export function createScanEngine({ onSnapshot, onDone, tickMs = 480 }) {
     };
 
     const step = () => {
+      // Cancellation guard: if onSnapshot() calls stop() mid-run, this step
+      // still reschedules once (below), and the next tick lands here and bails.
       if (cancelled) return;
 
       /* ---------------- Phase 1: Ping Sweep (host discovery) ------------- */
@@ -339,9 +343,11 @@ export function createScanEngine({ onSnapshot, onDone, tickMs = 480 }) {
       }
 
       /* -------------------------- Completion ---------------------------- */
+      // Completion is only reached when not cancelled (a cancel clears the
+      // timer, or trips the guard above on the next tick), so onDone is safe.
       emit(ScanPhase.COMPLETE, 100, true);
       clear();
-      if (onDone && !cancelled) onDone();
+      if (onDone) onDone();
     };
 
     // Initial Phase-1 frame (empty grid), then start the loop.

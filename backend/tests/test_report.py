@@ -102,3 +102,14 @@ def test_markup_in_scan_data_does_not_crash():
     }
     pdf = build_pdf(payload)
     assert _is_pdf(pdf)
+
+
+def test_scanned_host_with_no_open_ports_is_noted():
+    # A host with a (host-level) finding but no open ports still appears in the
+    # per-host detail, with an explicit "no open ports" note rather than being omitted.
+    payload = {"target": "10.0.0.0/24", "hosts": [
+        {"ip": "10.0.0.1", "status": "up", "ports": [],
+         "vulns": [{"id": "CVE-2017-0143", "severity": "critical", "confidence": "confirmed"}]},
+    ]}
+    pdf = build_pdf(payload)
+    assert _is_pdf(pdf) and len(pdf) > 2000

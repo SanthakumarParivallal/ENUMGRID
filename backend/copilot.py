@@ -42,14 +42,14 @@ try:  # Anthropic Claude — optional (the operator may only use OpenAI, or neit
     import anthropic  # type: ignore
 
     _HAVE_ANTHROPIC = True
-except Exception:  # noqa: BLE001 - any import/link error means "provider unavailable"
+except Exception:  # noqa: BLE001  # pragma: no cover - optional dependency; import/link error means unavailable
     _HAVE_ANTHROPIC = False
 
 try:  # OpenAI — optional.
     import openai  # type: ignore
 
     _HAVE_OPENAI = True
-except Exception:  # noqa: BLE001
+except Exception:  # noqa: BLE001  # pragma: no cover - optional dependency; import/link error means unavailable
     _HAVE_OPENAI = False
 
 _DIR = os.path.dirname(os.path.abspath(__file__))

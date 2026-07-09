@@ -22,10 +22,17 @@ import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 
+
 # Import the reusable discovery primitives from the CLI tool one level up.
+def _ensure_on_path(root: str, path: list[str] | None = None) -> None:
+    """Put `root` on the import path if absent (see security._ensure_on_path)."""
+    target = sys.path if path is None else path
+    if root not in target:
+        target.insert(0, root)
+
+
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if _ROOT not in sys.path:
-    sys.path.insert(0, _ROOT)
+_ensure_on_path(_ROOT)
 import snmp  # noqa: E402
 from fingerprint import guess_device_type  # noqa: E402
 from mdns import discover_mdns  # noqa: E402

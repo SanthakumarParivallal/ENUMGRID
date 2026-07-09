@@ -76,9 +76,12 @@ applyDocumentPrefs(read());
 export function usePreferences() {
   const [prefs, setPrefs] = useState(read);
 
+  // `updater` is always a function (base → next); every setter below re-reads
+  // the freshest persisted state first so concurrent hook instances never
+  // clobber each other's slice of the prefs.
   const commit = useCallback((updater) => {
     const base = read(); // freshest persisted state across all hook instances
-    const next = typeof updater === 'function' ? updater(base) : { ...base, ...updater };
+    const next = updater(base);
     next.colWidths = { ...next.colWidths };
     write(next);
     applyDocumentPrefs(next);

@@ -52,3 +52,86 @@ def test_collect_responses_returns_dict_on_no_replies(monkeypatch):
     # A very short window with nothing answering must yield an empty dict, not raise.
     out = ssdp.discover_ssdp(timeout=0.5, fetch_timeout=0.5)
     assert isinstance(out, dict)
+
+
+def test_location_safe_handles_unparseable_url():
+    # A malformed URL (unbalanced IPv6 brackets) makes urlparse raise → treated unsafe.
+    assert ssdp._location_is_safe("http://[oops", "1.2.3.4") is False
+
+
+def test_fetch_description_scrapes_xml(monkeypatch):
+    class _Resp:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self, n=None): return _SAMPLE_XML.encode()
+
+    monkeypatch.setattr(ssdp.urllib.request, "urlopen", lambda *a, **k: _Resp())
+    desc = ssdp._fetch_description("http://192.168.1.1/desc.xml", 1.0)
+    assert desc["friendly"] == "Living Room Router" and desc["device_type"] == "Router / Gateway"
+
+
+def test_fetch_description_returns_empty_on_error(monkeypatch):
+    def _boom(*a, **k):
+        raise OSError("timeout")
+
+    monkeypatch.setattr(ssdp.urllib.request, "urlopen", _boom)
+    assert ssdp._fetch_description("http://192.168.1.1/desc.xml", 1.0) == {}
+
+
+def test_collect_responses_parses_a_reply(monkeypatch):
+    reply = (b"HTTP/1.1 200 OK\r\n"
+             b"LOCATION: http://192.168.1.50:80/desc.xml\r\n"
+             b"SERVER: Linux/3.14 UPnP/1.0\r\n\r\n")
+    state = {"n": 0}
+
+    class _Sock:
+        def setsockopt(self, *a): pass
+        def settimeout(self, t): pass
+        def sendto(self, *a): pass
+
+        def recvfrom(self, n):
+            state["n"] += 1
+            if state["n"] == 1:
+                return reply, ("192.168.1.50", 1900)
+            raise OSError("done")          # end the receive loop on the 2nd read
+
+        def close(self): pass
+
+    monkeypatch.setattr(ssdp.socket, "socket", lambda *a, **k: _Sock())
+    out = ssdp._collect_responses(0.5)
+    assert out["192.168.1.50"]["location"] == "http://192.168.1.50:80/desc.xml"
+    assert "Linux" in out["192.168.1.50"]["server"]
+
+
+def test_collect_responses_breaks_on_send_error(monkeypatch):
+    class _Sock:
+        def setsockopt(self, *a): pass
+        def settimeout(self, t): pass
+        def sendto(self, *a): raise OSError("no multicast route")
+        def recvfrom(self, n): raise OSError("closed")
+        def close(self): pass
+
+    monkeypatch.setattr(ssdp.socket, "socket", lambda *a, **k: _Sock())
+    assert ssdp._collect_responses(0.5) == {}
+
+
+def test_discover_ssdp_empty_when_no_responses(monkeypatch):
+    monkeypatch.setattr(ssdp, "_collect_responses", lambda timeout: {})
+    assert ssdp.discover_ssdp() == {}
+
+
+def test_discover_ssdp_fetches_only_safe_locations(monkeypatch):
+    # Deterministic end-to-end of discover_ssdp: a responder whose LOCATION points
+    # back at itself is fetched + scraped; one pointing elsewhere (SSRF) is not.
+    monkeypatch.setattr(ssdp, "_collect_responses", lambda timeout: {
+        "192.168.1.50": {"location": "http://192.168.1.50:80/desc.xml", "server": "Linux/3.14 UPnP/1.0"},
+        "192.168.1.51": {"location": "http://10.0.0.9/evil.xml", "server": ""},   # host mismatch → skip
+    })
+    monkeypatch.setattr(ssdp, "_fetch_description", lambda loc, t: {
+        "friendly": "Router", "manufacturer": "Acme", "model": "X1", "device_type": "Router / Gateway"})
+    out = ssdp.discover_ssdp(timeout=0.5, fetch_timeout=0.5)
+    assert out["192.168.1.50"]["hostname"] == "Router"          # fetched (LOCATION matches responder)
+    assert out["192.168.1.50"]["device_type"] == "Router / Gateway"
+    assert out["192.168.1.50"]["os"] == "Embedded Linux"        # from the SERVER header
+    assert out["192.168.1.51"]["hostname"] is None              # SSRF-guarded → not fetched
+    assert out["192.168.1.51"]["os"] == ""

@@ -39,6 +39,11 @@ describe('formatDays', () => {
   it('titles specific days', () => {
     expect(formatDays('mon,fri')).toBe('Mon, Fri');
   });
+  it('passes an unrecognised day token through untitled', () => {
+    // The backend is authoritative on tokens; an unknown one is shown verbatim
+    // (trimmed) rather than dropped, so nothing silently disappears.
+    expect(formatDays('mon, holiday ')).toBe('Mon, holiday');
+  });
 });
 
 describe('describeSchedule', () => {

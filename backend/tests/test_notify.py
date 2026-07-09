@@ -59,3 +59,82 @@ def test_post_json_refuses_non_http(monkeypatch):
     monkeypatch.setattr(notify.urllib.request, "urlopen", fake_urlopen)
     notify._post_json("file:///etc/passwd", {"x": 1})
     assert called["opened"] is False
+
+
+def test_post_json_opens_an_http_url(monkeypatch):
+    opened = {}
+
+    class _Resp:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    def fake_urlopen(req, timeout=None):
+        opened["url"] = req.full_url
+        return _Resp()
+
+    monkeypatch.setattr(notify.urllib.request, "urlopen", fake_urlopen)
+    notify._post_json("https://example.com/hook", {"a": 1})
+    assert opened["url"] == "https://example.com/hook"
+
+
+class _FakeSock:
+    def __init__(self, sink): self._sink = sink
+    def __enter__(self): return self
+    def __exit__(self, *a): return False
+    def settimeout(self, t): self._sink["timeout"] = t
+    def sendto(self, packet, addr): self._sink["packet"], self._sink["addr"] = packet, addr
+
+
+def test_send_syslog_emits_a_pri_prefixed_packet(monkeypatch):
+    sink = {}
+    monkeypatch.setattr(notify, "SYSLOG", "127.0.0.1:5514")
+    monkeypatch.setattr(notify.socket, "socket", lambda *a, **k: _FakeSock(sink))
+    notify._send_syslog("hello world")
+    assert sink["addr"] == ("127.0.0.1", 5514)
+    assert sink["packet"].startswith(b"<12>EnumGrid: hello world")
+
+
+def test_send_syslog_ignores_a_malformed_target(monkeypatch):
+    monkeypatch.setattr(notify, "SYSLOG", "host:not-a-port")
+
+    def _no_socket(*a, **k):
+        raise AssertionError("must not open a socket for a malformed SYSLOG target")
+
+    monkeypatch.setattr(notify.socket, "socket", _no_socket)
+    notify._send_syslog("x")            # int('not-a-port') → ValueError → early return
+
+
+def test_send_syslog_swallows_socket_errors(monkeypatch):
+    class _BoomSock:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def settimeout(self, t): pass
+        def sendto(self, *a): raise OSError("no route")
+
+    monkeypatch.setattr(notify, "SYSLOG", "127.0.0.1:514")
+    monkeypatch.setattr(notify.socket, "socket", lambda *a, **k: _BoomSock())
+    notify._send_syslog("x")            # OSError swallowed, never raised
+
+
+def test_scan_complete_fans_out_to_all_sinks(monkeypatch):
+    calls = {"post": [], "syslog": 0}
+    monkeypatch.setattr(notify, "WEBHOOK_URL", "https://hook")
+    monkeypatch.setattr(notify, "SLACK_WEBHOOK", "https://slack")
+    monkeypatch.setattr(notify, "SYSLOG", "127.0.0.1:514")
+    monkeypatch.setattr(notify, "_post_json", lambda url, payload: calls["post"].append(url))
+    monkeypatch.setattr(notify, "_send_syslog", lambda msg: calls.__setitem__("syslog", calls["syslog"] + 1))
+    notify.scan_complete({"target": "x", "hosts_up": 1, "findings": 2, "kev": 1})
+    assert calls["post"] == ["https://hook", "https://slack"]   # webhook + slack both fired
+    assert calls["syslog"] == 1                                 # + syslog
+
+
+def test_scan_complete_swallows_sink_errors(monkeypatch):
+    monkeypatch.setattr(notify, "WEBHOOK_URL", "https://hook")
+    monkeypatch.setattr(notify, "SLACK_WEBHOOK", "https://slack")
+    monkeypatch.setattr(notify, "SYSLOG", None)
+
+    def _boom(*a):
+        raise OSError("network down")
+
+    monkeypatch.setattr(notify, "_post_json", _boom)
+    notify.scan_complete({"target": "x", "hosts_up": 0, "findings": 0, "kev": 0})  # must not raise

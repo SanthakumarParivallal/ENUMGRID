@@ -64,8 +64,12 @@ jobs:
           code=$?
           set -e
           test "$code" -eq 2 || { echo "expected exit 2, got $code"; exit 1; }
-      - name: Run CLI test suite (with coverage gate)
-        run: python -m pytest -v --cov=purple_recon --cov-report=term-missing --cov-fail-under=50
+      # The CLI (purple_recon.py) is held at a full 100% line coverage. The
+      # threaded engines, the orchestrator, both run-loops and the main()/cli()
+      # entrypoints are driven through mocked boundaries (sockets, subprocess,
+      # nmap, DNS), so a regression anywhere in the CLI fails the build.
+      - name: Run CLI test suite (100% coverage gate, no regression)
+        run: python -m pytest -v --cov=purple_recon --cov-report=term-missing --cov-fail-under=100
       - name: Evaluation harness unit tests (benchmark + detection + copilot scoring)
         run: python -m pytest evaluation/ -v
       - name: Accuracy gate — offline CVE matching (precision & recall == 1.0, no false CVE)
@@ -96,17 +100,22 @@ jobs:
           --cov=report --cov=fingerprint --cov=mdns --cov=osfp --cov=models --cov=obs
           --cov-report=term --cov-fail-under=65
 
-      # A stricter gate on the load-bearing modules — the scope/auth guardrails
-      # and the CVE matchers that the "no false positives" claim rests on. These
-      # are held near-total (≥95%) rather than at the broad backend floor.
-      - name: Coverage gate — accuracy/security-critical modules (>=95%)
+      # A total (100%) gate on EVERY backend module — the scan engine, the FastAPI
+      # service, the scope/auth guardrails, the CVE matchers, and every parser /
+      # persistence / integration module. Live-I/O paths (nmap, sockets, SSH, AWS,
+      # LDAP, the LLM SDKs) are driven through mocked boundaries, so a regression
+      # anywhere in the backend fails the build. The optional SDKs are installed in
+      # CI (requirements-dev.txt) precisely so this gate is real, not a stub.
+      - name: Coverage gate — all backend modules (100%, no regression)
         working-directory: backend
         run: >
-          python -m pytest -q
-          tests/test_cve.py tests/test_security.py tests/test_rbac.py tests/test_api.py
-          tests/test_osv.py tests/test_vulndb.py tests/test_provenance.py tests/test_golden.py
-          --cov=cve --cov=security --cov=osv --cov=vulndb --cov=provenance --cov=models
-          --cov-report=term-missing --cov-fail-under=95
+          python -m pytest -q tests
+          --cov=adscan --cov=app --cov=audit --cov=campaign --cov=cloudscan --cov=copilot
+          --cov=credscan --cov=cve --cov=discovery --cov=fingerprint --cov=history --cov=jobs
+          --cov=mdns --cov=models --cov=nbns --cov=notify --cov=obs --cov=osfp --cov=osv
+          --cov=passive --cov=provenance --cov=report --cov=scanner --cov=schedule --cov=security
+          --cov=snmp --cov=ssdp --cov=threatintel --cov=vulndb --cov=webscan
+          --cov-report=term-missing --cov-fail-under=100
 
   frontend:
     name: Frontend (ESLint + Vitest + build)
@@ -127,8 +136,12 @@ jobs:
         run: npm audit --omit=dev
       - name: Lint (ESLint — react-hooks + jsx-a11y)
         run: npm run lint
-      - name: Unit tests
-        run: npm test
+      # Vitest + a per-file 100% coverage gate on src/lib/** (the pure logic +
+      # security layer: schema coercion, markdown/CSV escaping, auth, toast,
+      # focus-trap, preferences, the offline engine) — the frontend peer of the
+      # CLI/backend 100% line-coverage gate. Real DOM/timers, nothing faked.
+      - name: Unit tests + coverage gate (src/lib at 100%)
+        run: npm run coverage
       - name: Production build
         run: npm run build
 

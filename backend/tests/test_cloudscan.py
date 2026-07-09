@@ -62,3 +62,55 @@ def test_inventory_without_boto3_is_clean(monkeypatch):
     monkeypatch.setattr(cloudscan, "_HAVE_BOTO3", False)
     r = cloudscan.aws_inventory()
     assert r["ok"] is False and "boto3" in r["error"]
+
+
+def test_available_reports_boto3(monkeypatch):
+    monkeypatch.setattr(cloudscan, "_HAVE_BOTO3", True)
+    assert cloudscan.available() is True
+
+
+class _FakeEC2:
+    def describe_instances(self):
+        return {"Reservations": [{"Instances": [{
+            "InstanceId": "i-123", "InstanceType": "t3.micro", "State": {"Name": "running"},
+            "PublicIpAddress": "1.2.3.4", "Tags": [{"Key": "Name", "Value": "web-1"}],
+        }]}]}
+
+    def describe_security_groups(self):
+        return {"SecurityGroups": [{"GroupId": "sg-1", "GroupName": "web", "IpPermissions": [
+            {"IpProtocol": "tcp", "FromPort": 22, "ToPort": 22, "IpRanges": [{"CidrIp": "0.0.0.0/0"}]},
+        ]}]}
+
+
+class _FakeS3:
+    _PUBLIC = "http://acs.amazonaws.com/groups/global/AllUsers"
+
+    def list_buckets(self):
+        return {"Buckets": [{"Name": "open"}, {"Name": "denied"}]}
+
+    def get_bucket_acl(self, Bucket):
+        if Bucket == "denied":
+            raise RuntimeError("AccessDenied")          # per-bucket permission error → skipped
+        return {"Grants": [{"Grantee": {"URI": self._PUBLIC}}]}
+
+
+def test_aws_inventory_assembles_assets_and_findings(monkeypatch):
+    monkeypatch.setattr(cloudscan, "_HAVE_BOTO3", True)
+    monkeypatch.setattr(cloudscan.boto3, "client",
+                        lambda svc, region_name=None: _FakeEC2() if svc == "ec2" else _FakeS3())
+    r = cloudscan.aws_inventory("us-east-1")
+    assert r["ok"] is True
+    assert any(a["id"] == "i-123" for a in r["assets"])
+    assert any(f["type"] == "aws-open-sg" for f in r["findings"])
+    assert any(f["type"] == "aws-public-s3" and f["bucket"] == "open" for f in r["findings"])
+
+
+def test_aws_inventory_reports_query_failure(monkeypatch):
+    monkeypatch.setattr(cloudscan, "_HAVE_BOTO3", True)
+
+    def _boom(*a, **k):
+        raise RuntimeError("no credentials")
+
+    monkeypatch.setattr(cloudscan.boto3, "client", _boom)
+    r = cloudscan.aws_inventory()
+    assert r["ok"] is False and "AWS query failed" in r["error"]
