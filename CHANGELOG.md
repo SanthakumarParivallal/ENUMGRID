@@ -5,6 +5,15 @@ All notable changes to **ENUMGRID: the Enumeration Platform**. Format based on
 
 ## [Unreleased]
 
+### Docs — README redesign (2026-07-10)
+- Rebuilt `README.md` around a hand-crafted SVG hero banner (`docs/banner.svg`, cockpit/HUD
+  aesthetic, self-contained + theme-safe): an *"why it's different"* comparison vs Angry IP /
+  nmap, capability sections grouped by theme (discovery · fingerprinting · deep-scan ·
+  vuln-intel · monitoring · UX), and the real multi-run evaluation figure. Every in-page
+  anchor and image path was verified, and the accuracy figures were reconciled against
+  `docs/EVALUATION.md` (home `/24` recall **1.00** vs `nmap -sn` 0.27; busy `/24`
+  **0.98 ± 0.04** vs 0.07). No claims added beyond what the eval/coverage data already backs.
+
 ### Hardened — full-repo audit (2026-07-10)
 - A line-by-line read of every backend module + the CLI + the non-line-gated React
   views. Verdict: no reachable bugs — injection guards, SSRF surfaces (all fixed
