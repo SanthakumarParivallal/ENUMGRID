@@ -1,0 +1,109 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 336" role="img"
+     aria-label="ENUMGRID — the Enumeration Platform. Purple-team network enumeration: Angry-IP discovery, nmap service and vulnerability depth, live CVE intelligence. A terminal cockpit and a web cockpit sharing one engine.">
+  <defs>
+    <radialGradient id="bgGlow" cx="82%" cy="42%" r="60%">
+      <stop offset="0%" stop-color="#0f2036"/>
+      <stop offset="55%" stop-color="#0a1324"/>
+      <stop offset="100%" stop-color="#070b14"/>
+    </radialGradient>
+    <radialGradient id="amberGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#FFB300" stop-opacity="0.35"/>
+      <stop offset="100%" stop-color="#FFB300" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="sweep" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#22d3ee" stop-opacity="0"/>
+      <stop offset="100%" stop-color="#22d3ee" stop-opacity="0.30"/>
+    </linearGradient>
+    <pattern id="grid" width="34" height="34" patternUnits="userSpaceOnUse">
+      <path d="M34 0H0V34" fill="none" stroke="#13233f" stroke-width="1"/>
+    </pattern>
+    <filter id="soft" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="3.2" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <clipPath id="round"><rect x="2" y="2" width="1196" height="332" rx="18"/></clipPath>
+    <style>
+      .eyebrow{font-family:'Fira Code',ui-monospace,SFMono-Regular,Menlo,monospace;font-size:15px;font-weight:700;fill:#22d3ee;letter-spacing:5px}
+      .brand{font-family:Inter,ui-sans-serif,system-ui,sans-serif;font-size:96px;font-weight:800;letter-spacing:-3px}
+      .tag{font-family:Inter,ui-sans-serif,system-ui,sans-serif;font-size:21px;font-weight:500;fill:#cbd5e1}
+      .sub{font-family:'Fira Code',ui-monospace,SFMono-Regular,Menlo,monospace;font-size:14px;fill:#5f7189;letter-spacing:1px}
+      .chip{font-family:'Fira Code',ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;font-weight:600;fill:#9fb0c7;letter-spacing:1px}
+    </style>
+  </defs>
+
+  <!-- backdrop -->
+  <rect width="1200" height="336" rx="18" fill="url(#bgGlow)"/>
+  <g clip-path="url(#round)">
+    <rect width="1200" height="336" fill="url(#grid)" opacity="0.5"/>
+    <rect x="820" y="-40" width="420" height="420" fill="url(#amberGlow)"/>
+  </g>
+  <rect x="2" y="2" width="1196" height="332" rx="18" fill="none" stroke="#1e2f4a"/>
+
+  <!-- ===================== radar / topology motif ===================== -->
+  <g transform="translate(980 170)">
+    <!-- rings -->
+    <circle r="140" fill="none" stroke="#22d3ee" stroke-opacity="0.16"/>
+    <circle r="100" fill="none" stroke="#22d3ee" stroke-opacity="0.24" stroke-dasharray="2 6"/>
+    <circle r="60"  fill="none" stroke="#22d3ee" stroke-opacity="0.32"/>
+    <!-- rotating sweep wedge (degrades to static if SMIL is stripped) -->
+    <g>
+      <path d="M0,0 L140,0 A140,140 0 0 1 121.2,70 Z" fill="url(#sweep)"/>
+      <line x1="0" y1="0" x2="140" y2="0" stroke="#22d3ee" stroke-opacity="0.55"/>
+      <animateTransform attributeName="transform" type="rotate" from="0" to="360" dur="9s" repeatCount="indefinite"/>
+    </g>
+    <!-- links hub -> nodes -->
+    <g stroke="#33507a" stroke-opacity="0.6">
+      <line x1="0" y1="0" x2="-131.6" y2="-47.9"/>
+      <line x1="0" y1="0" x2="-86.6"  y2="50"/>
+      <line x1="0" y1="0" x2="70"     y2="121.2"/>
+      <line x1="0" y1="0" x2="94"     y2="34.2"/>
+      <line x1="0" y1="0" x2="131.6"  y2="-47.9"/>
+      <line x1="0" y1="0" x2="-20.5"  y2="-56.4"/>
+      <line x1="0" y1="0" x2="-20.5"  y2="56.4"/>
+    </g>
+    <!-- device nodes -->
+    <circle cx="-131.6" cy="-47.9" r="5" fill="#64748b"/>
+    <circle cx="-86.6"  cy="50"    r="6" fill="#22d3ee" filter="url(#soft)"/>
+    <circle cx="70"     cy="121.2" r="6" fill="#34d399" filter="url(#soft)"/>
+    <circle cx="94"     cy="34.2"  r="6" fill="#FFB300" filter="url(#soft)"/>
+    <circle cx="131.6"  cy="-47.9" r="5" fill="#64748b"/>
+    <circle cx="-20.5"  cy="-56.4" r="4" fill="#64748b"/>
+    <circle cx="-20.5"  cy="56.4"  r="4" fill="#64748b"/>
+    <!-- hub (gateway) -->
+    <circle r="11" fill="#FFB300" filter="url(#soft)"/>
+    <circle r="4"  fill="#0a1324"/>
+  </g>
+
+  <!-- ===================== wordmark + copy ===================== -->
+  <text class="eyebrow" x="66" y="72">&#9670; PURPLE-TEAM NETWORK ENUMERATION</text>
+
+  <text class="brand" x="62" y="182"><tspan fill="#f8fafc">ENUM</tspan><tspan fill="#FFB300">GRID</tspan></text>
+  <rect x="68" y="200" width="132" height="4" rx="2" fill="#FFB300"/>
+
+  <text class="tag" x="68" y="238">Angry-IP discovery &#183; nmap service &amp; vuln depth &#183; live CVE intelligence</text>
+  <text class="sub" x="68" y="264">one engine &#8212; a terminal cockpit <tspan fill="#8595ab">and</tspan> a web cockpit</text>
+
+  <!-- capability chips -->
+  <g transform="translate(0 294)">
+    <g>
+      <rect x="66"  y="0" width="70"  height="26" rx="7" fill="#0e1a30" stroke="#24344f"/>
+      <circle cx="82" cy="13" r="3.5" fill="#FFB300"/>
+      <text class="chip" x="94"  y="17">CLI</text>
+    </g>
+    <g>
+      <rect x="146" y="0" width="150" height="26" rx="7" fill="#0e1a30" stroke="#24344f"/>
+      <circle cx="162" cy="13" r="3.5" fill="#22d3ee"/>
+      <text class="chip" x="174" y="17">WEB COCKPIT</text>
+    </g>
+    <g>
+      <rect x="306" y="0" width="150" height="26" rx="7" fill="#0e1a30" stroke="#24344f"/>
+      <circle cx="322" cy="13" r="3.5" fill="#34d399"/>
+      <text class="chip" x="334" y="17">1222 TESTS &#10003;</text>
+    </g>
+    <g>
+      <rect x="466" y="0" width="152" height="26" rx="7" fill="#0e1a30" stroke="#24344f"/>
+      <circle cx="482" cy="13" r="3.5" fill="#22d3ee"/>
+      <text class="chip" x="494" y="17">100% COVERED</text>
+    </g>
+  </g>
+</svg>
