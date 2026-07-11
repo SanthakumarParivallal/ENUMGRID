@@ -305,15 +305,23 @@ def test_ground_truth_file_is_valid_and_consistent():
         gt = json.load(fh)
     assert gt["subnet"] == "172.28.0.0/24"
     ips = [h["ip"] for h in gt["hosts"]]
-    assert len(ips) == len(set(ips)) >= 6              # distinct, diverse testbed hosts
+    assert len(ips) == len(set(ips)) >= 9              # distinct, diverse testbed hosts
     for h in gt["hosts"]:
         assert h["ports"] and all("port" in p and "service" in p for p in h["ports"])
-    # device diversity: web, ssh, key-value store, and a relational DB are present.
+    # device diversity: web, ssh, key-value store, a relational DB, a second RDBMS
+    # and a document store are present.
     services = {p["service"] for h in gt["hosts"] for p in h["ports"]}
-    assert {"http", "ssh", "redis", "postgresql"} <= services
-    # at least one host carries an expected version token so version-scoring runs.
+    assert {"http", "ssh", "redis", "postgresql", "mysql", "mongodb"} <= services
+    # both Apache builds carry an expected version token so version-scoring runs and
+    # the 2.4.49-vs-2.4.50 distinction (which the CVE match hinges on) is exercised.
     versions = [p.get("version") for h in gt["hosts"] for p in h["ports"] if p.get("version")]
-    assert any(v == "2.4.49" for v in versions)
+    assert {"2.4.49", "2.4.50"} <= set(versions)
+    # two independent hosts carry planted, documented CVEs (recall is measurable, not
+    # anecdotal): 2.4.49 → CVE-2021-41773 and 2.4.50 → CVE-2021-42013.
+    planted_hosts = [h for h in gt["hosts"] if h.get("planted_cves")]
+    assert len(planted_hosts) >= 2
+    all_planted = {c for h in planted_hosts for c in h["planted_cves"]}
+    assert {"CVE-2021-41773", "CVE-2021-42013"} <= all_planted
     # a service on a non-standard port (redis off 6379) exercises banner-not-port ID.
     nonstd = [p for h in gt["hosts"] for p in h["ports"]
               if p["service"] == "redis" and p["port"] != 6379]

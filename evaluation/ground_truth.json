@@ -14,7 +14,11 @@
     "'decoy_ports' are ports the scan probes but that are CLOSED, so reporting one as",
     "open is a hard false positive (scored in port precision). Host 172.28.0.15 runs",
     "redis on a NON-STANDARD port (1999) to prove detection follows the banner, not the",
-    "port number."
+    "port number. Hosts .16-.18 (Apache 2.4.50, MySQL, MongoDB) broaden the testbed:",
+    ".16 plants CVE-2021-42013 (a second planted-CVE host, the incomplete-fix twin of",
+    "2.4.49's 41773); .17/.18 add relational + document-store service diversity and are",
+    "service-scored but not version-scored until a first confirming run pins the exact",
+    "banner strings your nmap build reports (see docker-compose.yml RECONCILIATION note)."
   ],
   "subnet": "172.28.0.0/24",
   "decoy_ports": [21, 23, 3389],
@@ -55,6 +59,27 @@
       "ports": [{"port": 1999, "service": "redis", "version": "7.2.3"}],
       "planted_cves": [],
       "note": "non-standard port: detection must identify redis by banner, not by port 6379"
+    },
+    {
+      "ip": "172.28.0.16",
+      "name": "web-apache-50",
+      "ports": [{"port": 80, "service": "http", "version": "2.4.50"}],
+      "planted_cves": ["CVE-2021-42013"],
+      "note": "Apache 2.4.50: the incomplete-fix twin of 2.4.49; recalls CVE-2021-42013 (not 41773, fixed here)"
+    },
+    {
+      "ip": "172.28.0.17",
+      "name": "db-mysql",
+      "ports": [{"port": 3306, "service": "mysql"}],
+      "planted_cves": [],
+      "note": "version omitted until a confirming run: nmap's MySQL 8 banner is scored on service only"
+    },
+    {
+      "ip": "172.28.0.18",
+      "name": "db-mongo",
+      "ports": [{"port": 27017, "service": "mongodb"}],
+      "planted_cves": [],
+      "note": "document-store diversity; service-scored (nmap: 'mongodb'), version not asserted"
     }
   ]
 }
