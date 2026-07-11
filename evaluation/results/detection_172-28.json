@@ -1,0 +1,526 @@
+{
+  "subnet": "172.28.0.0/24",
+  "timestamp": "2026-07-11 11:32:15",
+  "profile": "vuln",
+  "ports": "21,23,80,1999,2222,3306,3389,5432,6379,27017",
+  "hosts": [
+    {
+      "ip": "172.28.0.10",
+      "name": "web-nginx",
+      "ports": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "expected": [
+          80
+        ],
+        "detected": [
+          80
+        ],
+        "false_positives": [],
+        "missed": []
+      },
+      "services": {
+        "scored_ports": 1,
+        "correct": 1,
+        "accuracy": 1.0,
+        "mismatches": []
+      },
+      "versions": {
+        "scored_ports": 1,
+        "correct": 1,
+        "accuracy": 1.0,
+        "mismatches": []
+      },
+      "cves": {
+        "planted": [],
+        "recalled": [],
+        "missed": [],
+        "recall": null,
+        "unexpected": [
+          "CVE-2011-3192"
+        ]
+      },
+      "confidence_samples": [
+        {
+          "port": 80,
+          "conf": 10,
+          "service_ok": true,
+          "version_ok": true
+        }
+      ]
+    },
+    {
+      "ip": "172.28.0.11",
+      "name": "web-apache",
+      "ports": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "expected": [
+          80
+        ],
+        "detected": [
+          80
+        ],
+        "false_positives": [],
+        "missed": []
+      },
+      "services": {
+        "scored_ports": 1,
+        "correct": 1,
+        "accuracy": 1.0,
+        "mismatches": []
+      },
+      "versions": {
+        "scored_ports": 1,
+        "correct": 1,
+        "accuracy": 1.0,
+        "mismatches": []
+      },
+      "cves": {
+        "planted": [
+          "CVE-2021-41773",
+          "CVE-2021-42013"
+        ],
+        "recalled": [
+          "CVE-2021-41773",
+          "CVE-2021-42013"
+        ],
+        "missed": [],
+        "recall": 1.0,
+        "unexpected": [
+          "CVE-2021-44790",
+          "CVE-2022-22720",
+          "CVE-2022-22721",
+          "CVE-2022-23943",
+          "CVE-2022-28615",
+          "CVE-2022-31813",
+          "CVE-2023-25690",
+          "CVE-2024-38474",
+          "CVE-2024-38475",
+          "CVE-2024-38476",
+          "CVE-2026-28780",
+          "CVE-2026-29167",
+          "CVE-2026-44631"
+        ]
+      },
+      "confidence_samples": [
+        {
+          "port": 80,
+          "conf": 10,
+          "service_ok": true,
+          "version_ok": true
+        }
+      ]
+    },
+    {
+      "ip": "172.28.0.12",
+      "name": "ssh-server",
+      "ports": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "expected": [
+          2222
+        ],
+        "detected": [
+          2222
+        ],
+        "false_positives": [],
+        "missed": []
+      },
+      "services": {
+        "scored_ports": 1,
+        "correct": 1,
+        "accuracy": 1.0,
+        "mismatches": []
+      },
+      "versions": {
+        "scored_ports": 1,
+        "correct": 1,
+        "accuracy": 1.0,
+        "mismatches": []
+      },
+      "cves": {
+        "planted": [],
+        "recalled": [],
+        "missed": [],
+        "recall": null,
+        "unexpected": [
+          "CVE-2023-38408",
+          "CVE-2023-48795",
+          "CVE-2023-51384",
+          "CVE-2023-51385",
+          "CVE-2024-6387",
+          "CVE-2025-26465",
+          "CVE-2025-32728",
+          "CVE-2026-35385",
+          "CVE-2026-35386",
+          "CVE-2026-35414",
+          "CVE-2026-59998",
+          "CVE-2026-59999",
+          "CVE-2026-60000",
+          "CVE-2026-60001",
+          "CVE-2026-60002"
+        ]
+      },
+      "confidence_samples": [
+        {
+          "port": 2222,
+          "conf": 10,
+          "service_ok": true,
+          "version_ok": true
+        }
+      ]
+    },
+    {
+      "ip": "172.28.0.13",
+      "name": "redis",
+      "ports": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "expected": [
+          6379
+        ],
+        "detected": [
+          6379
+        ],
+        "false_positives": [],
+        "missed": []
+      },
+      "services": {
+        "scored_ports": 1,
+        "correct": 1,
+        "accuracy": 1.0,
+        "mismatches": []
+      },
+      "versions": {
+        "scored_ports": 1,
+        "correct": 1,
+        "accuracy": 1.0,
+        "mismatches": []
+      },
+      "cves": {
+        "planted": [],
+        "recalled": [],
+        "missed": [],
+        "recall": null,
+        "unexpected": []
+      },
+      "confidence_samples": [
+        {
+          "port": 6379,
+          "conf": 10,
+          "service_ok": true,
+          "version_ok": true
+        }
+      ]
+    },
+    {
+      "ip": "172.28.0.14",
+      "name": "db-postgres",
+      "ports": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "expected": [
+          5432
+        ],
+        "detected": [
+          5432
+        ],
+        "false_positives": [],
+        "missed": []
+      },
+      "services": {
+        "scored_ports": 1,
+        "correct": 1,
+        "accuracy": 1.0,
+        "mismatches": []
+      },
+      "versions": {
+        "scored_ports": 0,
+        "correct": 0,
+        "accuracy": null,
+        "mismatches": []
+      },
+      "cves": {
+        "planted": [],
+        "recalled": [],
+        "missed": [],
+        "recall": null,
+        "unexpected": [
+          "CVE-2002-0802",
+          "CVE-2002-1397",
+          "CVE-2002-1399",
+          "CVE-2002-1400",
+          "CVE-2002-1657",
+          "CVE-2003-0901",
+          "CVE-2005-0245",
+          "CVE-2005-1409",
+          "CVE-2006-2313",
+          "CVE-2007-0555",
+          "CVE-2007-3279",
+          "CVE-2007-3280"
+        ]
+      },
+      "confidence_samples": [
+        {
+          "port": 5432,
+          "conf": 10,
+          "service_ok": true,
+          "version_ok": null
+        }
+      ]
+    },
+    {
+      "ip": "172.28.0.15",
+      "name": "redis-nonstd",
+      "ports": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "expected": [
+          1999
+        ],
+        "detected": [
+          1999
+        ],
+        "false_positives": [],
+        "missed": []
+      },
+      "services": {
+        "scored_ports": 1,
+        "correct": 1,
+        "accuracy": 1.0,
+        "mismatches": []
+      },
+      "versions": {
+        "scored_ports": 1,
+        "correct": 0,
+        "accuracy": 0.0,
+        "mismatches": [
+          {
+            "port": 1999,
+            "expected": "7.2.3",
+            "got": "redis key-value store"
+          }
+        ]
+      },
+      "cves": {
+        "planted": [],
+        "recalled": [],
+        "missed": [],
+        "recall": null,
+        "unexpected": []
+      },
+      "confidence_samples": [
+        {
+          "port": 1999,
+          "conf": 10,
+          "service_ok": true,
+          "version_ok": false
+        }
+      ]
+    },
+    {
+      "ip": "172.28.0.16",
+      "name": "web-apache-50",
+      "ports": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "expected": [
+          80
+        ],
+        "detected": [
+          80
+        ],
+        "false_positives": [],
+        "missed": []
+      },
+      "services": {
+        "scored_ports": 1,
+        "correct": 1,
+        "accuracy": 1.0,
+        "mismatches": []
+      },
+      "versions": {
+        "scored_ports": 1,
+        "correct": 1,
+        "accuracy": 1.0,
+        "mismatches": []
+      },
+      "cves": {
+        "planted": [
+          "CVE-2021-42013"
+        ],
+        "recalled": [
+          "CVE-2021-42013"
+        ],
+        "missed": [],
+        "recall": 1.0,
+        "unexpected": [
+          "CVE-2021-44790",
+          "CVE-2022-22720",
+          "CVE-2022-22721",
+          "CVE-2022-23943",
+          "CVE-2022-28615",
+          "CVE-2022-31813",
+          "CVE-2023-25690",
+          "CVE-2024-38474",
+          "CVE-2024-38475",
+          "CVE-2024-38476",
+          "CVE-2025-23048",
+          "CVE-2026-28780",
+          "CVE-2026-29167",
+          "CVE-2026-44631"
+        ]
+      },
+      "confidence_samples": [
+        {
+          "port": 80,
+          "conf": 10,
+          "service_ok": true,
+          "version_ok": true
+        }
+      ]
+    },
+    {
+      "ip": "172.28.0.17",
+      "name": "db-mysql",
+      "ports": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "expected": [
+          3306
+        ],
+        "detected": [
+          3306
+        ],
+        "false_positives": [],
+        "missed": []
+      },
+      "services": {
+        "scored_ports": 1,
+        "correct": 1,
+        "accuracy": 1.0,
+        "mismatches": []
+      },
+      "versions": {
+        "scored_ports": 0,
+        "correct": 0,
+        "accuracy": null,
+        "mismatches": []
+      },
+      "cves": {
+        "planted": [],
+        "recalled": [],
+        "missed": [],
+        "recall": null,
+        "unexpected": [
+          "CVE-2024-21057"
+        ]
+      },
+      "confidence_samples": [
+        {
+          "port": 3306,
+          "conf": 10,
+          "service_ok": true,
+          "version_ok": null
+        }
+      ]
+    },
+    {
+      "ip": "172.28.0.18",
+      "name": "db-mongo",
+      "ports": {
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "expected": [
+          27017
+        ],
+        "detected": [
+          27017
+        ],
+        "false_positives": [],
+        "missed": []
+      },
+      "services": {
+        "scored_ports": 1,
+        "correct": 0,
+        "accuracy": 0.0,
+        "mismatches": [
+          {
+            "port": 27017,
+            "expected": "mongodb",
+            "got": "mongod"
+          }
+        ]
+      },
+      "versions": {
+        "scored_ports": 0,
+        "correct": 0,
+        "accuracy": null,
+        "mismatches": []
+      },
+      "cves": {
+        "planted": [],
+        "recalled": [],
+        "missed": [],
+        "recall": null,
+        "unexpected": []
+      },
+      "confidence_samples": [
+        {
+          "port": 27017,
+          "conf": 3,
+          "service_ok": false,
+          "version_ok": null
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "hosts_scored": 9,
+    "hosts_errored": 0,
+    "ports": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1": 1.0,
+      "tp": 9,
+      "fp": 0,
+      "fn": 0
+    },
+    "service_accuracy": 0.8888888888888888,
+    "service_scored": 9,
+    "version_accuracy": 0.8333333333333334,
+    "version_scored": 6,
+    "cve_recall": 1.0,
+    "cve_planted": 3,
+    "cve_recalled": 3,
+    "cve_unexpected": 56,
+    "confidence_buckets": {
+      "high": {
+        "n": 8,
+        "service_correct": 8,
+        "version_scored": 6,
+        "version_correct": 5,
+        "service_accuracy": 1.0,
+        "version_accuracy": 0.8333333333333334
+      },
+      "low": {
+        "n": 1,
+        "service_correct": 0,
+        "version_scored": 0,
+        "version_correct": 0,
+        "service_accuracy": 0.0,
+        "version_accuracy": null
+      }
+    }
+  }
+}

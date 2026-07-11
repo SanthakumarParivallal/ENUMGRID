@@ -27,9 +27,29 @@ native 2× resolution and are committed here:
 > `172.16.2.0/24` — an authorised LAN). That's this machine, not a scanned host, but the
 > hostname carries a name — blur it before publishing if you'd rather not.
 >
-> The **data-bearing** figures (Fig 3 live scan, Fig 4 completed scan, Fig 5 topology)
-> are **not** captured here: per the honesty rule below they must come from a real
-> authorised scan, which is the operator's to run.
+## Captured (data-bearing — a real authorised scan — committed)
+
+Captured on **2026-07-11** from a **real, unprivileged** scan of the authorised
+`172.16.2.0/24` LAN (no sudo, `USE_MOCK` off), native 2×:
+
+| File | State | Notes |
+|---|---|---|
+| `scan-live.png` | Fig 3 — live scan | Phase 1 · Ping Sweep at **32 %**, `Stop` armed, `LIVE` badge, **8 hosts** populating the matrix in real time. |
+| `scan-complete.png` | Fig 4 — completed scan | `PHASE Complete`, **15/15 hosts**, unprivileged **OS fingerprinting** (Mac / Linux / Phone), IPv6 badge, OUI vendor lookup, the **WHAT CHANGED / drift** panel, and the scan-session record. |
+| `topology.png` | Fig 5a — topology | Radial map: gateway hub + 14 device nodes, "click a node to nmap it". |
+| `mobile.png` | Fig 5b — mobile 390 px | Progressive disclosure — sidebar collapses to ☰, KPIs reflow to a 2-column grid. |
+
+> **Honest caveat on these.** This is a real consumer LAN, so **Open Ports / Services /
+> CVEs read `00`** — the discovered hosts are firewalled phones/laptops with no open
+> TCP ports (unprivileged connect-scan found none). That is the *true* result, not a gap
+> papered over: to populate the ports/versions/CVE columns you would scan a host that
+> actually exposes services (a server, or the `evaluation/` docker testbed). Nothing here
+> is simulated.
+>
+> **Redaction before publishing.** These frames show real device data on the authorised
+> LAN — real MACs (most are OS-randomised, locally-administered), one OUI vendor string,
+> and the operator's own hostname `santhas-MacBook-Air`. Blur the hostname and any MAC
+> you'd rather not publish.
 
 ## Recommended figure set
 

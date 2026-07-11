@@ -41,7 +41,22 @@ All notable changes to **ENUMGRID: the Enumeration Platform**. Format based on
   scorer + the REAL `parse_nvd` are unit-tested over hand-authored NVD-2.0 **schema fixtures**
   (`test_nvd_precision.py`, +26 tests) — CI-safe, no network; `--live` hits the authoritative
   feed (rate-limit-honouring, operator-run) for the published number, and a CPE that fails to
-  fetch is reported as an error, never as "found nothing".
+  fetch is reported as an error, never as "found nothing". **Measured live (2026-07-11):**
+  recall **1.00 (8/8)**, version-scoping precision **1.00 (7/7)**, 0 truncation losses
+  (`evaluation/results/nvd_live.json`). The run surfaced a real **CPE-dictionary-drift**
+  finding (NVD indexes vsftpd as `vsftpd_project`, nmap emits `vsftpd`) — corpus label
+  corrected to NVD-canonical + documented as a construct-validity limitation, not hidden.
+- **Live testbed runs executed (2026-07-11)** — the 9-host testbed was brought up on a
+  **colima** VM (no Docker Desktop, no host sudo) and the previously operator-only harnesses
+  were run against it, with scans executed inside the VM where the container IPs are reachable:
+  - `detection_benchmark.py` → open-port **P/R 1.00/1.00**, service **0.89**, version **0.83**,
+    **planted-CVE recall 1.00 (3/3)**, 0 FP ports, 56 unexpected surfaced-not-scored.
+  - `cve_baselines.py` (3-way) → nmap-`vulners` **3/3** (133 unexpected), EnumGrid **2/3**
+    (13 unexpected), Nuclei **0/3** — a direct demonstration of the version-match vs
+    active-PoC (exploitability-gated) tradeoff on real hosts.
+  - `aggregate_runs.py` pooled the real `172.16.2.0/24` LAN with the testbed → EnumGrid
+    **0.99 ± 0.02** vs `nmap -sn` **0.53 ± 0.93** across environments (nmap's wide CI = its
+    environment dependence). Results in `evaluation/results/` + `docs/screenshots/pooled_recall.png`.
 - Evaluation suite **93 → 163** (+70 across the four new modules); repo total
   **1222 → 1292**; docs (README badge/table, evaluation/README, CONTRIBUTIONS roadmap) synced.
 

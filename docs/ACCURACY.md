@@ -27,9 +27,11 @@ publication-grade bar is therefore threefold:
 | Layer | Harness | Metric | Measured result |
 | --- | --- | --- | --- |
 | **Discovery** | `evaluation/benchmark.py` | host recall / precision vs `nmap -sn` | recall **0.98–1.00**, precision **1.00** (vs `nmap -sn` 0.07–0.27 unprivileged) — see [EVALUATION.md](EVALUATION.md) |
-| **Detection** | `evaluation/detection_benchmark.py` | port P/R, service + **version** accuracy, planted-CVE recall, **by confidence** | ports **1.00/1.00**, service **1.00**, version **1.00**, planted-CVE recall **1.00** on the pinned testbed |
+| **Detection** | `evaluation/detection_benchmark.py` | port P/R, service + **version** accuracy, planted-CVE recall, **by confidence** | **measured live 2026-07-11** (9-host testbed on colima): ports **1.00/1.00**, service **0.89**, version **0.83**, planted-CVE recall **1.00 (3/3)**, 0 FP ports, 56 unexpected surfaced-not-scored ([`../evaluation/results/detection_172-28.json`](../evaluation/results/detection_172-28.json)) |
+| **CVE baselines** | `evaluation/cve_baselines.py` | planted-CVE recall vs **nmap-`vulners`** and **Nuclei** on the same hosts | **measured live 2026-07-11:** nmap-vulners **3/3** (133 unexpected) · EnumGrid **2/3** (13 unexpected) · Nuclei **0/3** (active-PoC, exploitability-gated). The two-schools tradeoff, on real hosts ([results](../evaluation/results/README.md)) |
+| **Cross-env discovery** | `evaluation/aggregate_runs.py` | discovery recall pooled across environments | **measured 2026-07-11:** EnumGrid **0.99 ± 0.02** vs `nmap -sn` **0.53 ± 0.93** over 2 envs (real LAN + testbed); nmap's huge CI = environment dependence |
 | **CVE matching (offline)** | `evaluation/cve_precision.py` | **precision *and* recall** of version→CVE, offline | **precision 1.00, recall 1.00**, 0 false positives over 33 labelled cases (95 % Wilson CI [0.82, 1.00]) |
-| **CVE matching (live NVD — primary)** | `evaluation/nvd_precision.py` | documented-CVE **recall** + **version-scoping precision** + top-N **truncation-loss** on the live pipeline | scorer + real `parse_nvd` CI-gated on schema fixtures; the published number is the operator's `--live` run against real NVD |
+| **CVE matching (live NVD — primary)** | `evaluation/nvd_precision.py` | documented-CVE **recall** + **version-scoping precision** + top-N **truncation-loss** on the live pipeline | **measured live 2026-07-11:** recall **1.00** (8/8, Wilson CI [0.68, 1.00]), version-scoping precision **1.00** (7/7 excluded, 0 violations), 0 truncation losses ([`evaluation/results/nvd_live.json`](../evaluation/results/nvd_live.json)). The run first surfaced a **CPE-vendor-drift** miss (see §10) — the harness reporting a discrepancy rather than hiding it |
 | **Copilot grounding** | `evaluation/copilot_eval.py` | fabrication rate of the AI explanation | grounding **1.000 ± 0.000** (0 fabrications over 5 runs) — see [COPILOT.md](COPILOT.md) |
 
 These run through the **same code paths as the product** (the detection benchmark
@@ -178,3 +180,25 @@ python -m pytest evaluation/
 ```
 
 Raw results live in [`../evaluation/results/`](../evaluation/results/README.md).
+
+## 10. Finding: CPE-vendor drift on the live-NVD path (nmap vs NVD)
+
+The first authoritative `nvd_precision.py --live` run (2026-07-11) scored recall
+**7/8**, not 8/8. The harness attributed the single miss to *absence* (NVD returned
+**0** rows for the CPE), not truncation, so it was a query issue rather than a parse
+or ranking bug. Running it down: **CVE-2011-2523** (the vsftpd 2.3.4 backdoor) is
+indexed in NVD under vendor **`vsftpd_project`**, whereas nmap's service fingerprint
+emits the vendor token **`vsftpd`**. A version-scoped query built from nmap's CPE
+therefore matches nothing, even though the CVE exists.
+
+This is a real **construct-validity limitation of the live-NVD layer in isolation**,
+not a defect the corpus should hide: the CPE dictionaries of the *fingerprinter*
+(nmap) and the *vulnerability feed* (NVD) do not always agree on the vendor string.
+It is exactly why ENUMGRID does **not** rely on live-NVD alone — the in-scan
+`vulners` NSE script and the curated offline table (`vulndb`) both recall vsftpd
+2.3.4 independently (the offline corpus locks CVE-2011-2523 at recall 1.00). With the
+canonical CPE the live pipeline recalls it correctly, so after fixing the corpus
+label to NVD's canonical vendor the measured recall is **1.00 (8/8)**; the drift
+itself is retained here as a documented threat. See the note on the vsftpd case in
+`evaluation/nvd_corpus.json` and the construct-validity row in
+[`CONTRIBUTIONS.md`](CONTRIBUTIONS.md).

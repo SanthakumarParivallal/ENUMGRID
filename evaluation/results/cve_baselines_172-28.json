@@ -1,0 +1,882 @@
+{
+  "subnet": "172.28.0.0/24",
+  "timestamp": "2026-07-11 13:26:15",
+  "ports": "21,23,80,1999,2222,3306,3389,5432,6379,27017",
+  "tools": [
+    "enumgrid",
+    "nmap-vulners",
+    "nuclei"
+  ],
+  "hosts": [
+    {
+      "planted": [],
+      "tools": {
+        "enumgrid": {
+          "reported": [
+            "CVE-2011-3192"
+          ],
+          "recalled": [],
+          "missed": [],
+          "unexpected": [
+            "CVE-2011-3192"
+          ],
+          "recall": null
+        },
+        "nmap-vulners": {
+          "reported": [],
+          "recalled": [],
+          "missed": [],
+          "unexpected": [],
+          "recall": null
+        },
+        "nuclei": {
+          "reported": [],
+          "recalled": [],
+          "missed": [],
+          "unexpected": [],
+          "recall": null
+        }
+      },
+      "ip": "172.28.0.10",
+      "name": "web-nginx",
+      "agreement": {
+        "enumgrid": {
+          "enumgrid": 1.0,
+          "nmap-vulners": 0.0,
+          "nuclei": 0.0
+        },
+        "nmap-vulners": {
+          "enumgrid": 0.0,
+          "nmap-vulners": 1.0,
+          "nuclei": 1.0
+        },
+        "nuclei": {
+          "enumgrid": 0.0,
+          "nmap-vulners": 1.0,
+          "nuclei": 1.0
+        }
+      }
+    },
+    {
+      "planted": [
+        "CVE-2021-41773",
+        "CVE-2021-42013"
+      ],
+      "tools": {
+        "enumgrid": {
+          "reported": [
+            "CVE-2021-41773",
+            "CVE-2021-42013",
+            "CVE-2021-44790",
+            "CVE-2022-22720",
+            "CVE-2022-22721",
+            "CVE-2022-23943",
+            "CVE-2022-28615",
+            "CVE-2022-31813",
+            "CVE-2023-25690",
+            "CVE-2024-38474",
+            "CVE-2024-38475",
+            "CVE-2024-38476",
+            "CVE-2026-28780",
+            "CVE-2026-29167",
+            "CVE-2026-44631"
+          ],
+          "recalled": [
+            "CVE-2021-41773",
+            "CVE-2021-42013"
+          ],
+          "missed": [],
+          "unexpected": [
+            "CVE-2021-44790",
+            "CVE-2022-22720",
+            "CVE-2022-22721",
+            "CVE-2022-23943",
+            "CVE-2022-28615",
+            "CVE-2022-31813",
+            "CVE-2023-25690",
+            "CVE-2024-38474",
+            "CVE-2024-38475",
+            "CVE-2024-38476",
+            "CVE-2026-28780",
+            "CVE-2026-29167",
+            "CVE-2026-44631"
+          ],
+          "recall": 1.0
+        },
+        "nmap-vulners": {
+          "reported": [
+            "CVE-2006-20001",
+            "CVE-2021-41524",
+            "CVE-2021-41773",
+            "CVE-2021-42013",
+            "CVE-2021-44224",
+            "CVE-2021-44790",
+            "CVE-2022-22719",
+            "CVE-2022-22720",
+            "CVE-2022-22721",
+            "CVE-2022-23943",
+            "CVE-2022-26377",
+            "CVE-2022-28330",
+            "CVE-2022-28614",
+            "CVE-2022-28615",
+            "CVE-2022-29404",
+            "CVE-2022-30556",
+            "CVE-2022-31813",
+            "CVE-2022-36760",
+            "CVE-2022-37436",
+            "CVE-2023-25690",
+            "CVE-2023-27522",
+            "CVE-2023-31122",
+            "CVE-2023-38709",
+            "CVE-2023-45802",
+            "CVE-2024-24795",
+            "CVE-2024-27316",
+            "CVE-2024-38472",
+            "CVE-2024-38473",
+            "CVE-2024-38474",
+            "CVE-2024-38475",
+            "CVE-2024-38476",
+            "CVE-2024-38477",
+            "CVE-2024-39573",
+            "CVE-2024-40898",
+            "CVE-2024-42516",
+            "CVE-2024-43204",
+            "CVE-2024-43394",
+            "CVE-2024-47252",
+            "CVE-2025-23048",
+            "CVE-2025-49630",
+            "CVE-2025-49812",
+            "CVE-2025-53020",
+            "CVE-2025-55753",
+            "CVE-2025-58098",
+            "CVE-2025-59775",
+            "CVE-2025-65082",
+            "CVE-2025-66200",
+            "CVE-2026-24072",
+            "CVE-2026-28780",
+            "CVE-2026-29167",
+            "CVE-2026-29168",
+            "CVE-2026-29169",
+            "CVE-2026-29170",
+            "CVE-2026-33006",
+            "CVE-2026-33007",
+            "CVE-2026-33523",
+            "CVE-2026-33857",
+            "CVE-2026-34032",
+            "CVE-2026-34059",
+            "CVE-2026-34355",
+            "CVE-2026-34356",
+            "CVE-2026-42535",
+            "CVE-2026-42536",
+            "CVE-2026-43951",
+            "CVE-2026-44119",
+            "CVE-2026-44185",
+            "CVE-2026-44186",
+            "CVE-2026-44631",
+            "CVE-2026-49975"
+          ],
+          "recalled": [
+            "CVE-2021-41773",
+            "CVE-2021-42013"
+          ],
+          "missed": [],
+          "unexpected": [
+            "CVE-2006-20001",
+            "CVE-2021-41524",
+            "CVE-2021-44224",
+            "CVE-2021-44790",
+            "CVE-2022-22719",
+            "CVE-2022-22720",
+            "CVE-2022-22721",
+            "CVE-2022-23943",
+            "CVE-2022-26377",
+            "CVE-2022-28330",
+            "CVE-2022-28614",
+            "CVE-2022-28615",
+            "CVE-2022-29404",
+            "CVE-2022-30556",
+            "CVE-2022-31813",
+            "CVE-2022-36760",
+            "CVE-2022-37436",
+            "CVE-2023-25690",
+            "CVE-2023-27522",
+            "CVE-2023-31122",
+            "CVE-2023-38709",
+            "CVE-2023-45802",
+            "CVE-2024-24795",
+            "CVE-2024-27316",
+            "CVE-2024-38472",
+            "CVE-2024-38473",
+            "CVE-2024-38474",
+            "CVE-2024-38475",
+            "CVE-2024-38476",
+            "CVE-2024-38477",
+            "CVE-2024-39573",
+            "CVE-2024-40898",
+            "CVE-2024-42516",
+            "CVE-2024-43204",
+            "CVE-2024-43394",
+            "CVE-2024-47252",
+            "CVE-2025-23048",
+            "CVE-2025-49630",
+            "CVE-2025-49812",
+            "CVE-2025-53020",
+            "CVE-2025-55753",
+            "CVE-2025-58098",
+            "CVE-2025-59775",
+            "CVE-2025-65082",
+            "CVE-2025-66200",
+            "CVE-2026-24072",
+            "CVE-2026-28780",
+            "CVE-2026-29167",
+            "CVE-2026-29168",
+            "CVE-2026-29169",
+            "CVE-2026-29170",
+            "CVE-2026-33006",
+            "CVE-2026-33007",
+            "CVE-2026-33523",
+            "CVE-2026-33857",
+            "CVE-2026-34032",
+            "CVE-2026-34059",
+            "CVE-2026-34355",
+            "CVE-2026-34356",
+            "CVE-2026-42535",
+            "CVE-2026-42536",
+            "CVE-2026-43951",
+            "CVE-2026-44119",
+            "CVE-2026-44185",
+            "CVE-2026-44186",
+            "CVE-2026-44631",
+            "CVE-2026-49975"
+          ],
+          "recall": 1.0
+        },
+        "nuclei": {
+          "reported": [],
+          "recalled": [],
+          "missed": [
+            "CVE-2021-41773",
+            "CVE-2021-42013"
+          ],
+          "unexpected": [],
+          "recall": 0.0
+        }
+      },
+      "ip": "172.28.0.11",
+      "name": "web-apache",
+      "agreement": {
+        "enumgrid": {
+          "enumgrid": 1.0,
+          "nmap-vulners": 0.2174,
+          "nuclei": 0.0
+        },
+        "nmap-vulners": {
+          "enumgrid": 0.2174,
+          "nmap-vulners": 1.0,
+          "nuclei": 0.0
+        },
+        "nuclei": {
+          "enumgrid": 0.0,
+          "nmap-vulners": 0.0,
+          "nuclei": 1.0
+        }
+      }
+    },
+    {
+      "planted": [],
+      "tools": {
+        "enumgrid": {
+          "reported": [
+            "CVE-2023-38408",
+            "CVE-2023-48795",
+            "CVE-2023-51384",
+            "CVE-2023-51385",
+            "CVE-2024-6387",
+            "CVE-2025-26465",
+            "CVE-2025-32728",
+            "CVE-2026-35385",
+            "CVE-2026-35386",
+            "CVE-2026-35414",
+            "CVE-2026-59998",
+            "CVE-2026-59999",
+            "CVE-2026-60000",
+            "CVE-2026-60001",
+            "CVE-2026-60002"
+          ],
+          "recalled": [],
+          "missed": [],
+          "unexpected": [
+            "CVE-2023-38408",
+            "CVE-2023-48795",
+            "CVE-2023-51384",
+            "CVE-2023-51385",
+            "CVE-2024-6387",
+            "CVE-2025-26465",
+            "CVE-2025-32728",
+            "CVE-2026-35385",
+            "CVE-2026-35386",
+            "CVE-2026-35414",
+            "CVE-2026-59998",
+            "CVE-2026-59999",
+            "CVE-2026-60000",
+            "CVE-2026-60001",
+            "CVE-2026-60002"
+          ],
+          "recall": null
+        },
+        "nmap-vulners": {
+          "reported": [
+            "CVE-2023-38408",
+            "CVE-2023-48795",
+            "CVE-2023-51384",
+            "CVE-2023-51385",
+            "CVE-2024-6387",
+            "CVE-2025-26465",
+            "CVE-2025-32728",
+            "CVE-2025-61984",
+            "CVE-2025-61985",
+            "CVE-2026-35385",
+            "CVE-2026-35386",
+            "CVE-2026-35387",
+            "CVE-2026-35388",
+            "CVE-2026-35414",
+            "CVE-2026-59995",
+            "CVE-2026-59996",
+            "CVE-2026-59997",
+            "CVE-2026-59998",
+            "CVE-2026-59999",
+            "CVE-2026-60000",
+            "CVE-2026-60001",
+            "CVE-2026-60002"
+          ],
+          "recalled": [],
+          "missed": [],
+          "unexpected": [
+            "CVE-2023-38408",
+            "CVE-2023-48795",
+            "CVE-2023-51384",
+            "CVE-2023-51385",
+            "CVE-2024-6387",
+            "CVE-2025-26465",
+            "CVE-2025-32728",
+            "CVE-2025-61984",
+            "CVE-2025-61985",
+            "CVE-2026-35385",
+            "CVE-2026-35386",
+            "CVE-2026-35387",
+            "CVE-2026-35388",
+            "CVE-2026-35414",
+            "CVE-2026-59995",
+            "CVE-2026-59996",
+            "CVE-2026-59997",
+            "CVE-2026-59998",
+            "CVE-2026-59999",
+            "CVE-2026-60000",
+            "CVE-2026-60001",
+            "CVE-2026-60002"
+          ],
+          "recall": null
+        },
+        "nuclei": {
+          "reported": [],
+          "recalled": [],
+          "missed": [],
+          "unexpected": [],
+          "recall": null
+        }
+      },
+      "ip": "172.28.0.12",
+      "name": "ssh-server",
+      "agreement": {
+        "enumgrid": {
+          "enumgrid": 1.0,
+          "nmap-vulners": 0.6818,
+          "nuclei": 0.0
+        },
+        "nmap-vulners": {
+          "enumgrid": 0.6818,
+          "nmap-vulners": 1.0,
+          "nuclei": 0.0
+        },
+        "nuclei": {
+          "enumgrid": 0.0,
+          "nmap-vulners": 0.0,
+          "nuclei": 1.0
+        }
+      }
+    },
+    {
+      "planted": [],
+      "tools": {
+        "enumgrid": {
+          "reported": [],
+          "recalled": [],
+          "missed": [],
+          "unexpected": [],
+          "recall": null
+        },
+        "nmap-vulners": {
+          "reported": [],
+          "recalled": [],
+          "missed": [],
+          "unexpected": [],
+          "recall": null
+        },
+        "nuclei": {
+          "reported": [],
+          "recalled": [],
+          "missed": [],
+          "unexpected": [],
+          "recall": null
+        }
+      },
+      "ip": "172.28.0.13",
+      "name": "redis",
+      "agreement": {
+        "enumgrid": {
+          "enumgrid": 1.0,
+          "nmap-vulners": 1.0,
+          "nuclei": 1.0
+        },
+        "nmap-vulners": {
+          "enumgrid": 1.0,
+          "nmap-vulners": 1.0,
+          "nuclei": 1.0
+        },
+        "nuclei": {
+          "enumgrid": 1.0,
+          "nmap-vulners": 1.0,
+          "nuclei": 1.0
+        }
+      }
+    },
+    {
+      "planted": [],
+      "tools": {
+        "enumgrid": {
+          "reported": [
+            "CVE-2002-0802",
+            "CVE-2002-1397",
+            "CVE-2002-1399",
+            "CVE-2002-1400",
+            "CVE-2002-1657",
+            "CVE-2003-0901",
+            "CVE-2005-0245",
+            "CVE-2005-1409",
+            "CVE-2006-2313",
+            "CVE-2007-0555",
+            "CVE-2007-3279",
+            "CVE-2007-3280"
+          ],
+          "recalled": [],
+          "missed": [],
+          "unexpected": [
+            "CVE-2002-0802",
+            "CVE-2002-1397",
+            "CVE-2002-1399",
+            "CVE-2002-1400",
+            "CVE-2002-1657",
+            "CVE-2003-0901",
+            "CVE-2005-0245",
+            "CVE-2005-1409",
+            "CVE-2006-2313",
+            "CVE-2007-0555",
+            "CVE-2007-3279",
+            "CVE-2007-3280"
+          ],
+          "recall": null
+        },
+        "nmap-vulners": {
+          "reported": [],
+          "recalled": [],
+          "missed": [],
+          "unexpected": [],
+          "recall": null
+        },
+        "nuclei": {
+          "reported": [],
+          "recalled": [],
+          "missed": [],
+          "unexpected": [],
+          "recall": null
+        }
+      },
+      "ip": "172.28.0.14",
+      "name": "db-postgres",
+      "agreement": {
+        "enumgrid": {
+          "enumgrid": 1.0,
+          "nmap-vulners": 0.0,
+          "nuclei": 0.0
+        },
+        "nmap-vulners": {
+          "enumgrid": 0.0,
+          "nmap-vulners": 1.0,
+          "nuclei": 1.0
+        },
+        "nuclei": {
+          "enumgrid": 0.0,
+          "nmap-vulners": 1.0,
+          "nuclei": 1.0
+        }
+      }
+    },
+    {
+      "planted": [],
+      "tools": {
+        "enumgrid": {
+          "reported": [],
+          "recalled": [],
+          "missed": [],
+          "unexpected": [],
+          "recall": null
+        },
+        "nmap-vulners": {
+          "reported": [],
+          "recalled": [],
+          "missed": [],
+          "unexpected": [],
+          "recall": null
+        },
+        "nuclei": {
+          "reported": [],
+          "recalled": [],
+          "missed": [],
+          "unexpected": [],
+          "recall": null
+        }
+      },
+      "ip": "172.28.0.15",
+      "name": "redis-nonstd",
+      "agreement": {
+        "enumgrid": {
+          "enumgrid": 1.0,
+          "nmap-vulners": 1.0,
+          "nuclei": 1.0
+        },
+        "nmap-vulners": {
+          "enumgrid": 1.0,
+          "nmap-vulners": 1.0,
+          "nuclei": 1.0
+        },
+        "nuclei": {
+          "enumgrid": 1.0,
+          "nmap-vulners": 1.0,
+          "nuclei": 1.0
+        }
+      }
+    },
+    {
+      "planted": [
+        "CVE-2021-42013"
+      ],
+      "tools": {
+        "enumgrid": {
+          "reported": [],
+          "recalled": [],
+          "missed": [
+            "CVE-2021-42013"
+          ],
+          "unexpected": [],
+          "recall": 0.0
+        },
+        "nmap-vulners": {
+          "reported": [
+            "CVE-2006-20001",
+            "CVE-2021-42013",
+            "CVE-2021-44224",
+            "CVE-2021-44790",
+            "CVE-2022-22719",
+            "CVE-2022-22720",
+            "CVE-2022-22721",
+            "CVE-2022-23943",
+            "CVE-2022-26377",
+            "CVE-2022-28330",
+            "CVE-2022-28614",
+            "CVE-2022-28615",
+            "CVE-2022-29404",
+            "CVE-2022-30556",
+            "CVE-2022-31813",
+            "CVE-2022-36760",
+            "CVE-2022-37436",
+            "CVE-2023-25690",
+            "CVE-2023-27522",
+            "CVE-2023-31122",
+            "CVE-2023-38709",
+            "CVE-2023-45802",
+            "CVE-2024-24795",
+            "CVE-2024-27316",
+            "CVE-2024-38472",
+            "CVE-2024-38473",
+            "CVE-2024-38474",
+            "CVE-2024-38475",
+            "CVE-2024-38476",
+            "CVE-2024-38477",
+            "CVE-2024-39573",
+            "CVE-2024-40898",
+            "CVE-2024-42516",
+            "CVE-2024-43204",
+            "CVE-2024-43394",
+            "CVE-2024-47252",
+            "CVE-2025-23048",
+            "CVE-2025-49630",
+            "CVE-2025-49812",
+            "CVE-2025-53020",
+            "CVE-2025-55753",
+            "CVE-2025-58098",
+            "CVE-2025-59775",
+            "CVE-2025-65082",
+            "CVE-2025-66200",
+            "CVE-2026-24072",
+            "CVE-2026-28780",
+            "CVE-2026-29167",
+            "CVE-2026-29168",
+            "CVE-2026-29169",
+            "CVE-2026-29170",
+            "CVE-2026-33006",
+            "CVE-2026-33007",
+            "CVE-2026-33523",
+            "CVE-2026-33857",
+            "CVE-2026-34032",
+            "CVE-2026-34059",
+            "CVE-2026-34355",
+            "CVE-2026-34356",
+            "CVE-2026-42535",
+            "CVE-2026-42536",
+            "CVE-2026-43951",
+            "CVE-2026-44119",
+            "CVE-2026-44185",
+            "CVE-2026-44186",
+            "CVE-2026-44631",
+            "CVE-2026-49975"
+          ],
+          "recalled": [
+            "CVE-2021-42013"
+          ],
+          "missed": [],
+          "unexpected": [
+            "CVE-2006-20001",
+            "CVE-2021-44224",
+            "CVE-2021-44790",
+            "CVE-2022-22719",
+            "CVE-2022-22720",
+            "CVE-2022-22721",
+            "CVE-2022-23943",
+            "CVE-2022-26377",
+            "CVE-2022-28330",
+            "CVE-2022-28614",
+            "CVE-2022-28615",
+            "CVE-2022-29404",
+            "CVE-2022-30556",
+            "CVE-2022-31813",
+            "CVE-2022-36760",
+            "CVE-2022-37436",
+            "CVE-2023-25690",
+            "CVE-2023-27522",
+            "CVE-2023-31122",
+            "CVE-2023-38709",
+            "CVE-2023-45802",
+            "CVE-2024-24795",
+            "CVE-2024-27316",
+            "CVE-2024-38472",
+            "CVE-2024-38473",
+            "CVE-2024-38474",
+            "CVE-2024-38475",
+            "CVE-2024-38476",
+            "CVE-2024-38477",
+            "CVE-2024-39573",
+            "CVE-2024-40898",
+            "CVE-2024-42516",
+            "CVE-2024-43204",
+            "CVE-2024-43394",
+            "CVE-2024-47252",
+            "CVE-2025-23048",
+            "CVE-2025-49630",
+            "CVE-2025-49812",
+            "CVE-2025-53020",
+            "CVE-2025-55753",
+            "CVE-2025-58098",
+            "CVE-2025-59775",
+            "CVE-2025-65082",
+            "CVE-2025-66200",
+            "CVE-2026-24072",
+            "CVE-2026-28780",
+            "CVE-2026-29167",
+            "CVE-2026-29168",
+            "CVE-2026-29169",
+            "CVE-2026-29170",
+            "CVE-2026-33006",
+            "CVE-2026-33007",
+            "CVE-2026-33523",
+            "CVE-2026-33857",
+            "CVE-2026-34032",
+            "CVE-2026-34059",
+            "CVE-2026-34355",
+            "CVE-2026-34356",
+            "CVE-2026-42535",
+            "CVE-2026-42536",
+            "CVE-2026-43951",
+            "CVE-2026-44119",
+            "CVE-2026-44185",
+            "CVE-2026-44186",
+            "CVE-2026-44631",
+            "CVE-2026-49975"
+          ],
+          "recall": 1.0
+        },
+        "nuclei": {
+          "reported": [],
+          "recalled": [],
+          "missed": [
+            "CVE-2021-42013"
+          ],
+          "unexpected": [],
+          "recall": 0.0
+        }
+      },
+      "ip": "172.28.0.16",
+      "name": "web-apache-50",
+      "agreement": {
+        "enumgrid": {
+          "enumgrid": 1.0,
+          "nmap-vulners": 0.0,
+          "nuclei": 1.0
+        },
+        "nmap-vulners": {
+          "enumgrid": 0.0,
+          "nmap-vulners": 1.0,
+          "nuclei": 0.0
+        },
+        "nuclei": {
+          "enumgrid": 1.0,
+          "nmap-vulners": 0.0,
+          "nuclei": 1.0
+        }
+      }
+    },
+    {
+      "planted": [],
+      "tools": {
+        "enumgrid": {
+          "reported": [
+            "CVE-2024-21057"
+          ],
+          "recalled": [],
+          "missed": [],
+          "unexpected": [
+            "CVE-2024-21057"
+          ],
+          "recall": null
+        },
+        "nmap-vulners": {
+          "reported": [
+            "CVE-2024-21057"
+          ],
+          "recalled": [],
+          "missed": [],
+          "unexpected": [
+            "CVE-2024-21057"
+          ],
+          "recall": null
+        },
+        "nuclei": {
+          "reported": [],
+          "recalled": [],
+          "missed": [],
+          "unexpected": [],
+          "recall": null
+        }
+      },
+      "ip": "172.28.0.17",
+      "name": "db-mysql",
+      "agreement": {
+        "enumgrid": {
+          "enumgrid": 1.0,
+          "nmap-vulners": 1.0,
+          "nuclei": 0.0
+        },
+        "nmap-vulners": {
+          "enumgrid": 1.0,
+          "nmap-vulners": 1.0,
+          "nuclei": 0.0
+        },
+        "nuclei": {
+          "enumgrid": 0.0,
+          "nmap-vulners": 0.0,
+          "nuclei": 1.0
+        }
+      }
+    },
+    {
+      "planted": [],
+      "tools": {
+        "enumgrid": {
+          "reported": [],
+          "recalled": [],
+          "missed": [],
+          "unexpected": [],
+          "recall": null
+        },
+        "nmap-vulners": {
+          "reported": [],
+          "recalled": [],
+          "missed": [],
+          "unexpected": [],
+          "recall": null
+        },
+        "nuclei": {
+          "reported": [],
+          "recalled": [],
+          "missed": [],
+          "unexpected": [],
+          "recall": null
+        }
+      },
+      "ip": "172.28.0.18",
+      "name": "db-mongo",
+      "agreement": {
+        "enumgrid": {
+          "enumgrid": 1.0,
+          "nmap-vulners": 1.0,
+          "nuclei": 1.0
+        },
+        "nmap-vulners": {
+          "enumgrid": 1.0,
+          "nmap-vulners": 1.0,
+          "nuclei": 1.0
+        },
+        "nuclei": {
+          "enumgrid": 1.0,
+          "nmap-vulners": 1.0,
+          "nuclei": 1.0
+        }
+      }
+    }
+  ],
+  "summary": {
+    "hosts_scored": 2,
+    "tools": {
+      "enumgrid": {
+        "hosts": 2,
+        "planted": 3,
+        "recalled": 2,
+        "unexpected": 13,
+        "recall": 0.6666666666666666
+      },
+      "nmap-vulners": {
+        "hosts": 2,
+        "planted": 3,
+        "recalled": 3,
+        "unexpected": 133,
+        "recall": 1.0
+      },
+      "nuclei": {
+        "hosts": 2,
+        "planted": 3,
+        "recalled": 0,
+        "unexpected": 0,
+        "recall": 0.0
+      }
+    }
+  }
+}

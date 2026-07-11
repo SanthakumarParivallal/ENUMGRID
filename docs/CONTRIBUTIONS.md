@@ -93,8 +93,8 @@ design.
 | **Discovery** | Recall/precision vs `nmap -sn` on a home `/24` (11 hosts) and a busy `/24` (~15, 3 runs) | ENUMGRID's multi-method discovery beats an unprivileged ping-sweep by a wide, statistically-reported margin | Few environments; small n; `nmap -sn` is a weak baseline; union-as-proxy ground truth off the docker testbed |
 | **Detection (ports/services/versions)** | Precision/recall vs a pinned, now **9-host** docker testbed with exact ground truth | True detection accuracy with no false-positive ambiguity | Testbed is small and synthetic; real estates are messier |
 | **CVE matching (offline)** | Precision/recall on a **33-case** labelled corpus (`cve_precision.py`) | The *offline fallback* matcher's whole-token behaviour (no `httpd`-in-`lighttpd`) | Corpus is small and curated by the author → risk of fitting the matcher; tests the fallback, not the primary live-NVD path |
-| **CVE matching (live NVD — primary)** | **NEW:** documented-CVE recall + version-scoping precision + top-N truncation-loss on the live pipeline (`nvd_precision.py`, real `parse_nvd`) | The *primary* path — version-scoped CPE query → parse → CVSS-ranked top-N — actually surfaces documented bugs and excludes patched/other-product CPEs | Scorer/parser are CI-tested on schema fixtures; the *published* number needs the operator's `--live` run against real NVD; corpus labels are author-curated lower bounds |
-| **CVE detection vs baselines** | **NEW:** planted-CVE recall vs **nmap-`vulners`** and **Nuclei** on the same testbed (`cve_baselines.py`) | *"Compared to what?"* — ENUMGRID's recall next to two real scanners' | Depends on an operator `docker compose up` + a run; planted-CVE n is still small (3 instances across 2 hosts) |
+| **CVE matching (live NVD — primary)** | **NEW:** documented-CVE recall + version-scoping precision + top-N truncation-loss on the live pipeline (`nvd_precision.py`, real `parse_nvd`). **Measured live 2026-07-11: recall 1.00 (8/8), scoping 1.00 (7/7), 0 violations** | The *primary* path — version-scoped CPE query → parse → CVSS-ranked top-N — actually surfaces documented bugs and excludes patched/other-product CPEs | Corpus labels are author-curated lower bounds; the run also surfaced a real CPE-dictionary-drift limitation (see §5, §10 of ACCURACY) — the live layer alone is not sufficient, by design |
+| **CVE detection vs baselines** | planted-CVE recall vs **nmap-`vulners`** and **Nuclei** on the same testbed (`cve_baselines.py`). **Measured 2026-07-11:** vulners 3/3 (133 unexpected), EnumGrid 2/3 (13), Nuclei 0/3 | *"Compared to what?"* — the two detection schools shown on real hosts: version-match (high recall, noisy) vs active-PoC (exploitability-gated) | planted-CVE n is still small (3 instances across 2 hosts); EnumGrid recall varied 2/3↔3/3 across runs (live-scan nondeterminism) |
 | **LLM copilot** | Grounding coverage + novel-CVE hallucination, multi-run mean ± CI, across llama3.2 / qwen2.5 | Bounded, reproducible hallucination behaviour | Model versions drift; small task set |
 
 **Claims the evidence does support:** ENUMGRID's discovery substantially and
@@ -115,7 +115,13 @@ ground-truth proxy; a host that *no* tool sees is invisible to the metric, so
 recall is an upper bound on that axis. Planted-CVE *recall* is a true metric;
 CVE *precision* is deliberately not scored on rolling images (extras are surfaced,
 not counted) and is instead measured separately and deterministically on the
-33-case offline corpus.
+33-case offline corpus. **CPE-dictionary drift on the live-NVD path:** the vendor
+token nmap's fingerprint emits does not always equal NVD's canonical vendor (a real
+`--live` run found vsftpd indexed as `vsftpd_project` in NVD but `vsftpd` by nmap, so
+a version-scoped query missed CVE-2011-2523). The live-NVD layer *alone* therefore
+has recall gaps wherever the two dictionaries disagree; this is measured, not hidden
+(`nvd_precision.py` surfaced it), and mitigated by the independent `vulners` + offline
+layers. See [`ACCURACY.md`](ACCURACY.md) §10.
 
 **Internal validity.** Live scans are nondeterministic (races, network state);
 this is addressed by run-to-run *stability* measurement (`--repeat`) and multi-run
@@ -183,21 +189,33 @@ sample"*, not *"error-free in general"* — the write-up says so.
 1. **Scale the evaluation** — 5–10 diverse real networks (enterprise, IoT, cloud VPC).
    *Harness ready:* `evaluation/aggregate_runs.py` pools per-network `benchmark.py --runs N`
    results into a cross-environment recall figure (mean ± 95 % CI across environments) + a
-   plot. **Needs the operator's authorised runs.** Also enlarge the CVE corpus with
-   **held-out**, independently-sourced cases to remove the fit-to-matcher risk.
-2. **Beat/meet a real vuln scanner** — run `evaluation/cve_baselines.py` (nmap-vulners,
-   Nuclei) and, if available, OpenVAS/Nessus, on a larger planted set. *Harness ready;*
-   needs the operator's `docker compose up` + run.
+   plot. *A fresh 3-run pass on `172.16.2.0/24` (2026-07-11) reconfirmed EnumGrid recall
+   **0.98 ± 0.04** vs `nmap -sn` **0.06** unprivileged* ([`../evaluation/results/benchmark_172-16-2.json`](../evaluation/results/benchmark_172-16-2.json)),
+   and `aggregate_runs.py` **pooled two real environments** (that LAN + the colima testbed)
+   → EnumGrid **0.99 ± 0.02** vs `nmap -sn` **0.53 ± 0.93** across environments
+   ([`../evaluation/results/pooled_recall.json`](../evaluation/results/pooled_recall.json)).
+   But **n = 2** (one real LAN + one *synthetic* testbed) is still small — real external
+   validity needs several *distinct* authorised real networks, which must not be fabricated.
+   Also enlarge the CVE corpus with **held-out**, independently-sourced cases to remove the
+   fit-to-matcher risk.
+2. **Beat/meet a real vuln scanner** — *Done (2026-07-11):* brought the 9-host testbed up
+   on a **colima** VM and ran `cve_baselines.py` — nmap-`vulners` **3/3** (133 unexpected),
+   EnumGrid **2/3** (13 unexpected), Nuclei **0/3** (active-PoC, exploitability-gated). The
+   two-schools tradeoff is now shown on real hosts ([`../evaluation/results/README.md`](../evaluation/results/README.md)).
+   *Remaining:* a larger planted set + OpenVAS/Nessus for a broader precision picture.
 3. **Precision/recall on the *primary* CVE path** — evaluate the live-NVD CPE match,
-   not only the offline fallback. *Harness ready:* `evaluation/nvd_precision.py` +
-   `nvd_corpus.json` score the live pipeline (version-scoped CPE → `parse_nvd` → top-N)
-   for documented-CVE recall, version-scoping precision, and top-N truncation-loss; the
-   scorer + real `parse_nvd` are CI-tested on NVD-2.0 schema fixtures. **Needs the
-   operator's `--live` run** (network) for the authoritative, published number.
-4. **Scalability study** — timing/memory vs address-space size. *Harness ready:*
-   `evaluation/scalability_benchmark.py` sweeps a widening CIDR range and reports a
-   least-squares fit (ms/address, R²) + throughput + a plot. **Needs the operator's
-   authorised sweep** (e.g. `/26 → /23` on a network you own).
+   not only the offline fallback. *Done (2026-07-11):* `evaluation/nvd_precision.py --live`
+   scored recall **1.00 (8/8)**, version-scoping precision **1.00 (7/7)**, 0 truncation
+   losses against the real NVD feed ([`../evaluation/results/nvd_live.json`](../evaluation/results/nvd_live.json)),
+   and surfaced the CPE-dictionary-drift limitation now documented in §5. The scorer +
+   real `parse_nvd` remain CI-tested on NVD-2.0 schema fixtures. *Remaining:* enlarge the
+   corpus with held-out, independently-sourced CPEs to reduce the author-curation risk.
+4. **Scalability study** — timing/memory vs address-space size. *Done (2026-07-11):*
+   `evaluation/scalability_benchmark.py` swept `/28 → /24` inside the authorised
+   `172.16.2.0/24` and fit discovery time at **46.5 ms/address + 9.1 s fixed overhead
+   (R² = 0.826)**, ~6 addresses/s ([`../evaluation/results/scalability_172-16-2.json`](../evaluation/results/scalability_172-16-2.json),
+   plot `docs/screenshots/scaling_172-16-2.png`). Peak-RSS is best-effort/noisy on macOS
+   (`getrusage` children). *Remaining:* a larger owned range for a cleaner fit.
 5. **User/expert study** (optional) — does the honesty labelling and the copilot triage
    measurably improve an analyst's decisions vs a raw scanner? That would be a genuine,
    publishable HCI-for-security contribution.
