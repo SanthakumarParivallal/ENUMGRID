@@ -6,21 +6,33 @@
 # precision/recall and confirming there are no false positives.
 #
 # Images are PINNED (not :latest) so the ground truth is reproducible run-to-run.
-# One host (172.28.0.11) deliberately runs a known-vulnerable Apache 2.4.49 so
-# that CVE *detection recall* can be measured against a planted, documented CVE.
+# Two hosts deliberately run a known-vulnerable Apache — 2.4.49 (172.28.0.11) and
+# 2.4.50 (172.28.0.16) — so CVE *detection recall* can be measured against planted,
+# documented CVEs (CVE-2021-41773 and its incomplete-fix twin CVE-2021-42013).
 #
 #   docker compose up -d
 #   # host discovery (precision/recall of the live-host set):
 #   python benchmark.py 172.28.0.0/24 \
-#       --ground-truth 172.28.0.10,172.28.0.11,172.28.0.12,172.28.0.13,172.28.0.14,172.28.0.15
+#       --ground-truth 172.28.0.10,172.28.0.11,172.28.0.12,172.28.0.13,172.28.0.14,172.28.0.15,172.28.0.16,172.28.0.17,172.28.0.18
 #   # detection accuracy (ports / services / versions / planted CVE):
 #   python detection_benchmark.py --md detection.md
+#   # CVE-detection vs real scanners (nmap-vulners, Nuclei) on the same hosts:
+#   python cve_baselines.py --md baselines.md
 #   docker compose down
 #
-# Device diversity is deliberate: two web servers (nginx/apache), an SSH server on a
-# non-standard port (2222), a key-value store (redis), a relational database
-# (postgres), AND a redis on a NON-STANDARD port (1999) to prove service detection
-# follows the banner rather than the port number.
+# Device diversity is deliberate: web servers (nginx / two Apache builds), an SSH
+# server on a non-standard port (2222), a key-value store (redis), a relational
+# database (postgres), a second relational DB (mysql) and a document store (mongodb),
+# AND a redis on a NON-STANDARD port (1999) to prove service detection follows the
+# banner rather than the port number.
+#
+# RECONCILIATION (first run): the service/version/planted-CVE ground truth for the
+# hosts added beyond the original six is pinned from each image's published version,
+# but the EXACT strings your nmap build reports should be confirmed once — run
+# `python detection_benchmark.py` and any mismatch is surfaced (never hidden), then
+# corrected with a one-line ground_truth.json edit. Version tokens are asserted only
+# where nmap fingerprints reliably (the Apache builds); mysql/mongodb are
+# service-scored but not version-scored until confirmed — honest by omission.
 #
 # Authorized by construction — you own these containers.
 
@@ -67,6 +79,26 @@ services:
     networks:
       testbed:
         ipv4_address: 172.28.0.15
+
+  web-apache-50:      # 172.28.0.16 — http (80), Apache 2.4.50: PLANTED CVE-2021-42013
+    image: httpd:2.4.50         # the incomplete-fix twin of 2.4.49's CVE-2021-41773
+    networks:
+      testbed:
+        ipv4_address: 172.28.0.16
+
+  db-mysql:           # 172.28.0.17 — mysql (3306), a second relational-DB banner
+    image: mysql:8.0.34
+    environment:
+      - MYSQL_ROOT_PASSWORD=benchmark
+    networks:
+      testbed:
+        ipv4_address: 172.28.0.17
+
+  db-mongo:           # 172.28.0.18 — mongodb (27017), document-store diversity
+    image: mongo:6.0.13
+    networks:
+      testbed:
+        ipv4_address: 172.28.0.18
 
 networks:
   testbed:

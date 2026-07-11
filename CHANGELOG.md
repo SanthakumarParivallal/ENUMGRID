@@ -5,6 +5,46 @@ All notable changes to **ENUMGRID: the Enumeration Platform**. Format based on
 
 ## [Unreleased]
 
+### Evaluation — publication-readiness pass (2026-07-10)
+- **CVE-detection baselines (the missing "compared to what?").** New
+  `evaluation/cve_baselines.py` runs EnumGrid, **nmap-`vulners`** (version-match) and
+  **Nuclei** (active-PoC) against the *same* pinned testbed and reports each tool's
+  planted-CVE recall, its unexpected CVEs (surfaced, not scored), and pairwise Jaccard
+  agreement. Parsers + comparison are pure and CI-tested (`test_cve_baselines.py`, +21
+  tests → evaluation suite **93 → 114**); the live runner is operator-run and reports an
+  uninstalled scanner as *unavailable*, never as "found nothing".
+- **Testbed broadened** `evaluation/docker-compose.yml` 6 → **9 pinned hosts**: a second
+  planted-CVE host (`httpd:2.4.50` → CVE-2021-42013, the incomplete-fix twin of 2.4.49's
+  41773) plus MySQL and MongoDB for relational/document-store service diversity.
+  `ground_truth.json` updated; new hosts are service-scored (versions asserted only where
+  nmap fingerprints reliably) with an explicit first-run **reconciliation** note — no
+  planted-CVE ground truth was invented from memory.
+- **Honest positioning doc** `docs/CONTRIBUTIONS.md`: the contribution/novelty framing
+  (systems + measurement, not a new algorithm), related work vs Fing/nmap/OpenVAS/Nessus/
+  Nuclei/masscan, **threats to validity** (construct/internal/external/statistical), an
+  **ethics & legal** statement, reproducibility, and a roadmap to a stronger paper. It
+  states plainly what the evaluation does and does not support.
+- **Cross-environment pooling (external validity).** New `evaluation/aggregate_runs.py`
+  combines several per-network `benchmark.py` results into per-tool recall **mean ± 95 % CI
+  *across environments*** (macro-average, each network = one sample) + a bar chart — the
+  generalisation figure. Accepts both benchmark JSON shapes; math is pure and unit-tested.
+- **Scalability harness.** New `evaluation/scalability_benchmark.py` measures discovery
+  time + best-effort peak memory vs address-space size over a widening CIDR sweep, with a
+  least-squares fit (ms/address, R²), throughput, and a time-vs-size plot. Pure fit math is
+  unit-tested; the live runner is operator-run on authorised networks.
+- **Live-NVD precision/recall (the *primary* CVE path).** New `evaluation/nvd_precision.py`
+  + `nvd_corpus.json` measure EnumGrid's live NVD API 2.0 pipeline (`cve.py`: version-scoped
+  CPE query → `parse_nvd` → top-N by CVSS) — the path the offline corpus never covered.
+  Reports documented-CVE **recall** (a lower bound; NVD extras are *not* scored as false
+  positives), **version-scoping precision** (a patched build / other-product CPE must come
+  back clean), and **top-N truncation-loss** (a documented CVE dropped by the CVSS cap). The
+  scorer + the REAL `parse_nvd` are unit-tested over hand-authored NVD-2.0 **schema fixtures**
+  (`test_nvd_precision.py`, +26 tests) — CI-safe, no network; `--live` hits the authoritative
+  feed (rate-limit-honouring, operator-run) for the published number, and a CPE that fails to
+  fetch is reported as an error, never as "found nothing".
+- Evaluation suite **93 → 163** (+70 across the four new modules); repo total
+  **1222 → 1292**; docs (README badge/table, evaluation/README, CONTRIBUTIONS roadmap) synced.
+
 ### Docs — README redesign (2026-07-10)
 - Rebuilt `README.md` around a hand-crafted SVG hero banner (`docs/banner.svg`, cockpit/HUD
   aesthetic, self-contained + theme-safe): an *"why it's different"* comparison vs Angry IP /

@@ -9,6 +9,28 @@ each one doubles as evidence for the "results are always real" design principle.
 > MACs are already OS-randomised (locally-administered), but before publishing a
 > figure you may want to blur the router MAC and any resolved hostname.
 
+## Captured (data-free UI chrome — committed)
+
+These three figure slots contain **no scan results** (UI chrome only), so they were
+captured from the **real** running app (backend up, *no* scan run, `USE_MOCK` off) at
+native 2× resolution and are committed here:
+
+| File | State | Notes |
+|---|---|---|
+| `command-center-standby.png` | Fig 1 — standby shell | Full app shell, `Backend ● FastAPI`, `unprivileged`, `0 / 0 hosts`. |
+| `privilege-elevation.png` | Fig 2 — elevation dialog | The sudo-password dialog + the *"held only in the backend's memory — never written to disk, never logged, never returned"* note. |
+| `command-palette.png` | Fig 6a — ⌘K palette | The searchable launcher over a dimmed shell. |
+| `shortcuts-help.png` | Fig 6b — `?` help overlay | The keyboard-shortcut cheat-sheet (⌘K · `/` · `t` · `?` · `Esc`). |
+
+> **One redaction note for these.** The standby/elevation frames show the operator's
+> **own** device (`THIS DEVICE`: `santhas-MacBook-Air.local`, `172.16.2.154`, net
+> `172.16.2.0/24` — an authorised LAN). That's this machine, not a scanned host, but the
+> hostname carries a name — blur it before publishing if you'd rather not.
+>
+> The **data-bearing** figures (Fig 3 live scan, Fig 4 completed scan, Fig 5 topology)
+> are **not** captured here: per the honesty rule below they must come from a real
+> authorised scan, which is the operator's to run.
+
 ## Recommended figure set
 
 | # | Figure | UI state | What it demonstrates |
@@ -33,6 +55,38 @@ each one doubles as evidence for the "results are always real" design principle.
 
 Keep captures consistent (same viewport, same target) so the figures read as one
 coherent walkthrough.
+
+## Step-by-step capture runbook
+
+**Capture keys.** macOS: `⌘⇧4` then Space to grab a window (or drag a region);
+`⌘⇧5` for options. Chrome device toolbar: `⌘⇧M` (Mac) / `Ctrl⇧M`; its ⋮ menu →
+*Capture screenshot* exports the exact device-frame PNG. Save each into this folder.
+
+| Fig | Viewport | Exact steps | Contains scan data? | Redact before publishing |
+|---|---|---|---|---|
+| **1 — Standby shell** | Desktop ≥1440px, dark | Load the UI after `./start.sh`; do **not** start a scan. Capture the whole window. | No | — (no host data on screen) |
+| **2 — Privilege elevation** | Desktop ≥1440px | Click the amber **Privilege** pill → the dialog opens. Capture with the dialog + the in-memory-password note visible. **Do not type a real password into frame.** | No | — |
+| **3 — Live scan** | Desktop ≥1440px | Enter an **authorised** target → **Start Scan**; capture at ~30–90 % (Phase 2 running, `LIVE` badge, hosts populating). | **Yes** | router MAC, resolved hostnames |
+| **4 — Completed scan** | Desktop ≥1440px | Same scan at **Complete** (100 %); expand one host row to show ports/versions/CVEs + the *What Changed* drift panel. | **Yes** | MACs, hostnames |
+| **5 — Responsive + theme** | Mobile 375px (device mode) | Narrow to 375px; capture the collapsed shell; toggle **Settings → Theme** and capture light + dark. | Optional | any host data if a scan is loaded |
+| **6 — ⌘K palette / `?` help** | Desktop | Press **⌘K** (palette) and **`?`** (shortcut cheat-sheet); capture each overlay. | No | — |
+
+**Honesty rule (non-negotiable).** Figures 3–5 that show hosts/ports/CVEs **must
+come from a real scan of a network you are authorised to assess** — never
+`VITE_USE_MOCK=true` demo data. Figs 1, 2 and 6 are UI *chrome* (no scan results),
+so they carry no data-authenticity concern. This is the same "results are always
+real" principle the tool enforces at runtime.
+
+## Generated evaluation figures (not screenshots)
+
+These are produced by the eval harness from **real runs**, for the paper's
+*Evaluation* chapter — not captured from the UI:
+
+- **Discovery bar chart** — `python evaluation/benchmark.py <subnet> --runs 5 --plot bench.png`
+- **Cross-environment recall** — `python evaluation/aggregate_runs.py net1.json net2.json … --plot pooled.png`
+- **Scalability curve** — `python evaluation/scalability_benchmark.py <sweep of CIDRs> --plot scaling.png`
+
+`benchmark_multirun_172-16-2.png` in this folder is one such real-run figure.
 
 ## Accessibility captured here
 

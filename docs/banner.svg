@@ -98,7 +98,7 @@
     <g>
       <rect x="306" y="0" width="150" height="26" rx="7" fill="#0e1a30" stroke="#24344f"/>
       <circle cx="322" cy="13" r="3.5" fill="#34d399"/>
-      <text class="chip" x="334" y="17">1222 TESTS &#10003;</text>
+      <text class="chip" x="334" y="17">1292 TESTS &#10003;</text>
     </g>
     <g>
       <rect x="466" y="0" width="152" height="26" rx="7" fill="#0e1a30" stroke="#24344f"/>

@@ -28,12 +28,14 @@ publication-grade bar is therefore threefold:
 | --- | --- | --- | --- |
 | **Discovery** | `evaluation/benchmark.py` | host recall / precision vs `nmap -sn` | recall **0.98–1.00**, precision **1.00** (vs `nmap -sn` 0.07–0.27 unprivileged) — see [EVALUATION.md](EVALUATION.md) |
 | **Detection** | `evaluation/detection_benchmark.py` | port P/R, service + **version** accuracy, planted-CVE recall, **by confidence** | ports **1.00/1.00**, service **1.00**, version **1.00**, planted-CVE recall **1.00** on the pinned testbed |
-| **CVE matching** | `evaluation/cve_precision.py` | **precision *and* recall** of version→CVE, offline | **precision 1.00, recall 1.00**, 0 false positives over 33 labelled cases (95 % Wilson CI [0.82, 1.00]) |
+| **CVE matching (offline)** | `evaluation/cve_precision.py` | **precision *and* recall** of version→CVE, offline | **precision 1.00, recall 1.00**, 0 false positives over 33 labelled cases (95 % Wilson CI [0.82, 1.00]) |
+| **CVE matching (live NVD — primary)** | `evaluation/nvd_precision.py` | documented-CVE **recall** + **version-scoping precision** + top-N **truncation-loss** on the live pipeline | scorer + real `parse_nvd` CI-gated on schema fixtures; the published number is the operator's `--live` run against real NVD |
 | **Copilot grounding** | `evaluation/copilot_eval.py` | fabrication rate of the AI explanation | grounding **1.000 ± 0.000** (0 fabrications over 5 runs) — see [COPILOT.md](COPILOT.md) |
 
-The first three run through the **same code paths as the product** (the detection
-benchmark calls `scanner._service_scan`; the CVE benchmark calls the real
-`vulndb.lookup_offline_cves`), so the numbers are ENUMGRID's own, not a
+These run through the **same code paths as the product** (the detection benchmark
+calls `scanner._service_scan`; the offline CVE benchmark calls the real
+`vulndb.lookup_offline_cves`; the live-NVD benchmark calls the real `cve.parse_nvd`
+and, with `--live`, `cve._query_nvd`), so the numbers are ENUMGRID's own, not a
 re-implementation's.
 
 ## 3. CVE-matching precision *and* recall (the highest-stakes claim)
@@ -156,6 +158,10 @@ scan is repeatable.
 # CVE matching — precision & recall (offline, deterministic, CI-gated)
 python evaluation/cve_precision.py                              # the table
 python evaluation/cve_precision.py --min-precision 1.0 --min-recall 1.0
+
+# CVE matching — the PRIMARY live-NVD pipeline (scorer self-check, then real feed)
+python evaluation/nvd_precision.py                              # fixture self-check (no network)
+python evaluation/nvd_precision.py --live --md nvd.md           # authoritative (operator, network)
 
 # Detection accuracy + version strings + accuracy-by-confidence (testbed up)
 cd evaluation && docker compose up -d
