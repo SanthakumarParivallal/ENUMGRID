@@ -5,6 +5,46 @@ All notable changes to **ENUMGRID: the Enumeration Platform**. Format based on
 
 ## [Unreleased]
 
+### Publication push — paper draft, figure redaction, turnkey scaffolding (2026-07-11)
+- **Paper draft** `docs/PAPER.md` (Markdown, version-controlled) **and `docs/ENUMGRID_Paper.docx`**
+  (submission-ready Word: title page, auto-TOC, native tables, and the **redacted** figures +
+  eval plots embedded — every number audited against `evaluation/results/*.json`): an end-to-end
+  engineering + measurement paper wired to the real artifacts — abstract, the three defensible claims, related work + the two
+  detection schools, system design, the honesty discipline, evaluation (discovery,
+  detection, offline + live-NVD CVE matching, baselines, scalability, copilot), threats to
+  validity, ethics, reproducibility, and a figure/reproduce appendix. Every quantitative
+  claim cites an `evaluation/results/*.json`; honest by construction (under-claims, carries
+  CIs, names its own limits, surfaces the CPE-drift finding rather than hiding it).
+- **Defense/demo deck** `docs/ENUMGRID_Defense.pptx` (16 slides, on-brand cyber palette, the
+  redacted screenshot + real eval plots embedded, speaker notes) — built with pptxgenjs,
+  structurally validated, and **visually QA'd** (rendered every slide, no overflow/overlap).
+- **Rendered PDFs** `docs/ENUMGRID_Paper.pdf` and `docs/ENUMGRID_Defense.pdf` (via LibreOffice)
+  so both the paper and the deck are portable/submission-ready; figures + tables verified intact.
+- **One-page reproducibility map** `docs/REPRODUCE.md`: every headline number → its exact
+  command → its artifact, plus the testbed lifecycle and the scaffolding entry points.
+- **Screenshot redaction** `docs/screenshots/redact.py`: blurs the operator hostname and the
+  MAC column in every affected frame, writing publishable `*-redacted.png` copies
+  (`--check` validates the regions). The un-redacted originals are kept for the operator;
+  the paper references the redacted copies.
+- **OpenVAS/Nessus baselines — report-file adapters** in `evaluation/cve_baselines.py`:
+  `parse_gvm_xml` / `parse_nessus_xml` read an exported Greenbone/Nessus report, filter it
+  host-by-host, and score planted-CVE recall with the same comparison as the other tools.
+  Enable with `--tools openvas,nessus` (report path via `ENUMGRID_OPENVAS_REPORT` /
+  `ENUMGRID_NESSUS_REPORT`); **unavailable, never "found nothing"** when no report is
+  supplied. +15 CI-tested parser/runner tests (incl. a focused-review case: a Nessus
+  report that names the host by FQDN must still match by IP via the `host-ip` tag) →
+  evaluation suite **163 → 178**.
+- **Turnkey scaffolding for the operator-only gaps** (scaffolding, *not* fabricated data):
+  `evaluation/COLLECTING_NETWORKS.md` (three-command-per-network multi-network runbook +
+  authorisation checklist → `aggregate_runs.py`); `evaluation/nvd_corpus_heldout.json` (a
+  frozen, empty held-out CVE-corpus template carrying a blind-sampling protocol, scored
+  unchanged by `nvd_precision.py --corpus`); `docs/USER_STUDY_PROTOCOL.md` (a pre-registered
+  analyst study — hypotheses, within-subjects design, n ≈ 34 power analysis, analysis plan,
+  ethics — to be *run* with real participants, not simulated). Roadmap items in
+  `CONTRIBUTIONS.md` §8 updated to reference each.
+- **Totals:** repo **1292 → 1307 tests** (evaluation 163 → 178); ruff clean. Nothing
+  committed (the operator commits from VS Code).
+
 ### Evaluation — publication-readiness pass (2026-07-10)
 - **CVE-detection baselines (the missing "compared to what?").** New
   `evaluation/cve_baselines.py` runs EnumGrid, **nmap-`vulners`** (version-match) and

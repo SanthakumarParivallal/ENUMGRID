@@ -16,8 +16,8 @@ widely-used baselines and reports, per host and pooled:
     false positive: a rolling image's full CVE set is not knowable a priori);
   * pairwise **agreement** (Jaccard) between the tools' CVE sets.
 
-The two baselines embody the two schools of vulnerability detection, which is the
-point of comparing them:
+The two live baselines embody the two schools of vulnerability detection, which is
+the point of comparing them:
 
   * **version-match** (nmap `vulners`, and EnumGrid's CPE→NVD path) — maps a
     detected product/version to its known CVEs. High recall, but a back-ported
@@ -27,6 +27,18 @@ point of comparing them:
 
 Reporting both alongside EnumGrid frames its accuracy honestly instead of in a
 vacuum.
+
+**Heavyweight scanners (OpenVAS/Greenbone, Nessus) — report-file adapters.** These
+are the mature vuln scanners a reviewer will ask about, but driving them from a
+one-liner is unrealistic (each needs a running daemon, a scan task, and polling).
+So this harness takes the honest, operator-driven route: run the scanner through
+its own UI/CLI, export the report, and point the harness at the exported file via
+``ENUMGRID_OPENVAS_REPORT`` / ``ENUMGRID_NESSUS_REPORT``. It then parses that real
+report, filters it to each testbed host, and scores planted-CVE recall with the
+*same* comparison used for the other tools — no fabrication, just whatever the
+scanner actually reported. With no report file set, the tool is ``unavailable``
+(never "found nothing"), exactly like a missing nmap/nuclei. Enable with
+``--tools enumgrid,openvas,nessus``.
 
 Two layers, like the rest of the eval harness:
   * the parsers + comparison are **pure and unit-tested** (no network, no Docker,
@@ -105,6 +117,72 @@ def parse_nuclei_jsonl(lines: Iterable[str]) -> set[str]:
         for key in ("template-id", "templateID", "template_id"):
             if isinstance(obj.get(key), str):
                 out |= parse_cve_ids(obj[key])
+    return out
+
+
+# Heavyweight-scanner report parsers. Both work on the scanner's own *exported*
+# report and are host-filterable. We parse with regex over structural blocks
+# rather than an XML parser on purpose: it matches the rest of this module's
+# style, is robust to schema/namespace variation between tool versions, and has
+# no XML-parser attack surface (XXE / entity-expansion) even though the report is
+# the operator's own file. A CVE id is any `CVE-YYYY-N…` token inside the block.
+_NESSUS_HOST_RE = re.compile(
+    r'<ReportHost\b[^>]*\bname="([^"]+)"[^>]*>(.*?)</ReportHost>',
+    re.DOTALL | re.IGNORECASE,
+)
+_NESSUS_HOSTIP_RE = re.compile(
+    r'<tag\b[^>]*\bname="host-ip"[^>]*>\s*([^<\s]+)', re.IGNORECASE,
+)
+_GVM_RESULT_RE = re.compile(r"<result\b.*?>(.*?)</result>", re.DOTALL | re.IGNORECASE)
+_GVM_HOST_RE = re.compile(r"<host\b[^>]*>\s*([0-9a-fA-F:.]+)", re.IGNORECASE)
+
+
+def parse_nessus_xml(text: str, ip: str | None = None) -> set[str]:
+    """CVE ids from a Nessus ``.nessus`` (v2) report.
+
+    CVE ids live in ``<cve>`` elements inside ``<ReportItem>`` inside
+    ``<ReportHost name="…">``. When ``ip`` is given, only that host's block is
+    read; otherwise every host. A ``ReportHost``'s ``name`` is frequently the
+    resolved hostname/FQDN, not the IP, so a host also matches when its
+    ``HostProperties`` carries ``<tag name="host-ip">ip</tag>`` — otherwise a
+    real, FQDN-named report would score a misleading zero for an IP lookup. If the
+    file has no ``<ReportHost>`` blocks (an unexpected export shape), fall back to
+    a whole-file id sweep only for the unfiltered case, so a schema surprise
+    degrades to "best effort", never a silent zero."""
+    text = text or ""
+    hosts = list(_NESSUS_HOST_RE.finditer(text))
+    if not hosts:
+        return parse_cve_ids(text) if ip is None else set()
+    out: set[str] = set()
+    for m in hosts:
+        block = m.group(2)
+        if ip is not None and m.group(1) != ip:
+            hostip = _NESSUS_HOSTIP_RE.search(block)
+            if not hostip or hostip.group(1) != ip:
+                continue
+        out |= parse_cve_ids(block)
+    return out
+
+
+def parse_gvm_xml(text: str, ip: str | None = None) -> set[str]:
+    """CVE ids from a Greenbone/OpenVAS (GVM) XML report.
+
+    CVE ids live in ``<ref type="cve" id="CVE-…"/>`` inside a ``<result>`` whose
+    ``<host>`` is the scanned IP. When ``ip`` is given, only that host's results
+    are read. Same best-effort fallback as :func:`parse_nessus_xml` when the file
+    carries no ``<result>`` blocks."""
+    text = text or ""
+    results = list(_GVM_RESULT_RE.finditer(text))
+    if not results:
+        return parse_cve_ids(text) if ip is None else set()
+    out: set[str] = set()
+    for m in results:
+        block = m.group(1)
+        if ip is not None:
+            hm = _GVM_HOST_RE.search(block)
+            if not hm or hm.group(1) != ip:
+                continue
+        out |= parse_cve_ids(block)
     return out
 
 
@@ -268,6 +346,36 @@ def run_nuclei(ip: str, host_ports: list[dict]) -> set[str] | None:
     return cves
 
 
+def _read_report(env_var: str) -> str | None:
+    """Read a scanner's exported report from the path in ``env_var``.
+
+    None (→ ``unavailable``) if the variable is unset or the file is missing/
+    unreadable — the honest signal that this baseline was not supplied, never a
+    fabricated empty result."""
+    path = os.environ.get(env_var)
+    if not path or not os.path.isfile(path):
+        return None
+    try:
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            return fh.read()
+    except OSError:
+        return None
+
+
+def run_openvas(ip: str) -> set[str] | None:
+    """OpenVAS/Greenbone planted-CVE set for ``ip`` from an exported GVM XML
+    report (``ENUMGRID_OPENVAS_REPORT``). None if no report is supplied."""
+    text = _read_report("ENUMGRID_OPENVAS_REPORT")
+    return None if text is None else parse_gvm_xml(text, ip)
+
+
+def run_nessus(ip: str) -> set[str] | None:
+    """Nessus planted-CVE set for ``ip`` from an exported ``.nessus`` report
+    (``ENUMGRID_NESSUS_REPORT``). None if no report is supplied."""
+    text = _read_report("ENUMGRID_NESSUS_REPORT")
+    return None if text is None else parse_nessus_xml(text, ip)
+
+
 def _import_scanner():
     backend = os.path.join(_ROOT, "backend")
     if backend not in sys.path:
@@ -304,6 +412,8 @@ _RUNNERS = {
     "enumgrid": lambda ip, spec, host: run_enumgrid(ip, spec),
     "nmap-vulners": lambda ip, spec, host: run_nmap_vulners(ip, spec),
     "nuclei": lambda ip, spec, host: run_nuclei(ip, host.get("ports", [])),
+    "openvas": lambda ip, spec, host: run_openvas(ip),
+    "nessus": lambda ip, spec, host: run_nessus(ip),
 }
 
 
@@ -357,7 +467,9 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="EnumGrid CVE-detection baseline comparison")
     ap.add_argument("--ground-truth", default=_DEFAULT_GT, help="path to ground_truth.json")
     ap.add_argument("--tools", default="enumgrid,nmap-vulners,nuclei",
-                    help="comma list of: enumgrid, nmap-vulners, nuclei")
+                    help="comma list of: enumgrid, nmap-vulners, nuclei, openvas, "
+                         "nessus. openvas/nessus read an exported report from "
+                         "ENUMGRID_OPENVAS_REPORT / ENUMGRID_NESSUS_REPORT.")
     ap.add_argument("--ports", help="override the probed port spec (default: gt ports ∪ decoys)")
     ap.add_argument("--json", metavar="FILE", help="write the full result as JSON")
     ap.add_argument("--md", metavar="FILE", help="append the markdown table to this path")

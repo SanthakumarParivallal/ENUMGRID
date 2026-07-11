@@ -1,5 +1,9 @@
 # Evaluation — results
 
+> **Where these numbers are used:** the write-up in [`../../docs/PAPER.md`](../../docs/PAPER.md)
+> cites each artifact below; [`../../docs/REPRODUCE.md`](../../docs/REPRODUCE.md) maps every
+> headline to its exact command. Methodology: [`../../docs/ACCURACY.md`](../../docs/ACCURACY.md).
+
 ## Offline CVE-matching precision / recall (`cve_precision.json`)
 
 The highest-stakes accuracy artifact: does the matcher attach the *right* CVE to
@@ -91,6 +95,14 @@ theory predicts, now demonstrated on real hosts:
 - EnumGrid's own **planted-CVE recall varied 2/3 ↔ 3/3** between this run and the detection
   run above — real live-scan nondeterminism on the 2.4.50 incomplete-fix twin, which is
   precisely why the project measures run-to-run **stability** (`--repeat`).
+
+**Heavyweight scanners (OpenVAS/Nessus) — adapters ready, not yet run.** `cve_baselines.py`
+now includes report-file adapters (`--tools openvas,nessus`): export a Greenbone (GVM XML)
+or Nessus (`.nessus`) report, point `ENUMGRID_OPENVAS_REPORT` / `ENUMGRID_NESSUS_REPORT` at
+it, and the harness parses the **real** report host-by-host and scores planted-CVE recall
+with the same comparison. With no report supplied the tool is `unavailable` (never "found
+nothing"). This closes the "beat/meet a mature vuln scanner" gap to an operator export + one
+flag — no result is fabricated here.
 
 ## Cross-environment discovery pooling (`pooled_recall.json`)
 

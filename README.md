@@ -4,7 +4,7 @@
 
 <!-- badges -->
 [![CI](https://github.com/SanthakumarParivallal/ENUMGRID/actions/workflows/ci.yml/badge.svg)](https://github.com/SanthakumarParivallal/ENUMGRID/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-1292%20passing-brightgreen.svg)](#-testing--quality-gates)
+[![Tests](https://img.shields.io/badge/tests-1307%20passing-brightgreen.svg)](#-testing--quality-gates)
 [![Coverage](https://img.shields.io/badge/coverage-100%25%20line-brightgreen.svg)](#-testing--quality-gates)
 [![SAST: bandit](https://img.shields.io/badge/SAST-bandit%200%20high%2Fmed-1f6feb.svg)](#-security-model)
 [![Deps: 0 CVEs](https://img.shields.io/badge/deps-0%20known%20CVEs-brightgreen.svg)](#-security-model)
@@ -96,7 +96,7 @@ held in memory only.
 <td width="33%" valign="top">
 
 ### 🧪 Provably tested
-**1292 tests**, and the CLI, all 30 backend modules and the frontend logic layer are
+**1307 tests**, and the CLI, all 30 backend modules and the frontend logic layer are
 held at a **CI-gated 100% line coverage**. A regression anywhere fails the build.
 
 </td>
@@ -466,7 +466,7 @@ make test      # ruff lint + CLI pytest + backend pytest + frontend Vitest
 
 <div align="center">
 
-**1292 tests, all green.**
+**1307 tests, all green.**
 
 </div>
 
@@ -475,7 +475,7 @@ make test      # ruff lint + CLI pytest + backend pytest + frontend Vitest
 | **CLI** — `tests/test_purple_recon*.py` | **197** | guardrails (IPv6 scope, empty/delimiter specs), NDP/ARP/OUI parsing, discovery policy, reports, export, renderers, **reproducibility manifest**, **fuzzing** — **plus** the full threaded engines (sweep/ICMP/TCP/ARP-proxy, nmap + socket enumeration), the orchestrator, both run-loops (cockpit + headless, incl. Ctrl-C) and the `main`/`cli` entrypoints, driven through mocked boundaries → **100% line coverage** |
 | **Backend** — `backend/tests/test_*.py` | **726** | scope/**RBAC** (constant-time tokens) **+ per-IP throttle** **+ read-gated PDF endpoint**, **full async scan-pipeline + FastAPI drive-through** (nmap/SSH/AWS/LDAP/LLM boundaries mocked → 100%), 11 scan profiles + injection safety + adaptive all-ports, **privilege auto-adaptation + runtime sudo elevation**, **live NVD + offline CVE DB** (whole-token match) **+ OSV backport-aware**, **KEV+EPSS**, confidence propagation, **credentialed SSH**, web-DAST (TLS parse), **SNMP BER codec**, AWS/LDAP parsers, job-queue, **passive discovery**, **cron scheduling**, **campaign aggregation**, provenance manifest, **golden-file determinism** (XML→model + byte-stable PDF), **structured JSON logging**, alerting + audit, multi-signal OS fingerprinting, mDNS/NBNS/SSDP, history + drift, **PDF escaping**, **AI copilot** (4 providers incl. free **Ollama**/**Gemini**, scan-grounding, intent-gated tools, grounded PDF summary), hypothesis fuzzing |
 | **Frontend** — `frontend/src/**/*.test.{js,jsx}` | **206** | the whole `src/lib/**` layer at **100% line coverage** (jsdom) — schema coercion / null-safety, CVE link + confidence + **KEV/EPSS rank**, **API-token persistence**, **CSV/JSON export** (formula-injection-safe), **view-preference store**, **the offline scan engine** (seeded), **modal focus-trap**, **toast provider**, **⌘K palette ranking**, **copilot helpers** (SSE parsing, Ollama setup), **safe Markdown renderer** (HTML-escaped, scheme-allow-listed, XSS-tested) |
-| **Evaluation** — `evaluation/test_*.py` | **163** | discovery-benchmark metric math (precision/recall/Jaccard), **multi-run stats** (mean ± 95% CI), **cross-environment pooling** (macro-average recall across networks), **scalability fit** (ms/address + R², throughput), arp-scan/netdiscover/masscan baseline parsers, **detection-benchmark scoring** vs a pinned 9-host testbed (accuracy-by-confidence, repeated-scan stability), **offline CVE precision·recall** (33-case corpus, Wilson CIs), **live-NVD pipeline precision·recall** (documented-CVE recall + version-scoping + top-N truncation-loss, real `parse_nvd` on schema fixtures; `--live` for the authoritative number), **CVE-detection baselines** (EnumGrid vs nmap-`vulners` vs Nuclei — parsers + planted-CVE recall + agreement), **AI-copilot eval** (grounding, hallucination detection) |
+| **Evaluation** — `evaluation/test_*.py` | **178** | discovery-benchmark metric math (precision/recall/Jaccard), **multi-run stats** (mean ± 95% CI), **cross-environment pooling** (macro-average recall across networks), **scalability fit** (ms/address + R², throughput), arp-scan/netdiscover/masscan baseline parsers, **detection-benchmark scoring** vs a pinned 9-host testbed (accuracy-by-confidence, repeated-scan stability), **offline CVE precision·recall** (33-case corpus, Wilson CIs), **live-NVD pipeline precision·recall** (documented-CVE recall + version-scoping + top-N truncation-loss, real `parse_nvd` on schema fixtures; `--live` for the authoritative number), **CVE-detection baselines** (EnumGrid vs nmap-`vulners` vs Nuclei — parsers + planted-CVE recall + agreement, plus **OpenVAS/Nessus report-file adapters** for the heavyweight scanners), **AI-copilot eval** (grounding, hallucination detection) |
 
 **Static analysis is clean:** **ruff** 0 · **ESLint** 0 (react-hooks + jsx-a11y) · **bandit**
 SAST 0 high/medium · **pip-audit** 0 known CVEs · **npm audit** 0 (vite 8 / vitest 4). CI

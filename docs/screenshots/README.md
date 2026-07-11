@@ -8,6 +8,14 @@ each one doubles as evidence for the "results are always real" design principle.
 > scan (hostnames like `santhas-MacBook-Air`, MAC addresses, vendor OUIs). Phone
 > MACs are already OS-randomised (locally-administered), but before publishing a
 > figure you may want to blur the router MAC and any resolved hostname.
+>
+> **Publish the `*-redacted.png` copies.** `redact.py` (in this folder) blurs the
+> operator hostname and the MAC column in every affected frame and writes
+> `<name>-redacted.png` next to each original. **These `-redacted` copies are the
+> ones to put in the paper**; the un-redacted originals are kept for the operator's
+> own reference. Regenerate them with `python docs/screenshots/redact.py`
+> (`--check` validates the regions without writing). `mobile.png` needs no
+> redaction — the captured crop shows only the KPI strip and filters, no host data.
 
 ## Captured (data-free UI chrome — committed)
 

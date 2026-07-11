@@ -196,13 +196,23 @@ sample"*, not *"error-free in general"* — the write-up says so.
    ([`../evaluation/results/pooled_recall.json`](../evaluation/results/pooled_recall.json)).
    But **n = 2** (one real LAN + one *synthetic* testbed) is still small — real external
    validity needs several *distinct* authorised real networks, which must not be fabricated.
+   *Turnkey scaffolding (2026-07-11):* [`evaluation/COLLECTING_NETWORKS.md`](../evaluation/COLLECTING_NETWORKS.md)
+   is a three-command-per-network runbook + authorisation checklist that feeds `aggregate_runs.py`;
+   each authorised network the operator adds tightens the cross-environment CI.
    Also enlarge the CVE corpus with **held-out**, independently-sourced cases to remove the
-   fit-to-matcher risk.
+   fit-to-matcher risk — [`evaluation/nvd_corpus_heldout.json`](../evaluation/nvd_corpus_heldout.json)
+   is a frozen, empty template carrying the blind-sampling protocol; `nvd_precision.py --live
+   --corpus …` scores it unchanged. Both are *scaffolding*, not results — they still need the
+   operator's real networks / an independent sampler.
 2. **Beat/meet a real vuln scanner** — *Done (2026-07-11):* brought the 9-host testbed up
    on a **colima** VM and ran `cve_baselines.py` — nmap-`vulners` **3/3** (133 unexpected),
    EnumGrid **2/3** (13 unexpected), Nuclei **0/3** (active-PoC, exploitability-gated). The
    two-schools tradeoff is now shown on real hosts ([`../evaluation/results/README.md`](../evaluation/results/README.md)).
-   *Remaining:* a larger planted set + OpenVAS/Nessus for a broader precision picture.
+   *Remaining:* a larger planted set + OpenVAS/Nessus for a broader precision picture — the
+   **report-file adapters are now built** (`cve_baselines.py --tools openvas,nessus` parses an
+   exported GVM/Nessus report via `ENUMGRID_OPENVAS_REPORT` / `ENUMGRID_NESSUS_REPORT`, scoring
+   the real report host-by-host; unavailable, never "found nothing", when no report is supplied),
+   so adding those heavyweights is an operator export + one flag away.
 3. **Precision/recall on the *primary* CVE path** — evaluate the live-NVD CPE match,
    not only the offline fallback. *Done (2026-07-11):* `evaluation/nvd_precision.py --live`
    scored recall **1.00 (8/8)**, version-scoping precision **1.00 (7/7)**, 0 truncation
@@ -218,7 +228,11 @@ sample"*, not *"error-free in general"* — the write-up says so.
    (`getrusage` children). *Remaining:* a larger owned range for a cleaner fit.
 5. **User/expert study** (optional) — does the honesty labelling and the copilot triage
    measurably improve an analyst's decisions vs a raw scanner? That would be a genuine,
-   publishable HCI-for-security contribution.
+   publishable HCI-for-security contribution. *Pre-registered protocol now written:*
+   [`docs/USER_STUDY_PROTOCOL.md`](USER_STUDY_PROTOCOL.md) fixes the hypotheses (calibration,
+   triage speed, over-trust), a within-subjects counterbalanced design, an n ≈ 34 power
+   analysis, and the analysis plan **before** any data — but it must be *run* with real human
+   participants under ethics approval; it must not be simulated.
 
 ---
 

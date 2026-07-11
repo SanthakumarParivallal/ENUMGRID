@@ -83,6 +83,135 @@ def test_parse_nuclei_jsonl_multiple_findings_union():
     assert cb.parse_nuclei_jsonl(lines) == {"CVE-2021-41773", "CVE-2021-42013"}
 
 
+# --- parse_nessus_xml (heavyweight-scanner report adapter) ----------------- #
+# A minimal but structurally-faithful slice of a Nessus v2 (.nessus) report:
+# two hosts, CVE ids in <cve> tags inside <ReportItem> inside <ReportHost>.
+_NESSUS = """<?xml version="1.0" ?>
+<NessusClientData_v2><Report name="scan">
+  <ReportHost name="172.28.0.11">
+    <ReportItem port="80" pluginID="12345">
+      <cve>CVE-2021-41773</cve>
+      <cve>CVE-2021-42013</cve>
+    </ReportItem>
+  </ReportHost>
+  <ReportHost name="172.28.0.12">
+    <ReportItem port="2222" pluginID="222"><cve>CVE-2018-15473</cve></ReportItem>
+  </ReportHost>
+</Report></NessusClientData_v2>"""
+
+
+def test_parse_nessus_xml_filters_to_host():
+    assert cb.parse_nessus_xml(_NESSUS, "172.28.0.11") == {"CVE-2021-41773", "CVE-2021-42013"}
+    assert cb.parse_nessus_xml(_NESSUS, "172.28.0.12") == {"CVE-2018-15473"}
+
+
+def test_parse_nessus_xml_all_hosts_when_ip_none():
+    assert cb.parse_nessus_xml(_NESSUS) == {
+        "CVE-2021-41773", "CVE-2021-42013", "CVE-2018-15473",
+    }
+
+
+def test_parse_nessus_xml_unknown_host_is_empty():
+    assert cb.parse_nessus_xml(_NESSUS, "10.0.0.9") == set()
+
+
+# A real Nessus export often names the host by FQDN, with the IP in HostProperties.
+_NESSUS_FQDN = """<?xml version="1.0" ?>
+<NessusClientData_v2><Report name="scan">
+  <ReportHost name="web1.lan">
+    <HostProperties>
+      <tag name="host-fqdn">web1.lan</tag>
+      <tag name="host-ip">172.28.0.11</tag>
+    </HostProperties>
+    <ReportItem port="80" pluginID="1"><cve>CVE-2021-41773</cve></ReportItem>
+  </ReportHost>
+</Report></NessusClientData_v2>"""
+
+
+def test_parse_nessus_xml_matches_ip_via_hostproperties_when_named_by_fqdn():
+    # The IP lookup must succeed via <tag name="host-ip"> even though ReportHost
+    # name is the FQDN — otherwise a real report scores a misleading zero.
+    assert cb.parse_nessus_xml(_NESSUS_FQDN, "172.28.0.11") == {"CVE-2021-41773"}
+    assert cb.parse_nessus_xml(_NESSUS_FQDN, "web1.lan") == {"CVE-2021-41773"}  # by name still works
+    assert cb.parse_nessus_xml(_NESSUS_FQDN, "10.0.0.9") == set()               # neither → empty
+
+
+def test_parse_nessus_xml_no_reporthost_blocks_falls_back_only_unfiltered():
+    stray = "garbage export mentioning CVE-2021-44228 somewhere"
+    assert cb.parse_nessus_xml(stray) == {"CVE-2021-44228"}          # best-effort
+    assert cb.parse_nessus_xml(stray, "172.28.0.11") == set()         # never a wrong-host id
+
+
+def test_parse_nessus_xml_empty_and_none_safe():
+    assert cb.parse_nessus_xml("") == set()
+    assert cb.parse_nessus_xml(None) == set()
+
+
+# --- parse_gvm_xml (OpenVAS/Greenbone report adapter) ---------------------- #
+_GVM = """<report><results>
+  <result><host>172.28.0.11</host>
+    <nvt oid="1.3.6.1"><refs>
+      <ref type="cve" id="CVE-2021-41773"/>
+      <ref type="cve" id="CVE-2021-42013"/>
+    </refs></nvt>
+  </result>
+  <result><host>172.28.0.12</host>
+    <nvt oid="1.3.6.2"><refs><ref type="cve" id="CVE-2018-15473"/></refs></nvt>
+  </result>
+</results></report>"""
+
+
+def test_parse_gvm_xml_filters_to_host():
+    assert cb.parse_gvm_xml(_GVM, "172.28.0.11") == {"CVE-2021-41773", "CVE-2021-42013"}
+    assert cb.parse_gvm_xml(_GVM, "172.28.0.12") == {"CVE-2018-15473"}
+
+
+def test_parse_gvm_xml_all_hosts_when_ip_none():
+    assert cb.parse_gvm_xml(_GVM) == {
+        "CVE-2021-41773", "CVE-2021-42013", "CVE-2018-15473",
+    }
+
+
+def test_parse_gvm_xml_unknown_host_is_empty():
+    assert cb.parse_gvm_xml(_GVM, "10.0.0.9") == set()
+
+
+def test_parse_gvm_xml_no_result_blocks_falls_back_only_unfiltered():
+    stray = "not a gvm report but CVE-2014-0160 is here"
+    assert cb.parse_gvm_xml(stray) == {"CVE-2014-0160"}
+    assert cb.parse_gvm_xml(stray, "172.28.0.11") == set()
+
+
+def test_parse_gvm_xml_empty_and_none_safe():
+    assert cb.parse_gvm_xml("") == set()
+    assert cb.parse_gvm_xml(None) == set()
+
+
+# --- report-file runners (unavailable when no report supplied) ------------- #
+def test_run_openvas_unavailable_without_report(monkeypatch):
+    monkeypatch.delenv("ENUMGRID_OPENVAS_REPORT", raising=False)
+    assert cb.run_openvas("172.28.0.11") is None
+
+
+def test_run_nessus_unavailable_when_file_missing(monkeypatch):
+    monkeypatch.setenv("ENUMGRID_NESSUS_REPORT", "/no/such/report.nessus")
+    assert cb.run_nessus("172.28.0.11") is None
+
+
+def test_run_openvas_reads_supplied_report(tmp_path, monkeypatch):
+    p = tmp_path / "gvm.xml"
+    p.write_text(_GVM, encoding="utf-8")
+    monkeypatch.setenv("ENUMGRID_OPENVAS_REPORT", str(p))
+    assert cb.run_openvas("172.28.0.11") == {"CVE-2021-41773", "CVE-2021-42013"}
+
+
+def test_run_nessus_reads_supplied_report(tmp_path, monkeypatch):
+    p = tmp_path / "scan.nessus"
+    p.write_text(_NESSUS, encoding="utf-8")
+    monkeypatch.setenv("ENUMGRID_NESSUS_REPORT", str(p))
+    assert cb.run_nessus("172.28.0.12") == {"CVE-2018-15473"}
+
+
 # --- comparison ------------------------------------------------------------ #
 def test_compare_host_recall_and_unexpected_per_tool():
     planted = ["CVE-2021-41773", "CVE-2021-42013"]

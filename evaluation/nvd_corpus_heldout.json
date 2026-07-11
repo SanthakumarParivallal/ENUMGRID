@@ -1,0 +1,19 @@
+{
+  "_comment": "HELD-OUT live-NVD corpus — intentionally EMPTY. This template exists to remove the 'fit-to-matcher' objection on the 1.00 numbers from nvd_corpus.json, which was authored by the tool's author. A held-out corpus must be built by someone (or something) INDEPENDENT of the matcher, sampled BEFORE looking at how ENUMGRID scores it, so it cannot have been tuned to pass. Populate 'cases' following '_protocol' below, then run: python evaluation/nvd_precision.py --live --corpus evaluation/nvd_corpus_heldout.json --json evaluation/results/nvd_heldout.json. Do NOT hand-pick cases you already know ENUMGRID passes — that would reintroduce exactly the bias this file is meant to eliminate.",
+  "_protocol": [
+    "1. SOURCE independently. Draw candidate CVEs from a feed ENUMGRID did not train on and you do not curate: e.g. the CISA KEV catalog (https://www.cisa.gov/known-exploited-vulnerabilities-catalog), a fixed date window of NVD's 'recently modified' feed, or a colleague's pick. Record the source + date so the sample is auditable.",
+    "2. SAMPLE blind. Take the first N (target N>=30) entries that (a) are of type 'a' (application, matching ENUMGRID's CPE path) and (b) carry a version-scoped CPE in the NVD record. Do NOT skip an entry because you suspect ENUMGRID will miss it — that selection is the bias.",
+    "3. LABEL from the record, not the tool. For each CVE, read its NVD applicability statement and write one 'recall' case: cpe = the vulnerable CPE 2.3 string from the record; expect_present = [that CVE id]. Add a matched 'version-scope' case with the next patched version (expect_absent = [that CVE id]) when the record states a fixed version. Labels come from NVD, never from running ENUMGRID.",
+    "4. FREEZE then measure. Commit this file (the frozen corpus) BEFORE running nvd_precision.py against it. The recall/scoping numbers you then get are held-out: the corpus could not have been fitted to the matcher because it was fixed first.",
+    "5. REPORT honestly. Expect held-out recall to be LOWER than the author-curated 1.00 — CPE-vendor drift (see docs/ACCURACY.md section 10) and dictionary gaps will cause real misses. A lower held-out number is a stronger, more credible result than a curated 1.00; report it as-is, attributed by category (absence vs truncation), exactly as the harness already does."
+  ],
+  "_schema": {
+    "cpe": "cpe:2.3:a:<vendor>:<product>:<version>:*:*:*:*:*:*:*",
+    "category": "one of: recall | version-scope | wrong-product",
+    "expect_present": ["CVE ids the version-scoped query MUST surface (recall lower bound)"],
+    "expect_absent": ["CVE ids that MUST NOT appear for a patched/other-product CPE"],
+    "note": "provenance: which feed, which date, why this label"
+  },
+  "endpoint": "https://services.nvd.nist.gov/rest/json/cves/2.0",
+  "cases": []
+}
