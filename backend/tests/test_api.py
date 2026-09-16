@@ -55,6 +55,8 @@ def test_health():
     body = r.json()
     assert body["status"] == "ok"
     assert "max_concurrent_scans" in body and "allow_public" in body
+    # the per-host scan budget the dashboard sizes its request timeout from
+    assert isinstance(body["host_scan_deadline"], int) and body["host_scan_deadline"] > 0
     # privilege auto-adaptation surface
     assert body["capability"] in ("root", "sudo", "unprivileged")
     assert "can_raw" in body
@@ -494,6 +496,7 @@ def test_profiles_lists_scan_profiles():
     body = client.get("/api/profiles").json()
     assert "default" in body["profiles"] and "args" in body["profiles"]["default"]
     assert body["capability"] in ("root", "sudo", "unprivileged")
+    assert body["host_scan_deadline"] == client.get("/api/health").json()["host_scan_deadline"]
 
 
 def test_audit_endpoint():

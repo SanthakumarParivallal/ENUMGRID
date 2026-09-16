@@ -5,6 +5,7 @@ from __future__ import annotations
 import socket
 
 import discovery as d
+import pytest
 from fingerprint import guess_device_type
 from models import PortState, Protocol
 
@@ -107,7 +108,8 @@ import asyncio  # noqa: E402
 
 
 def _install_stubs(monkeypatch, *, is_alive=None, arp=None, proxy=None, ndp=None,
-                   probe_open=(), nbns=None, snmp_info=None, ttl="", mdns=None, ssdp=None):
+                   probe_open=(), nbns=None, snmp_info=None, ttl="", mdns=None, ssdp=None,
+                   local=(None, set())):
     monkeypatch.setattr(d, "_oui_table", lambda: {})
 
     class _Engine:
@@ -126,6 +128,8 @@ def _install_stubs(monkeypatch, *, is_alive=None, arp=None, proxy=None, ndp=None
     monkeypatch.setattr(d, "os_hint", lambda ip: ttl)
     monkeypatch.setattr(d, "discover_mdns", lambda secs: dict(mdns or {}))
     monkeypatch.setattr(d, "discover_ssdp", lambda secs: dict(ssdp or {}))
+    monkeypatch.setattr(d, "_local_identity", lambda: local)
+    monkeypatch.setattr(d.scanner, "scan_capability", lambda: "unprivileged")
 
 
 def _run(target):
@@ -154,6 +158,7 @@ def test_run_discovery_fuses_all_signals(monkeypatch):
     assert 80 in [p.port for p in by_ip["10.0.0.1"].ports]      # seed port from is_alive
     assert 445 in [p.port for p in by_ip["10.0.0.2"].ports]     # port-probe hit
     assert by_ip["10.0.0.2"].hostname == "WINPC"                # NBNS name
+    assert final.message is None                                # ARP readable → no notice
 
 
 def test_run_discovery_proxy_arp_skipped(monkeypatch):
@@ -231,3 +236,102 @@ def test_run_discovery_port_probe_disabled(monkeypatch):
     final = _run("10.0.0.0/30")[-1]
     assert final.phase == d.ScanPhase.COMPLETE
     assert next(h for h in final.hosts if h.ip == "10.0.0.1").ports == []   # probe skipped
+
+
+# --- ARP visibility + the operator's own machine ---------------------------- #
+_ARP_OUT = (
+    "? (10.0.0.1) at 0:1b:2c:3:4:5 on en0 ifscope [ethernet]\n"
+    "? (10.0.0.2) at (incomplete) on en0 ifscope [ethernet]\n"
+    "? (224.0.0.251) at 1:0:5e:0:0:fb on en0 ifscope permanent [ethernet]\n"
+)
+
+
+def test_read_arp_uses_plain_table_when_visible(monkeypatch):
+    monkeypatch.setattr(d.pr, "_read_arp_table", lambda: {"10.0.0.1": "aa:bb:cc:dd:ee:01"})
+    monkeypatch.setattr(d.scanner, "sudo_output", lambda argv: pytest.fail("sudo not needed"))
+    assert d._read_arp() == {"10.0.0.1": "aa:bb:cc:dd:ee:01"}
+
+
+def test_read_arp_rereads_hidden_table_under_sudo(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(d.pr, "_read_arp_table", lambda: {})
+    monkeypatch.setattr(d.scanner, "scan_capability", lambda: "sudo")
+    monkeypatch.setattr(d.scanner, "sudo_output", lambda argv: seen.update(argv=argv) or _ARP_OUT)
+    # Incomplete + multicast entries are skipped; short octets are zero-padded.
+    assert d._read_arp() == {"10.0.0.1": "00:1b:2c:03:04:05"}
+    assert seen["argv"][-1] == "-an"
+
+
+def test_read_arp_hidden_without_elevation_stays_empty(monkeypatch):
+    monkeypatch.setattr(d.pr, "_read_arp_table", lambda: {})
+    monkeypatch.setattr(d.scanner, "scan_capability", lambda: "unprivileged")
+    monkeypatch.setattr(d.scanner, "sudo_output", lambda argv: pytest.fail("cannot elevate"))
+    assert d._read_arp() == {}
+    monkeypatch.setattr(d.scanner, "scan_capability", lambda: "sudo")
+    monkeypatch.setattr(d.scanner, "sudo_output", lambda argv: None)     # sudo refused
+    assert d._read_arp() == {}
+
+
+class _UdpProbe:
+    def __init__(self, *a):
+        self.closed = False
+
+    def connect(self, addr):
+        assert addr == ("8.8.8.8", 80)
+
+    def getsockname(self):
+        return ("10.0.0.7", 50000)
+
+    def close(self):
+        self.closed = True
+
+
+def test_local_identity_reads_hostname_and_addresses(monkeypatch):
+    monkeypatch.setattr(d.socket, "gethostname", lambda: "my-MacBook-Air.local")
+    monkeypatch.setattr(d.socket, "socket", _UdpProbe)
+    monkeypatch.setattr(d.socket, "getaddrinfo",
+                        lambda name, port, fam: [(fam, 2, 17, "", ("10.0.0.9", 0))])
+    assert d._local_identity() == ("my-MacBook-Air", {"10.0.0.7", "10.0.0.9"})
+
+
+def test_local_identity_tolerates_os_errors(monkeypatch):
+    def _oserror(*a, **k):
+        raise OSError("unavailable")
+
+    monkeypatch.setattr(d.socket, "gethostname", _oserror)
+    monkeypatch.setattr(d.socket, "socket", _oserror)
+    monkeypatch.setattr(d.socket, "getaddrinfo", lambda *a: pytest.fail("no name to resolve"))
+    assert d._local_identity() == (None, set())
+
+    monkeypatch.setattr(d.socket, "gethostname", lambda: "box")
+    monkeypatch.setattr(d.socket, "getaddrinfo", _oserror)
+    assert d._local_identity() == ("box", set())
+
+
+def test_run_discovery_names_own_machine_and_flags_hidden_arp(monkeypatch):
+    _install_stubs(
+        monkeypatch,
+        is_alive={"10.0.0.1": (True, "ping", [], 64), "10.0.0.2": (True, "ping", [], 64)},
+        arp={},                                           # the OS hid the ARP table
+        nbns={"10.0.0.1": "NASBOX"},
+        ttl="Linux / macOS / Unix",
+        local=("my-MacBook-Air", {"10.0.0.1", "10.0.0.2", "192.168.9.9"}),
+    )
+    final = _run("10.0.0.0/30")[-1]
+    by_ip = {h.ip: h for h in final.hosts}
+    assert by_ip["10.0.0.2"].hostname == "my-MacBook-Air"    # named from the OS
+    assert by_ip["10.0.0.2"].os == "macOS (Apple)"           # which sharpens its OS family
+    assert by_ip["10.0.0.1"].hostname == "NASBOX"            # an existing name is kept
+    assert "192.168.9.9" not in by_ip                        # own addresses never add hosts
+    assert final.message == d.ARP_HIDDEN_NOTE                # honest notice, not silent blanks
+
+
+def test_run_discovery_own_machine_without_hostname(monkeypatch):
+    _install_stubs(
+        monkeypatch,
+        is_alive={"10.0.0.2": (True, "ping", [], 64)},
+        arp={"10.0.0.2": "aa:bb:cc:dd:ee:02"},
+        local=(None, {"10.0.0.2"}),
+    )
+    final = _run("10.0.0.0/30")[-1]
+    assert final.hosts[0].hostname is None and final.message is None

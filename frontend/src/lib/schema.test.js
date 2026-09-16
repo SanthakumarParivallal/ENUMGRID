@@ -128,6 +128,13 @@ describe('HostModel', () => {
     expect(h.scanned).toBe(true);
     expect(h.scanError).toBe(false);
     expect(h.scan_note).toBe('UDP→connect');
+    expect(h.scan_warning).toBe('');
+  });
+
+  it('carries scan_warning so a timed-out host never reads as "no ports"', () => {
+    const h = HostModel({ ip: '10.0.0.4', scanned: true, scan_warning: 'nmap gave up on this host twice' });
+    expect(h.scan_warning).toBe('nmap gave up on this host twice');
+    expect(HostModel({ ip: '10.0.0.4', scan_warning: 0 }).scan_warning).toBe('0');
   });
 });
 

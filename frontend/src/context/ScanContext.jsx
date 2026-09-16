@@ -134,6 +134,7 @@ const initialState = {
   running: false,
   source: null, // 'live' (FastAPI SSE) | 'mock' (offline demo)
   statusMessage: null, // operator-readable note (refusal reason / backend unreachable)
+  scanNotice: null, // non-fatal note on a live scan (e.g. the OS hid MAC addresses)
   deepScan: false, // run NSE vuln scripts (--script vuln)
   sessions: seededSessions,
   drift: null, // 'what changed since last scan' for the current target (live only)
@@ -141,6 +142,7 @@ const initialState = {
   monitorEverySec: 300, // re-scan interval when monitoring
   driftAlert: null, // { appeared, disappeared, changed, at } when monitoring sees a change
   profiles: {}, // available nmap scan profiles (from /api/profiles)
+  hostScanDeadline: 900, // backend's total per-host scan budget in seconds (from /api/profiles)
   privileged: false, // backend has root → real nmap -O OS detection
   capability: 'unprivileged', // 'root' | 'sudo' | 'unprivileged' (scan privilege tier)
   canRaw: false, // root OR passwordless sudo → real -sS/-sU/-O available
@@ -186,6 +188,7 @@ function reducer(state, action) {
         running: true,
         source,
         statusMessage: null, // clear any prior error/refusal note
+        scanNotice: null,
         drift: null, // clear last run's drift until this scan completes
         // Cap the session log so a long Monitor run can't grow it (and the
         // persisted snapshot) without bound.
@@ -209,6 +212,8 @@ function reducer(state, action) {
         canElevate: !!action.canElevate,
         elevated: !!action.elevated,
         isRoot: action.isRoot != null ? !!action.isRoot : !!action.privileged,
+        hostScanDeadline:
+          Number(action.hostScanDeadline) > 0 ? Number(action.hostScanDeadline) : state.hostScanDeadline,
       };
 
     // Runtime privilege change (dashboard Elevate / Drop, or a refresh).
@@ -271,6 +276,8 @@ function reducer(state, action) {
         progress: snap.progress,
         hosts: snap.hosts,
         finishedAt: snap.finished_at,
+        // An ERROR frame's message is the failure reason (kept in statusMessage).
+        scanNotice: snap.phase === ScanPhase.ERROR ? state.scanNotice : snap.message,
         sessions: patchSession(state.sessions, state.scanId, {
           status: snap.phase,
           hostCount: total,
@@ -340,6 +347,7 @@ function reducer(state, action) {
                 ports: m.ports.length ? m.ports : h.ports,
                 vulns: m.vulns,
                 scan_note: m.scan_note, // surface any unprivileged auto-adaptation
+                scan_warning: m.scan_warning, // incomplete results (nmap host-timeout)
                 scanning: false,
                 vulnScanning: false,
                 queued: false,
@@ -564,6 +572,7 @@ export function ScanProvider({ children }) {
             canElevate: !!d.can_elevate,
             elevated: !!d.elevated,
             isRoot: !!d.is_root,
+            hostScanDeadline: d.host_scan_deadline,
           });
         }
       })
@@ -687,11 +696,13 @@ export function ScanProvider({ children }) {
 
     if (USE_MOCK || stateRef.current.source === 'mock') return mockMerge();
 
+    const sp = stateRef.current;
+    // Outlast the backend's own per-host budget (it stops nmap in time and
+    // reports), so a slow host is never shown as "Failed" while still scanning.
     const signal =
       typeof AbortSignal !== 'undefined' && AbortSignal.timeout
-        ? AbortSignal.timeout(360000) // -sV/-A (+ optional NSE) can be slow
+        ? AbortSignal.timeout((sp.hostScanDeadline + 60) * 1000)
         : undefined;
-    const sp = stateRef.current;
     // adaptive=1: on the default profile the backend does a fast top-1000 scan and
     // then, only for hosts that show an open port, sweeps all 65535 ports. The
     // backend ignores it when an explicit profile/port set is chosen.

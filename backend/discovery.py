@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import ipaddress
 import os
+import shutil
 import socket
 import sys
 import time
@@ -33,6 +34,7 @@ def _ensure_on_path(root: str, path: list[str] | None = None) -> None:
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _ensure_on_path(_ROOT)
+import scanner  # noqa: E402
 import snmp  # noqa: E402
 from fingerprint import guess_device_type  # noqa: E402
 from mdns import discover_mdns  # noqa: E402
@@ -137,6 +139,60 @@ def expand_target(target: str, max_hosts: int = 4096) -> list[str]:
     return out
 
 
+# Shown on the finished scan when the OS would not reveal its ARP table to us.
+ARP_HIDDEN_NOTE = (
+    "MAC addresses and vendors are unavailable: the scan engine could not read the OS "
+    "ARP table (on macOS, Local Network privacy hides it from some unprivileged "
+    "processes). Elevate with the privilege control, or start with ./start.sh, to include them."
+)
+
+
+def _read_arp() -> dict[str, str]:
+    """The OS ARP cache as ``{ip: mac}``, re-read under sudo when it looks hidden.
+
+    `arp -an` can succeed yet list nothing when macOS withholds the neighbour
+    table from an unprivileged process. If the engine can elevate (a password
+    primed from the dashboard, or passwordless sudo), read it as root instead.
+    """
+    table = pr._read_arp_table()
+    if table or scanner.scan_capability() != "sudo":
+        return table
+    out = scanner.sudo_output([shutil.which("arp") or "arp", "-an"]) or ""
+    for match in pr._ARP_RE.finditer(out):
+        mac = pr._normalise_mac(match.group(2))
+        if pr._is_host_mac(mac):
+            table[match.group(1)] = mac
+    return table
+
+
+def _local_identity() -> tuple[str | None, set[str]]:
+    """This machine's short hostname and its own IPv4 addresses, read from the OS.
+
+    Lets discovery name the operator's own device reliably — its mDNS reply to
+    itself is often missed, which left it unnamed and mis-typed in some scans.
+    """
+    try:
+        name = socket.gethostname()
+    except OSError:
+        name = ""
+    addrs: set[str] = set()
+    try:
+        probe = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            probe.connect(("8.8.8.8", 80))  # no packet is sent; the kernel just picks a route
+            addrs.add(probe.getsockname()[0])
+        finally:
+            probe.close()
+    except OSError:
+        pass
+    if name:
+        try:
+            addrs.update(res[4][0] for res in socket.getaddrinfo(name, None, socket.AF_INET))
+        except OSError:
+            pass
+    return (name.removesuffix(".local") or None), addrs
+
+
 def _reverse_dns(ip: str) -> tuple[str, str | None]:
     socket.setdefaulttimeout(1.5)
     try:
@@ -164,12 +220,14 @@ async def run_discovery(target: str, scan_id: str | None):
     # common-port probe below so we never re-test a port we already confirmed.
     seed_ports: dict[str, set[int]] = {}
 
-    def snapshot(phase: ScanPhase, progress: int, finished: bool = False) -> ScanState:
+    def snapshot(
+        phase: ScanPhase, progress: int, finished: bool = False, message: str | None = None
+    ) -> ScanState:
         ordered = [hosts[ip] for ip in sorted(hosts, key=_ip_key)]
         return ScanState(
             scan_id=scan_id, target=target, phase=phase, progress=progress,
             started_at=started, finished_at=time.time() if finished else None,
-            hosts=ordered,
+            hosts=ordered, message=message,
         )
 
     yield snapshot(ScanPhase.PING_SWEEP, 2)
@@ -196,7 +254,11 @@ async def run_discovery(target: str, scan_id: str | None):
         pool.shutdown(wait=False)
 
     # --- 2) ARP pass (+ proxy-ARP guard) — catches devices that ignore ICMP  #
-    arp = {ip: mac for ip, mac in pr._read_arp_table().items() if ip in candidate_set}
+    arp_all = _read_arp()
+    arp = {ip: mac for ip, mac in arp_all.items() if ip in candidate_set}
+    # A live LAN always leaves at least the gateway in the ARP cache, so an empty
+    # table after finding hosts means the OS is hiding it — say so, don't guess.
+    notice = ARP_HIDDEN_NOTE if hosts and not arp_all else None
     proxy = pr._proxy_macs(arp, max(8, len(candidates) // 10))
     for ip, mac in arp.items():
         if mac in proxy:
@@ -344,6 +406,12 @@ async def run_discovery(target: str, scan_id: str | None):
         if info.get("os") and host.os in ("", "Unknown"):
             host.os = info["os"]
 
+    # --- 4c) this machine itself: its name straight from the OS ------------- #
+    own_name, own_addrs = _local_identity()
+    for ip in own_addrs & hosts.keys():
+        if own_name and not hosts[ip].hostname:
+            hosts[ip].hostname = own_name
+
     # (Re)classify device type from every signal we now have — crucially the open
     # ports, whose signatures are the *strongest* hint (e.g. 9100→Printer,
     # 554→Camera, 445+139→Computer). Skip hosts already typed by a service
@@ -379,4 +447,4 @@ async def run_discovery(target: str, scan_id: str | None):
             if refined:
                 host.os = refined
 
-    yield snapshot(ScanPhase.COMPLETE, 100, finished=True)
+    yield snapshot(ScanPhase.COMPLETE, 100, finished=True, message=notice)

@@ -108,6 +108,10 @@ class Host(BaseModel):
     # runs; this records what was adapted, e.g. "UDP scan needs root — ran TCP
     # connect instead". Empty when the scan ran exactly as requested.
     scan_note: str = ""
+    # Set when the port results are incomplete — nmap gave up on a slow host at its
+    # --host-timeout (so "no ports" would be a false claim), or the results come
+    # from the faster timeout retry. Empty when the scan completed normally.
+    scan_warning: str = ""
     ports: list[Port] = Field(default_factory=list)
     vulns: list[Vuln] = Field(default_factory=list)  # host-level NSE findings
 

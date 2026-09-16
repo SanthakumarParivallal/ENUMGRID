@@ -5,6 +5,41 @@ All notable changes to **ENUMGRID: the Enumeration Platform**. Format based on
 
 ## [Unreleased]
 
+### Startup fix + live-scan accuracy fixes (2026-09-16)
+Found by running real scans on the operator's own `192.168.1.0/24`, both unprivileged and as
+root via `./start.sh`.
+- **Backend would not start**: a stray leading space before the module docstring of
+  `backend/nbns.py` raised `IndentationError` on import, which took down `app.py`. Restored.
+- **Slow hosts no longer read as "no open ports"**: nmap drops *every* result for a host that
+  passes `--host-timeout` and still lists it as up, so the dashboard showed "No ports" for it.
+  The ISP router here holds back each closed-port RST for about 1 s, so a top-1000 `-sV`
+  takes about 6.5 min against the default profile's 120 s limit. A phone lost 3 real open
+  ports the same way. The scanner now detects `timedout="true"` in nmap's XML, retries once
+  with `FALLBACK_TUNING` (`--version-light --min-parallelism 64 --max-retries 2`, about 70 s on
+  that router), and sets a new `Host.scan_warning`. On the router this recovered
+  **MiniUPnP 2.3.1 on :5000 and a CVSS 9.1 finding**. The dashboard shows a **Partial result**
+  banner and a **Partial** badge instead of "No ports".
+- **One time budget per host scan**: `ENUMGRID_HOST_DEADLINE` (now 900 s) covers every stage.
+  Each stage's nmap `--host-timeout` is clamped to what is left, so nmap always stops before
+  Python gives up. Before this, `fullports` (600 s) and `comprehensive` (900 s) ran under a
+  360 s Python limit and returned 504 while nmap kept running. The budget is exposed as
+  `host_scan_deadline` in `/api/health` and `/api/profiles`, and the dashboard's request
+  timeout now follows it (it was a fixed 360 s). The all-ports sweep is skipped for hosts that
+  needed the retry. Profile timeouts are now integers (seconds).
+- **Low-confidence nmap OS guesses are labelled**: a `-O` match below
+  `ENUMGRID_OS_MIN_ACCURACY` (95) now ranks below service CPE/banner evidence and is shown as
+  `name (nmap guess, NN%)`. Before, a WiZ smart bulb was shown as a "Garmin Virb Elite action
+  camera" and the Zyxel router as "QNAP QTS". The golden fixture (95 %) is unchanged.
+- **MAC addresses hidden by macOS are explained**: on macOS 27, `arp -an` run by some
+  unprivileged, non-Apple-signed processes succeeds but lists nothing, so every MAC and vendor
+  was blank without any explanation. Discovery now re-reads the table under sudo when the
+  session is elevated (`scanner.sudo_output`). Otherwise the finished scan carries a note that
+  the dashboard shows as a **Scan note** banner. As root (`./start.sh`), all MACs resolve.
+- **The operator's own machine is always named**: discovery takes this machine's hostname and
+  addresses from the OS instead of waiting for its own mDNS reply, which was often missed.
+- The per-host scan button's tooltip no longer claims it always runs `--script vuln`.
+- Tests: backend 726 → 751 (still 100 % coverage); frontend 206 → 207.
+
 ### Publication push — paper draft, figure redaction, turnkey scaffolding (2026-07-11)
 - **Paper draft** `docs/PAPER.md` (Markdown, version-controlled) **and `docs/ENUMGRID_Paper.docx`**
   (submission-ready Word: title page, auto-TOC, native tables, and the **redacted** figures +
