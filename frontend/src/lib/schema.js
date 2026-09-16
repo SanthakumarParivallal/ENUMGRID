@@ -218,6 +218,7 @@ export function PortModel(data = {}) {
  * @property {string} os
  * @property {boolean} scanning
  * @property {string} scan_note
+ * @property {string} scan_warning
  * @property {Port[]} ports
  */
 
@@ -238,6 +239,9 @@ export function HostModel(data = {}) {
     // Non-empty when an unprivileged scan auto-adapted root-only flags (e.g.
     // "UDP scan needs root — ran TCP connect instead"); surfaced in the UI.
     scan_note: data.scan_note != null ? String(data.scan_note) : '',
+    // Non-empty when the port results are incomplete (nmap gave up on a slow
+    // host at its --host-timeout, or they come from the faster timeout retry).
+    scan_warning: data.scan_warning != null ? String(data.scan_warning) : '',
     vulnScanning: Boolean(data.vulnScanning), // transient: per-host deep scan in flight
     queued: Boolean(data.queued),     // transient: waiting in a "Scan All" batch
     scanned: Boolean(data.scanned),   // transient: a per-host nmap scan has completed

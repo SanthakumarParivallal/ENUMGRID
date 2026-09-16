@@ -52,9 +52,25 @@ _SCAN_EXECUTOR = ThreadPoolExecutor(
     max_workers=int(os.environ.get("ENUMGRID_MAX_SCANS", "4")) + 2,
     thread_name_prefix="nmap-scan",
 )
-# A hard ceiling on any single host scan, so a pathological target can't pin a
-# worker forever even past nmap's own --host-timeout.
-HOST_SCAN_DEADLINE = int(os.environ.get("ENUMGRID_HOST_DEADLINE", "360"))
+# The total time budget for ONE per-host scan (every stage: profile pass, any
+# timeout fallback, the adaptive all-ports sweep, the filtered-port re-probe).
+# Each stage's nmap --host-timeout is clamped to what is left of this budget, so
+# nmap always stops (and reports) before Python gives up on it — a pathological
+# target can never pin a worker. The dashboard reads it from /api/profiles so its
+# request timeout always outlasts the backend's.
+HOST_SCAN_DEADLINE = int(os.environ.get("ENUMGRID_HOST_DEADLINE", "900"))
+# How long Python waits beyond nmap's own --host-timeout before abandoning a stage.
+_DEADLINE_GRACE = 30
+# The shortest nmap stage worth starting; with less budget left the stage is skipped.
+_MIN_STAGE_SECS = 20
+# Retry tuning for a host that blew its profile's --host-timeout. nmap DISCARDS
+# every result for a timed-out host, and some devices (ISP routers especially)
+# delay each closed-port RST by ~1 s, which makes nmap's congestion control crawl
+# (a top-1000 -sV of such a router takes 6+ minutes). This pass keeps parallelism
+# up and uses light version probes, so it finishes in about a minute: the open
+# ports and versions it reports are real, but a late RST can show as "filtered".
+FALLBACK_TUNING = "--version-light --min-parallelism 64 --max-retries 2"
+FALLBACK_TIMEOUT = int(os.environ.get("ENUMGRID_FALLBACK_TIMEOUT", "180"))
 
 # --- tunables (overridable via environment) -------------------------------- #
 DISCOVERY_ARGS = os.environ.get("NMAP_DISCOVERY_ARGS", "-sn -T4")
@@ -86,18 +102,19 @@ _RECON_SCRIPTS = (
     "dns-service-discovery,nbstat,rpcinfo"
 )
 
+# `timeout` is nmap's --host-timeout in seconds (clamped to the per-host budget).
 SCAN_PROFILES: dict[str, dict] = {
-    "quick":         {"args": "-sV -Pn -T4 -F",                           "timeout": "120s", "scripts": ""},
-    "default":       {"args": f"-sV -Pn -T4 --top-ports {TOP_PORTS}",     "timeout": "120s", "scripts": ""},
-    "intense":       {"args": "-sV -sC -Pn -T4 --top-ports 1000",         "timeout": "240s", "scripts": ""},
-    "recon":         {"args": "-sV -Pn -T4 --top-ports 1000",             "timeout": "300s", "scripts": _RECON_SCRIPTS},
-    "aggressive":    {"args": "-A -Pn -T4",                               "timeout": "300s", "scripts": ""},
-    "stealth":       {"args": "-sS -Pn -T2 --top-ports 200",              "timeout": "400s", "scripts": ""},
-    "vuln":          {"args": f"-sV -Pn -T4 --top-ports {TOP_PORTS}",     "timeout": "300s", "scripts": "vuln,vulners"},
-    "safe":          {"args": "-sV -sC -Pn -T4 --top-ports 500",          "timeout": "300s", "scripts": "safe"},
-    "fullports":     {"args": "-sV -Pn -T4 -p-",                          "timeout": "600s", "scripts": ""},
-    "comprehensive": {"args": "-A -Pn -T4 -p-",                           "timeout": "900s", "scripts": "default,vuln"},
-    "udp":           {"args": "-sU -sV -Pn -T4 --top-ports 50",          "timeout": "300s", "scripts": ""},
+    "quick":         {"args": "-sV -Pn -T4 -F",                           "timeout": 120, "scripts": ""},
+    "default":       {"args": f"-sV -Pn -T4 --top-ports {TOP_PORTS}",     "timeout": 120, "scripts": ""},
+    "intense":       {"args": "-sV -sC -Pn -T4 --top-ports 1000",         "timeout": 240, "scripts": ""},
+    "recon":         {"args": "-sV -Pn -T4 --top-ports 1000",             "timeout": 300, "scripts": _RECON_SCRIPTS},
+    "aggressive":    {"args": "-A -Pn -T4",                               "timeout": 300, "scripts": ""},
+    "stealth":       {"args": "-sS -Pn -T2 --top-ports 200",              "timeout": 400, "scripts": ""},
+    "vuln":          {"args": f"-sV -Pn -T4 --top-ports {TOP_PORTS}",     "timeout": 300, "scripts": "vuln,vulners"},
+    "safe":          {"args": "-sV -sC -Pn -T4 --top-ports 500",          "timeout": 300, "scripts": "safe"},
+    "fullports":     {"args": "-sV -Pn -T4 -p-",                          "timeout": 600, "scripts": ""},
+    "comprehensive": {"args": "-A -Pn -T4 -p-",                           "timeout": 900, "scripts": "default,vuln"},
+    "udp":           {"args": "-sU -sV -Pn -T4 --top-ports 50",          "timeout": 300, "scripts": ""},
 }
 DEFAULT_PROFILE = "default"
 
@@ -138,6 +155,19 @@ def _safe_scripts(scripts: str | None) -> list[str]:
     return out
 
 
+def _profile(profile: str | None) -> dict:
+    """The vetted profile spec for `profile` (unknown names fall back to default)."""
+    return SCAN_PROFILES.get(profile or DEFAULT_PROFILE, SCAN_PROFILES[DEFAULT_PROFILE])
+
+
+def stage_timeout(profile: str | None, host_timeout: float | None = None) -> int:
+    """nmap --host-timeout (seconds) for `profile`, clamped to `host_timeout`."""
+    secs = _profile(profile)["timeout"]
+    if host_timeout is not None:
+        secs = min(secs, int(host_timeout))
+    return max(1, secs)
+
+
 def build_host_scan_args(
     profile: str | None,
     scripts: str | None,
@@ -145,15 +175,19 @@ def build_host_scan_args(
     privileged: bool,
     deep: bool,
     auto_cve: bool = False,
+    host_timeout: float | None = None,
+    tuning: str = "",
 ) -> str:
     """Compose the nmap argument string for a per-host scan from a vetted profile.
 
     Only server-defined profile args + validated script/port tokens are used, so
     this is injection-safe by construction. `auto_cve` adds the version-based
     `vulners` CVE lookup even when `deep` is off, so a per-host scan always
-    answers "is this version vulnerable?" automatically.
+    answers "is this version vulnerable?" automatically. `host_timeout` caps the
+    profile's --host-timeout (to fit the remaining budget) and `tuning` appends
+    server-defined timing flags (only ever FALLBACK_TUNING).
     """
-    prof = SCAN_PROFILES.get(profile or DEFAULT_PROFILE, SCAN_PROFILES[DEFAULT_PROFILE])
+    prof = _profile(profile)
     args = prof["args"]
 
     # Explicit port override — only when the profile hasn't already fixed ports.
@@ -179,10 +213,39 @@ def build_host_scan_args(
     if privileged and "-A" not in args.split():
         args += " -O --osscan-guess"
 
-    args += f" --host-timeout {prof['timeout']}"
+    if tuning:
+        args += f" {tuning}"
+    args += f" --host-timeout {stage_timeout(profile, host_timeout)}s"
     return args
 
-def _confirm_filtered(ip: str, ports: list[int], privileged: bool) -> dict[int, "PortState"]:
+
+# One <host> element of nmap's XML, and the IP address(es) inside it.
+_XML_HOST_RE = re.compile(r"<host\b([^>]*)>(.*?)</host>", re.DOTALL)
+_XML_ADDR_RE = re.compile(r'<address\s+addr="([^"]+)"\s+addrtype="ipv[46]"')
+
+
+def _host_timed_out(scanner, ip: str) -> bool:
+    """True when nmap abandoned `ip` at --host-timeout.
+
+    nmap still lists such a host as "up" but DISCARDS every port it found, so
+    without this check a slow host looks exactly like one with nothing open. The
+    only signal is the ``timedout="true"`` attribute in the raw XML.
+    """
+    getter = getattr(scanner, "get_nmap_last_output", None)
+    raw = getter() if callable(getter) else ""
+    if isinstance(raw, bytes):
+        raw = raw.decode("utf-8", "replace")
+    if not isinstance(raw, str):
+        return False
+    for attrs, body in _XML_HOST_RE.findall(raw):
+        if 'timedout="true"' in attrs and ip in _XML_ADDR_RE.findall(body):
+            return True
+    return False
+
+
+def _confirm_filtered(
+    ip: str, ports: list[int], privileged: bool, host_timeout: int = 120
+) -> dict[int, "PortState"]:
     """Re-probe specific ports with a *different* technique to confirm a
     'filtered' verdict.
 
@@ -203,9 +266,9 @@ def _confirm_filtered(ip: str, ports: list[int], privileged: bool) -> dict[int, 
         return {}
     portspec = ",".join(str(p) for p in targets)
     if privileged:
-        args = f"-sS -Pn -T2 --max-retries 5 --source-port 53 -p {portspec} --host-timeout 120s"
+        args = f"-sS -Pn -T2 --max-retries 5 --source-port 53 -p {portspec} --host-timeout {host_timeout}s"
     else:
-        args = f"-sT -Pn -T2 --max-retries 5 -p {portspec} --host-timeout 120s"
+        args = f"-sT -Pn -T2 --max-retries 5 -p {portspec} --host-timeout {host_timeout}s"
     if ":" in ip:
         args += " -6"
     # _run_scan elevates via sudo when available and otherwise rewrites the SYN
@@ -450,6 +513,31 @@ def drop_privileges() -> None:
             pass
 
 
+def sudo_output(argv: list[str], timeout: float = 10) -> str | None:
+    """stdout of a fixed, read-only command run under sudo, or None on any failure.
+
+    For reads the OS only allows root (macOS can hide the ARP table from an
+    unprivileged process). Uses the dashboard-primed password (`sudo -S`) or else
+    the non-interactive `sudo -n`, so it never blocks on a prompt. `argv` must be
+    a server-defined command — never user input.
+    """
+    if _SUDO_PASSWORD is not None:
+        cmd = ["sudo", "-S", "-p", "", *argv]
+        stdin_data: bytes | None = (_SUDO_PASSWORD + "\n").encode()
+    else:
+        cmd = ["sudo", "-n", *argv]
+        stdin_data = None
+    try:
+        proc = subprocess.run(  # noqa: S603 - fixed server-defined argv, no shell
+            cmd, input=stdin_data, capture_output=True, timeout=timeout, check=False
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if proc.returncode != 0:
+        return None
+    return proc.stdout.decode("utf-8", "replace")
+
+
 def privilege_status() -> dict:
     """Machine-readable privilege state for the dashboard's elevation control."""
     cap = scan_capability()
@@ -642,6 +730,8 @@ def _service_scan(
     scripts: str | None = None,
     ports: str | None = None,
     auto_cve: bool = False,
+    host_timeout: float | None = None,
+    tuning: str = "",
 ) -> dict:
     """Phase 2: enumerate one host using a chosen nmap profile.
 
@@ -649,19 +739,24 @@ def _service_scan(
     vuln/fullports/udp); `scripts`/`ports` are validated add-ons; `deep` forces
     the NSE vuln pass; `auto_cve` adds the fast version→CVE `vulners` lookup;
     `privileged` (root) enables real OS detection (-O). Detected service versions
-    are also matched against the curated offline CVE reference.
+    are also matched against the curated offline CVE reference. `timed_out` in
+    the result is True when nmap gave up on the host (its ports are then unknown,
+    not absent).
     """
-    args = build_host_scan_args(profile, scripts, ports, privileged, deep, auto_cve)
+    args = build_host_scan_args(
+        profile, scripts, ports, privileged, deep, auto_cve, host_timeout, tuning
+    )
     if ":" in ip:  # IPv6 target — nmap needs -6
         args += " -6"
     # Single adaptive choke-point: runs under sudo when available, otherwise
     # rewrites root-only flags so the scan always completes (never QUITTING!).
     scanner, scan_note = _run_scan(ip, args)
 
-    if ip not in scanner.all_hosts():
+    timed_out = _host_timed_out(scanner, ip)
+    if timed_out or ip not in scanner.all_hosts():
         return {
             "os": "Unknown", "hostname": None, "ports": [], "vulns": [],
-            "device_type": "", "note": scan_note,
+            "device_type": "", "note": scan_note, "timed_out": timed_out,
         }
 
     node = scanner[ip]
@@ -735,7 +830,57 @@ def _service_scan(
         "vulns": host_vulns,
         "device_type": guess_device_type(hostname=hostname, ports=open_ports, services=services),
         "note": scan_note,
+        "timed_out": False,
     }
+
+
+def _resilient_service_scan(
+    ip: str,
+    privileged: bool,
+    deep: bool,
+    profile: str | None = None,
+    scripts: str | None = None,
+    ports: str | None = None,
+    auto_cve: bool = False,
+    budget: float | None = None,
+) -> dict:
+    """`_service_scan` that never reports a slow host as "nothing open".
+
+    Runs the requested profile within `budget` seconds (default: the per-host
+    budget). If nmap abandons the host at --host-timeout, it retries once with
+    FALLBACK_TUNING in the time that is left. The result's `warning` explains any
+    timeout in plain words ("" when the profile completed normally).
+    """
+    started = time.monotonic()
+    budget = HOST_SCAN_DEADLINE if budget is None else budget
+    first = stage_timeout(profile, budget - _DEADLINE_GRACE)
+    result = _service_scan(ip, privileged, deep, profile, scripts, ports, auto_cve, first)
+    result["warning"] = ""
+    if not result["timed_out"]:
+        return result
+
+    retry = min(FALLBACK_TIMEOUT, int(budget - (time.monotonic() - started)) - _DEADLINE_GRACE)
+    if retry < _MIN_STAGE_SECS:
+        result["warning"] = (
+            f"nmap gave up on this host at its {first}s host-timeout and no time was left "
+            "to retry, so its ports are unknown — try the Quick profile or a narrower port range"
+        )
+        return result
+    fallback = _service_scan(
+        ip, privileged, deep, profile, scripts, ports, auto_cve, retry, FALLBACK_TUNING
+    )
+    if fallback["timed_out"]:
+        fallback["warning"] = (
+            f"nmap gave up on this host twice (full pass {first}s, fast retry {retry}s), so its "
+            "ports are unknown — try the Quick profile or a narrower port range"
+        )
+    else:
+        fallback["warning"] = (
+            f"the full scan passed nmap's {first}s host-timeout (this host answers slowly), so "
+            "these results come from a faster retry: open ports and versions are real, but "
+            "closed ports may show as filtered"
+        )
+    return fallback
 
 
 def _apply_threatintel(ports: list[Port], host_vulns: list[Vuln]) -> None:
@@ -936,11 +1081,31 @@ def _friendly_os_cpe(cpe: str) -> str:
     return f"{label} {version}".strip() or "Unknown"
 
 
+# nmap -O matches below this accuracy are *guesses* (we pass --osscan-guess). On a
+# real LAN they misfire badly — a WiZ smart bulb came back as "Garmin Virb Elite
+# action camera" — so they rank below service-reported evidence and are labelled
+# with their confidence rather than shown as fact.
+OS_MATCH_MIN_ACCURACY = int(os.environ.get("ENUMGRID_OS_MIN_ACCURACY", "95"))
+
+
+def _os_accuracy(match: dict) -> int | None:
+    """nmap's accuracy (0–100) for an osmatch entry, or None if it gave none."""
+    try:
+        return int(match.get("accuracy"))
+    except (TypeError, ValueError):
+        return None
+
+
 def _detect_os(node, ports: list[Port]) -> str:
-    """Prefer nmap's OS match (-O); otherwise infer from CPEs / banners (no root)."""
+    """Prefer a confident nmap OS match (-O); else CPEs / banners; else a labelled guess."""
     osmatch = node.get("osmatch") or []
+    guess = ""
     if osmatch:
-        return osmatch[0].get("name", "Unknown")
+        name = osmatch[0].get("name", "Unknown")
+        accuracy = _os_accuracy(osmatch[0])
+        if accuracy is None or accuracy >= OS_MATCH_MIN_ACCURACY:
+            return name
+        guess = f"{name} (nmap guess, {accuracy}%)"
 
     # 1) An OS-type CPE (cpe:/o:...) reported by service detection is the
     #    strongest unprivileged signal.
@@ -957,7 +1122,7 @@ def _detect_os(node, ports: list[Port]) -> str:
     for key, label in _OS_HINTS:
         if key in haystack:
             return label
-    return "Unknown"
+    return guess or "Unknown"
 
 
 def _ip_key(ip: str) -> int:
@@ -1039,12 +1204,14 @@ async def run_pipeline(target: str, scan_id: str | None, deep: bool = False):
 
         try:
             result = await loop.run_in_executor(
-                _SCAN_EXECUTOR, functools.partial(_service_scan, host.ip, privileged, deep)
+                _SCAN_EXECUTOR,
+                functools.partial(_resilient_service_scan, host.ip, privileged, deep),
             )
             host.os = result["os"]
             host.ports = result["ports"]
             host.vulns = result["vulns"]
             host.scan_note = result.get("note", "")
+            host.scan_warning = result.get("warning", "")
             if result.get("device_type"):
                 host.device_type = result["device_type"]
             if result["hostname"]:
@@ -1120,48 +1287,71 @@ async def scan_single_host(
     """
     loop = asyncio.get_running_loop()
     privileged = can_raw_scan()  # root OR passwordless sudo → real raw-socket scans
+    # Every stage below draws on one HOST_SCAN_DEADLINE budget and gets an nmap
+    # --host-timeout shorter than Python's wait, so nmap always stops first.
+    deadline = time.monotonic() + HOST_SCAN_DEADLINE
+
+    def stage_budget(limit: int) -> int:
+        return min(limit, int(deadline - time.monotonic()) - _DEADLINE_GRACE)
+
     result = await asyncio.wait_for(
         loop.run_in_executor(
             _SCAN_EXECUTOR,
             # auto_cve=True → every on-demand host scan checks versions for CVEs.
             functools.partial(
-                _service_scan, ip, privileged, deep, profile, scripts, ports, True
+                _resilient_service_scan, ip, privileged, deep, profile, scripts, ports, True,
+                HOST_SCAN_DEADLINE,
             ),
         ),
         timeout=HOST_SCAN_DEADLINE,
     )
+    warnings = [result["warning"]] if result["warning"] else []
 
     # Adaptive all-ports deep pass — only when the quick scan actually found an
     # open port and the caller didn't pin a profile/port set. This is what makes
     # "default" both fast (skips dead/firewalled hosts) and thorough (full sweep of
-    # live ones). Best-effort: a timeout/error just keeps the quick-scan result.
+    # live ones). Skipped for a host that already needed the timeout fallback: a
+    # 65535-port sweep of it could never finish. Best-effort: a timeout/error just
+    # keeps the quick-scan result.
     quick_open = [p for p in result["ports"] if p.state in (PortState.OPEN, PortState.OPEN_FILTERED)]
-    if adaptive and quick_open and not profile and not ports:
+    sweep_secs = stage_budget(SCAN_PROFILES["fullports"]["timeout"])
+    if (
+        adaptive and quick_open and not profile and not ports and not warnings
+        and sweep_secs >= _MIN_STAGE_SECS
+    ):
         try:
             deep_res = await asyncio.wait_for(
                 loop.run_in_executor(
                     _SCAN_EXECUTOR,
                     functools.partial(
-                        _service_scan, ip, privileged, deep, "fullports", None, None, True
+                        _service_scan, ip, privileged, deep, "fullports", None, None, True,
+                        sweep_secs,
                     ),
                 ),
-                timeout=HOST_SCAN_DEADLINE,
+                timeout=sweep_secs + _DEADLINE_GRACE,
             )
-            result = _merge_scan_results(result, deep_res)
+            if deep_res["timed_out"]:
+                warnings.append(
+                    f"the all-ports sweep hit its {sweep_secs}s limit, so only the "
+                    f"top {TOP_PORTS} ports were checked"
+                )
+            else:
+                result = _merge_scan_results(result, deep_res)
         except (TimeoutError, asyncio.TimeoutError, nmap.PortScannerError):
             pass  # keep the thorough-enough top-1000 result
 
     port_objs: list[Port] = result["ports"]
     # Second-chance confirmation for ports stuck in 'filtered'.
     filtered = [p.port for p in port_objs if p.state == PortState.FILTERED]
-    if confirm and filtered:
+    confirm_secs = stage_budget(120)
+    if confirm and filtered and confirm_secs >= _MIN_STAGE_SECS:
         try:
             confirmed = await asyncio.wait_for(
                 loop.run_in_executor(
                     _SCAN_EXECUTOR,
-                    functools.partial(_confirm_filtered, ip, filtered, privileged),
+                    functools.partial(_confirm_filtered, ip, filtered, privileged, confirm_secs),
                 ),
-                timeout=HOST_SCAN_DEADLINE,
+                timeout=confirm_secs + _DEADLINE_GRACE,
             )
         except (TimeoutError, asyncio.TimeoutError, nmap.PortScannerError):
             confirmed = {}
@@ -1184,4 +1374,5 @@ async def scan_single_host(
         ports=port_objs,
         vulns=result["vulns"],
         scan_note=result.get("note", ""),
+        scan_warning="; ".join(warnings),
     )

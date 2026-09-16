@@ -1617,7 +1617,7 @@ function PortDetailTable({ host }) {
         <button
           onClick={(e) => { e.stopPropagation(); scanHostVulns(host.ip); }}
           disabled={host.vulnScanning}
-          title="Deep-scan just this host for vulnerabilities (nmap --script vuln,vulners)"
+          title="Run nmap on just this host with the selected profile (version→CVE lookup included; the Deep toggle adds the NSE vuln scripts)"
           className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider transition disabled:cursor-not-allowed ${
             host.vulnScanning ? 'border-amber/50 bg-amber/10 text-amber' : 'border-crimson/50 bg-crimson/10 text-crimson hover:bg-crimson hover:text-white'
           }`}
@@ -1625,6 +1625,15 @@ function PortDetailTable({ host }) {
           {host.vulnScanning ? (<><Spinner className="h-3 w-3" />Nmap scanning…</>) : (<><Icon.Search className="h-3.5 w-3.5" />{host.scanned ? 'Re-scan (nmap)' : 'Nmap Scan'}</>)}
         </button>
       </div>
+
+      {host.scan_warning && (
+        <div role="status" className="flex items-start gap-2 rounded-lg border border-crimson/40 bg-crimson/[0.07] px-3 py-1.5 text-[11px] text-crimson">
+          <Icon.Alert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>
+            <b>Partial result:</b> {host.scan_warning}.
+          </span>
+        </div>
+      )}
 
       {host.scan_note && (
         <div className="flex items-start gap-2 rounded-lg border border-amber/30 bg-amber/[0.07] px-3 py-1.5 text-[11px] text-amber/90">
@@ -1714,7 +1723,9 @@ function PortDetailTable({ host }) {
             : host.scanError
               ? '// last scan failed — check the backend is running, then click "Re-scan (nmap)"'
               : host.scanned
-                ? '// scan complete — no open ports found in the scanned range'
+                ? host.scan_warning
+                  ? '// scan incomplete — nmap could not finish this host, so its ports are unknown (see the warning above)'
+                  : '// scan complete — no open ports found in the scanned range'
                 : '// no service scan yet — click "Nmap Scan" to enumerate ports & services'}
         </div>
       )}
@@ -1729,6 +1740,7 @@ function ScanStateBadge({ host }) {
   if (host.status === HostStatus.DOWN) return <span className={`${cls} border-slate-700 bg-steel-900 text-slate-500`}>Skipped</span>;
   if (host.queued) return <span className={`${cls} border-amber/30 bg-amber/5 text-amber/80`}><Spinner className="h-3 w-3" /> Queued</span>;
   if (host.scanError) return <span title="The last nmap scan for this host failed — click its row, then Re-scan." className={`${cls} border-crimson/40 bg-crimson/10 text-crimson`}><Icon.Alert className="h-3 w-3" /> Failed</span>;
+  if (host.scanned && host.scan_warning) return <span title={host.scan_warning} className={`${cls} border-amber/40 bg-amber/10 text-amber`}><Icon.Alert className="h-3 w-3" /> Partial</span>;
   if (host.scanned) return <span className={`${cls} border-matrix/40 bg-matrix/10 text-matrix`}><Icon.Check className="h-3 w-3" />{host.ports.length ? 'Done' : 'No ports'}</span>;
   return <span className={`${cls} border-slate-700 bg-steel-900 text-slate-500`}>{host.ports.length ? 'Ports' : 'Ready'}</span>;
 }
@@ -2099,6 +2111,22 @@ function ScanErrorBanner() {
       <div className="min-w-0 flex-1">
         <span className="text-sm font-semibold text-crimson">Scan error</span>
         <span className="ml-2 text-xs text-slate-300">{statusMessage}</span>
+      </div>
+    </div>
+  );
+}
+
+// A non-fatal note the backend attached to a finished scan (e.g. the OS would not
+// reveal MAC addresses) — explains blanks in the grid instead of leaving them.
+function ScanNoticeBanner() {
+  const { phase, scanNotice } = useScan();
+  if (phase !== ScanPhase.COMPLETE || !scanNotice) return null;
+  return (
+    <div role="status" className="flex items-start gap-3 border-b border-amber/40 bg-amber/10 px-4 py-2">
+      <Icon.Info className="mt-0.5 h-4 w-4 shrink-0 text-amber" />
+      <div className="min-w-0 flex-1">
+        <span className="text-sm font-semibold text-amber">Scan note</span>
+        <span className="ml-2 text-xs text-slate-300">{scanNotice}</span>
       </div>
     </div>
   );
@@ -3065,6 +3093,7 @@ export default function IndustrialDashboard() {
         <CommandBar onOpenNav={() => setNavOpen(true)} />
         <DriftAlertBanner />
         <ScanErrorBanner />
+        <ScanNoticeBanner />
         <main className="flex min-w-0 flex-1 flex-col lg:min-h-0 lg:overflow-hidden">
           <KpiStrip />
           <ScanConfigPanel />

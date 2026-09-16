@@ -199,6 +199,25 @@ def test_detect_os_prefers_osmatch():
     assert scanner._detect_os(node, []) == "Linux 5.X"
 
 
+def test_detect_os_trusts_confident_match():
+    node = _FakeNode({}, osmatch=[{"name": "Linux 5.4", "accuracy": "95"}])
+    assert scanner._detect_os(node, []) == "Linux 5.4"
+
+
+def test_detect_os_weak_guess_ranks_below_service_evidence():
+    weak = [{"name": "Garmin Virb Elite action camera", "accuracy": "88"}]
+    node = _FakeNode({"tcp": {22: {"cpe": "cpe:/o:canonical:ubuntu_linux:22.04"}}}, osmatch=weak)
+    assert scanner._detect_os(node, []) == "Ubuntu Linux 22.04"          # CPE beats a weak guess
+    bare = _FakeNode({"tcp": {80: {"cpe": ""}}}, osmatch=weak)
+    assert scanner._detect_os(bare, []) == "Garmin Virb Elite action camera (nmap guess, 88%)"
+
+
+def test_os_accuracy_parsing():
+    assert scanner._os_accuracy({"accuracy": "100"}) == 100
+    assert scanner._os_accuracy({"accuracy": "n/a"}) is None
+    assert scanner._os_accuracy({}) is None
+
+
 def test_detect_os_uses_os_cpe():
     node = _FakeNode({"tcp": {22: {"cpe": "cpe:/o:canonical:ubuntu_linux:22.04"}}})
     assert "Ubuntu" in scanner._detect_os(node, [])
@@ -1004,3 +1023,203 @@ def test_scan_single_host_confirm_error_keeps_filtered(monkeypatch):
     monkeypatch.setattr(scanner, "_confirm_filtered", _timeout)
     host = asyncio.run(scanner.scan_single_host("10.0.0.5", deep=False, confirm=True))
     assert next(p for p in host.ports if p.port == 445).state == scanner.PortState.FILTERED
+
+
+# --- nmap host-timeout handling (slow hosts must never read as "no ports") -- #
+_TIMEDOUT_XML = (
+    '<nmaprun><host starttime="1" endtime="6" timedout="true">'
+    '<status state="up" reason="user-set"/>\n'
+    '<address addr="10.0.0.5" addrtype="ipv4"/></host></nmaprun>'
+)
+
+
+class _XmlScanner(_FakeHostScanner):
+    """A fake PortScanner that also exposes nmap's raw XML output."""
+
+    def __init__(self, nodes, xml):
+        super().__init__(nodes)
+        self._xml = xml
+
+    def get_nmap_last_output(self):
+        return self._xml
+
+
+def test_stage_timeout_clamps_to_budget():
+    assert scanner.stage_timeout("default") == 120
+    assert scanner.stage_timeout("comprehensive", 500.9) == 500     # clamped to the budget
+    assert scanner.stage_timeout("quick", 1000) == 120               # never above the profile
+    assert scanner.stage_timeout("default", -5) == 1                 # never zero/negative
+    assert scanner.stage_timeout("../evil") == 120                   # unknown → default
+
+
+def test_build_args_applies_budget_and_tuning():
+    a = scanner.build_host_scan_args(
+        "default", None, None, False, False, host_timeout=45, tuning=scanner.FALLBACK_TUNING
+    )
+    assert a.endswith("--host-timeout 45s")
+    assert "--version-light" in a and "--min-parallelism 64" in a
+
+
+def test_host_timed_out_detects_xml_flag():
+    assert scanner._host_timed_out(_XmlScanner({}, _TIMEDOUT_XML), "10.0.0.5") is True
+    assert scanner._host_timed_out(_XmlScanner({}, _TIMEDOUT_XML.encode()), "10.0.0.5") is True
+    # A different host timed out → not this one; prefix IPs don't false-match.
+    assert scanner._host_timed_out(_XmlScanner({}, _TIMEDOUT_XML), "10.0.0.50") is False
+    finished = _TIMEDOUT_XML.replace(' timedout="true"', "")
+    assert scanner._host_timed_out(_XmlScanner({}, finished), "10.0.0.5") is False
+    assert scanner._host_timed_out(_XmlScanner({}, None), "10.0.0.5") is False
+    assert scanner._host_timed_out(_FakeHostScanner({}), "10.0.0.5") is False   # no raw output
+
+
+def test_service_scan_flags_timed_out_host(monkeypatch):
+    # nmap lists a timed-out host as up with zero ports — must not look like "nothing open".
+    node = _FakeFullNode(state="up")
+    monkeypatch.setattr(
+        scanner, "_run_scan", lambda h, a: (_XmlScanner({"10.0.0.5": node}, _TIMEDOUT_XML), "")
+    )
+    _neutralize_enrichers(monkeypatch)
+    res = scanner._service_scan("10.0.0.5", privileged=False, deep=False)
+    assert res["timed_out"] is True and res["ports"] == [] and res["os"] == "Unknown"
+
+
+def _timeout_then(monkeypatch, fallback_node=None, fallback_times_out=False):
+    """First (profile) pass times out; the tuned retry returns `fallback_node`."""
+    seen = []
+
+    def _run_scan(h, a):
+        seen.append(a)
+        if "--min-parallelism" not in a or fallback_times_out:
+            return _XmlScanner({h: _FakeFullNode(state="up")}, _TIMEDOUT_XML), ""
+        return _XmlScanner({h: fallback_node}, "<nmaprun/>"), ""
+
+    monkeypatch.setattr(scanner, "_run_scan", _run_scan)
+    _neutralize_enrichers(monkeypatch)
+    return seen
+
+
+def test_resilient_scan_passes_through_normal_result(monkeypatch):
+    node = _FakeFullNode(state="up", protocols={"tcp": {22: {"state": "open", "name": "ssh"}}})
+    monkeypatch.setattr(scanner, "_run_scan", lambda h, a: (_FakeHostScanner({"10.0.0.5": node}), ""))
+    _neutralize_enrichers(monkeypatch)
+    res = scanner._resilient_service_scan("10.0.0.5", False, False)
+    assert res["warning"] == "" and [p.port for p in res["ports"]] == [22]
+
+
+def test_resilient_scan_retries_with_fallback_tuning(monkeypatch):
+    node = _FakeFullNode(state="up", protocols={"tcp": {5000: {"state": "open", "name": "upnp",
+                                                               "product": "MiniUPnP", "version": "2.3.1"}}})
+    seen = _timeout_then(monkeypatch, fallback_node=node)
+    res = scanner._resilient_service_scan("10.0.0.5", False, False)
+    assert len(seen) == 2 and "--host-timeout 120s" in seen[0]
+    assert scanner.FALLBACK_TUNING in seen[1]
+    assert [p.port for p in res["ports"]] == [5000] and res["timed_out"] is False
+    assert "faster retry" in res["warning"] and "120s" in res["warning"]
+
+
+def test_resilient_scan_reports_double_timeout(monkeypatch):
+    seen = _timeout_then(monkeypatch, fallback_times_out=True)
+    res = scanner._resilient_service_scan("10.0.0.5", False, False)
+    assert len(seen) == 2 and res["ports"] == [] and res["timed_out"] is True
+    assert "gave up on this host twice" in res["warning"] and "unknown" in res["warning"]
+
+
+def test_resilient_scan_skips_retry_without_budget(monkeypatch):
+    seen = _timeout_then(monkeypatch)
+    res = scanner._resilient_service_scan("10.0.0.5", False, False, budget=45)
+    assert len(seen) == 1 and "--host-timeout 15s" in seen[0]      # budget minus grace
+    assert "no time was left" in res["warning"] and res["ports"] == []
+
+
+def test_scan_single_host_surfaces_timeout_warning_and_skips_sweep(monkeypatch):
+    node = _FakeFullNode(state="up", protocols={"tcp": {80: {"state": "open", "name": "http"}}})
+    seen = _timeout_then(monkeypatch, fallback_node=node)
+    host = asyncio.run(scanner.scan_single_host("10.0.0.5", deep=False, adaptive=True, confirm=False))
+    assert [p.port for p in host.ports] == [80]
+    assert "faster retry" in host.scan_warning
+    assert not any("-p-" in a for a in seen)          # no hopeless 65535-port sweep of a slow host
+
+
+def test_scan_single_host_warns_when_sweep_times_out(monkeypatch):
+    quick = _FakeFullNode(state="up", protocols={"tcp": {80: {"state": "open", "name": "http"}}})
+
+    def _run_scan(h, a):
+        if "-p-" in a:
+            return _XmlScanner({h: _FakeFullNode(state="up")}, _TIMEDOUT_XML), ""
+        return _FakeHostScanner({h: quick}), ""
+
+    monkeypatch.setattr(scanner, "_run_scan", _run_scan)
+    _neutralize_enrichers(monkeypatch)
+    host = asyncio.run(scanner.scan_single_host("10.0.0.5", deep=False, adaptive=True, confirm=False))
+    assert [p.port for p in host.ports] == [80]
+    assert "all-ports sweep hit its 600s limit" in host.scan_warning
+
+
+def test_scan_single_host_skips_stages_when_budget_spent(monkeypatch):
+    # A tiny budget: the profile pass runs, but there is no time for the
+    # all-ports sweep or the filtered-port re-probe.
+    node = _FakeFullNode(state="up", protocols={"tcp": {
+        80: {"state": "open", "name": "http"}, 445: {"state": "filtered", "name": "microsoft-ds"}}})
+    seen = []
+    monkeypatch.setattr(scanner, "HOST_SCAN_DEADLINE", 45)
+    monkeypatch.setattr(scanner, "_run_scan", lambda h, a: seen.append(a) or (_FakeHostScanner({h: node}), ""))
+    _neutralize_enrichers(monkeypatch)
+    host = asyncio.run(scanner.scan_single_host("10.0.0.5", deep=False, adaptive=True, confirm=True))
+    assert len(seen) == 1 and "--host-timeout 15s" in seen[0]
+    assert next(p for p in host.ports if p.port == 445).state == scanner.PortState.FILTERED
+
+
+def test_confirm_filtered_uses_given_timeout(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(scanner, "_run_scan", lambda h, a: seen.update(args=a) or (_FakeHostScanner({}), ""))
+    scanner._confirm_filtered("10.0.0.5", [445], privileged=False, host_timeout=42)
+    assert seen["args"].endswith("--host-timeout 42s")
+
+
+def test_run_pipeline_carries_timeout_warning(monkeypatch):
+    up = _FakeFullNode(state="up")
+    monkeypatch.setattr(scanner, "nmap_available", lambda: True)
+
+    def _run_scan(hosts, args):
+        if "-sn" in args:                                   # ping sweep
+            return _FakeHostScanner({"10.0.0.1": up}), ""
+        return _XmlScanner({"10.0.0.1": up}, _TIMEDOUT_XML.replace("10.0.0.5", "10.0.0.1")), ""
+
+    monkeypatch.setattr(scanner, "_run_scan", _run_scan)
+    _neutralize_enrichers(monkeypatch)
+
+    async def _run():
+        return [s async for s in scanner.run_pipeline("10.0.0.1", "sid")]
+    host = asyncio.run(_run())[-1].hosts[0]
+    assert host.ports == [] and "gave up on this host twice" in host.scan_warning
+
+
+# --- sudo_output (root-only reads such as a hidden ARP table) --------------- #
+def test_sudo_output_uses_primed_password(monkeypatch):
+    _reset_priv()
+    monkeypatch.setattr(scanner, "_SUDO_PASSWORD", "pw")
+    seen = {}
+
+    def _fake_run(argv, **kw):
+        seen.update(argv=argv, input=kw.get("input"))
+        return type("P", (), {"returncode": 0, "stdout": b"table", "stderr": b""})()
+
+    monkeypatch.setattr(scanner.subprocess, "run", _fake_run)
+    assert scanner.sudo_output(["arp", "-an"]) == "table"
+    assert seen["argv"][:4] == ["sudo", "-S", "-p", ""] and seen["input"] == b"pw\n"
+    _reset_priv()
+
+
+def test_sudo_output_noninteractive_and_failures(monkeypatch):
+    _reset_priv()
+    seen = {}
+    monkeypatch.setattr(scanner.subprocess, "run", lambda argv, **kw: seen.update(argv=argv, input=kw.get("input")) or type(
+        "P", (), {"returncode": 0, "stdout": b"ok", "stderr": b""})())
+    assert scanner.sudo_output(["arp", "-an"]) == "ok"
+    assert seen["argv"] == ["sudo", "-n", "arp", "-an"] and seen["input"] is None   # never prompts
+
+    monkeypatch.setattr(scanner.subprocess, "run", lambda *a, **k: type(
+        "P", (), {"returncode": 1, "stdout": b"", "stderr": b"a password is required"})())
+    assert scanner.sudo_output(["arp", "-an"]) is None
+
+    monkeypatch.setattr(scanner.subprocess, "run", lambda *a, **k: (_ for _ in ()).throw(OSError()))
+    assert scanner.sudo_output(["arp", "-an"]) is None

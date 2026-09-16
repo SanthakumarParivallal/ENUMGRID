@@ -46,6 +46,7 @@ from fastapi.responses import JSONResponse, Response, StreamingResponse
 from models import ScanPhase, ScanState
 from report import build_pdf
 from scanner import (
+    HOST_SCAN_DEADLINE,
     PROFILE_META,
     SCAN_PROFILES,
     can_raw_scan,
@@ -215,6 +216,9 @@ def health() -> dict:
         "can_raw": can_raw_scan(),
         "can_elevate": privilege_status()["can_elevate"],
         "max_concurrent_scans": MAX_CONCURRENT_SCANS,
+        # Total seconds one per-host scan may take (all stages) — the dashboard
+        # waits at least this long before calling a host scan failed.
+        "host_scan_deadline": HOST_SCAN_DEADLINE,
         "allow_public": ALLOW_PUBLIC,
         # Live CVE intelligence status (NVD feed + growing local cache).
         "cve": {
@@ -406,6 +410,7 @@ def profiles() -> dict:
         "privileged": is_privileged(),
         "capability": scan_capability(),
         "can_raw": can_raw_scan(),
+        "host_scan_deadline": HOST_SCAN_DEADLINE,
         # Lets the dashboard offer one-click elevation (enter sudo password) when
         # we're unprivileged but could raise to real -sS/-sU/-O.
         **privilege_status(),
