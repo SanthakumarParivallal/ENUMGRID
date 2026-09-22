@@ -185,7 +185,11 @@ def _inventory_table(hosts, styles):
             Paragraph(_esc(h.get("os") or "Unknown"), styles["PRMutedBody"]),
             Paragraph(str(open_ct), styles["PRMono"]),
         ])
-    t = Table(data, colWidths=[26 * mm, 30 * mm, 34 * mm, 28 * mm, 34 * mm, 12 * mm], repeatRows=1)
+    # IP gets 30mm so a full-width dotted quad ("255.255.255.255", 15 monospace
+    # chars at 8.5pt ≈ 27mm, plus 10pt of cell padding) stays on one line — at
+    # 26mm a 13-char address like 192.168.0.106 wrapped mid-octet. The hostname
+    # and vendor columns give up 2mm each; they are proportional and wrap cleanly.
+    t = Table(data, colWidths=[30 * mm, 28 * mm, 32 * mm, 28 * mm, 34 * mm, 12 * mm], repeatRows=1)
     style = [
         ("BACKGROUND", (0, 0), (-1, 0), _HEADER_BG),
         ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
@@ -259,11 +263,40 @@ def _chips(label, pairs, styles):
 MAX_REPORT_HOSTS = 10000
 
 
+def _dicts(value) -> list[dict]:
+    """The dict entries of ``value`` when it is a list, else an empty list."""
+    return [item for item in value if isinstance(item, dict)] if isinstance(value, list) else []
+
+
+def _normalise_hosts(raw) -> list[dict]:
+    """Coerce a client-supplied ``hosts`` blob into the shape the renderer reads.
+
+    ``/api/report/pdf`` formats whatever the dashboard POSTs, so the payload is
+    untrusted input rather than a validated model. Every reader below walks
+    ``host["ports"][i]["vulns"][j]`` as nested dicts; a string where a dict was
+    expected used to raise straight out of the endpoint as a 500. Normalising
+    once here keeps the guard in a single place instead of an isinstance check at
+    each of the dozen access sites, and drops malformed entries rather than
+    inventing values for them — a report must never show a host that wasn't in
+    the scan.
+    """
+    hosts: list[dict] = []
+    for host in _dicts(raw)[:MAX_REPORT_HOSTS]:
+        clean = dict(host)
+        clean["vulns"] = _dicts(host.get("vulns"))
+        ports = []
+        for port in _dicts(host.get("ports")):
+            port = dict(port)
+            port["vulns"] = _dicts(port.get("vulns"))
+            ports.append(port)
+        clean["ports"] = ports
+        hosts.append(clean)
+    return hosts
+
+
 def build_pdf(payload: dict) -> bytes:
     """Render a ScanState-shaped dict into a PDF and return its bytes."""
-    raw_hosts = payload.get("hosts")
-    raw_hosts = raw_hosts if isinstance(raw_hosts, list) else []
-    hosts = sorted(raw_hosts[:MAX_REPORT_HOSTS], key=lambda h: _ip_key(h.get("ip", "")))
+    hosts = sorted(_normalise_hosts(payload.get("hosts")), key=lambda h: _ip_key(h.get("ip", "")))
     target = payload.get("target") or "—"
     summary = _summary(hosts)
     generated = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")

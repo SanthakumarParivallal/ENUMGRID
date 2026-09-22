@@ -13,6 +13,12 @@ import cve
 import pytest
 from models import Severity
 
+# A syntactically valid NVD key (they are UUIDs). Not a real credential — it is
+# never sent anywhere; `set_api_key` validates the shape and writes it to a tmp
+# file. Using a placeholder like "SECRET-123" here would exercise a value the
+# endpoint now (correctly) refuses.
+_KEY = "1a2b3c4d-5e6f-7a8b-9c0d-1e2f3a4b5c6d"
+
 _SAMPLE = {
     "vulnerabilities": [
         {
@@ -129,12 +135,12 @@ def test_api_key_persists_to_owner_only_file(tmp_path, monkeypatch):
     monkeypatch.setattr(cve, "KEY_FILE", str(kf))
     monkeypatch.setattr(cve, "API_KEY", None)
 
-    assert cve.set_api_key("SECRET-123") is True
+    assert cve.set_api_key(_KEY) is True
     assert kf.exists()
     # Secret must be owner read/write only (0600).
     assert stat.S_IMODE(os.stat(kf).st_mode) == 0o600
     # What a fresh process would read on the next startup.
-    assert cve._load_persisted_key() == "SECRET-123"
+    assert cve._load_persisted_key() == _KEY
 
 
 def test_clearing_api_key_removes_persisted_file(tmp_path, monkeypatch):
@@ -142,7 +148,7 @@ def test_clearing_api_key_removes_persisted_file(tmp_path, monkeypatch):
     monkeypatch.setattr(cve, "KEY_FILE", str(kf))
     monkeypatch.setattr(cve, "API_KEY", None)
 
-    cve.set_api_key("x")
+    cve.set_api_key(_KEY)
     assert kf.exists()
     assert cve.set_api_key("") is False
     assert not kf.exists()
@@ -152,6 +158,31 @@ def test_clearing_api_key_removes_persisted_file(tmp_path, monkeypatch):
 def test_load_persisted_key_missing_file_is_none(tmp_path, monkeypatch):
     monkeypatch.setattr(cve, "KEY_FILE", str(tmp_path / "does-not-exist"))
     assert cve._load_persisted_key() is None
+
+
+def test_malformed_api_key_is_refused_not_stored(tmp_path, monkeypatch):
+    """A typo'd key must fail loudly rather than be saved and reported active.
+
+    Storing it would leave the dashboard claiming the 50 req/30s limit while NVD
+    rejects every request and the lookups silently fall back to the anonymous
+    rate — the tool asserting a capability it does not have.
+    """
+    kf = tmp_path / "nvd_key"
+    monkeypatch.setattr(cve, "KEY_FILE", str(kf))
+    monkeypatch.setattr(cve, "API_KEY", None)
+
+    for bad in ("12345", "SECRET-123", _KEY[:-1], _KEY + "f", "not a key"):
+        with pytest.raises(ValueError):
+            cve.set_api_key(bad)
+    assert not kf.exists()
+    assert cve.key_active() is False
+
+
+def test_valid_api_key_shape():
+    assert cve.valid_api_key(_KEY)
+    assert cve.valid_api_key(f"  {_KEY.upper()}  ")  # trimmed + case-insensitive
+    assert not cve.valid_api_key("1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d")  # no dashes
+    assert not cve.valid_api_key("1a2b3c4g-5e6f-7a8b-9c0d-1e2f3a4b5c6d")  # 'g' not hex
 
 
 # --- severity mapping + richer NVD parsing --------------------------------- #

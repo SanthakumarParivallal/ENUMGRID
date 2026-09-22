@@ -13,12 +13,20 @@ only — your own domain.
 
 from __future__ import annotations
 
+import os
+
 try:
     import ldap3
 
     _HAVE_LDAP3 = True
 except Exception:  # pragma: no cover - optional dependency
     _HAVE_LDAP3 = False
+
+# Seconds to wait for the DC's TCP accept, and for each LDAP operation once
+# bound. A wrong host or a dropped packet should surface as an error in a few
+# seconds, not after the OS's own multi-minute TCP retry schedule.
+CONNECT_TIMEOUT = max(1, int(os.environ.get("ENUMGRID_LDAP_TIMEOUT", "8")))
+RECEIVE_TIMEOUT = max(CONNECT_TIMEOUT, int(os.environ.get("ENUMGRID_LDAP_READ_TIMEOUT", "30")))
 
 
 def available() -> bool:
@@ -81,9 +89,18 @@ def enumerate_domain(
     if not base:
         return {"ok": False, "error": "invalid domain"}
     try:
-        server = ldap3.Server(dc_host, use_ssl=use_ssl, get_info=ldap3.NONE)
+        # Without an explicit connect_timeout ldap3 inherits the OS TCP timeout,
+        # so a typo'd or firewalled DC leaves the dashboard's AD panel spinning
+        # for ~75s before it can report anything. Bound both the TCP connect and
+        # the per-operation wait so the honest "bind failed" arrives promptly.
+        server = ldap3.Server(
+            dc_host, use_ssl=use_ssl, get_info=ldap3.NONE, connect_timeout=CONNECT_TIMEOUT,
+        )
         user = username if "\\" in username or "@" in username else f"{domain}\\{username}"
-        conn = ldap3.Connection(server, user=user, password=password, auto_bind=True)
+        conn = ldap3.Connection(
+            server, user=user, password=password, auto_bind=True,
+            receive_timeout=RECEIVE_TIMEOUT,
+        )
     except Exception as exc:  # noqa: BLE001 - clean reason (bind/creds/network)
         return {"ok": False, "error": f"LDAP bind failed ({type(exc).__name__})"}
     try:

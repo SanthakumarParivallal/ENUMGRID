@@ -21,6 +21,9 @@ from fastapi.testclient import TestClient
 
 client = TestClient(app)
 
+# A syntactically valid NVD API key (they are UUIDs). Not a real credential.
+_NVD_KEY = "1a2b3c4d-5e6f-7a8b-9c0d-1e2f3a4b5c6d"
+
 
 @pytest.fixture(autouse=True)
 def _temp_history(tmp_path, monkeypatch):
@@ -211,7 +214,8 @@ def test_nvd_key_set_and_clear():
     import cve
 
     try:
-        r = client.post("/api/settings/nvd-key", json={"key": "DEMO-KEY-123"})
+        # NVD keys are UUIDs; the endpoint refuses anything else (see below).
+        r = client.post("/api/settings/nvd-key", json={"key": _NVD_KEY})
         assert r.status_code == 200
         assert r.json()["key_active"] is True
         assert cve.key_active() is True
@@ -223,9 +227,23 @@ def test_nvd_key_set_and_clear():
         cve.set_api_key("")  # never leak test state into other tests
 
 
+def test_nvd_key_rejects_malformed_key():
+    """A bad key gets a 400 with the reason — never a green "active" badge."""
+    import cve
+
+    try:
+        r = client.post("/api/settings/nvd-key", json={"key": "12345"})
+        assert r.status_code == 400
+        assert "NVD API key" in r.json()["error"]
+        assert cve.key_active() is False
+        assert "5 req" in client.get("/api/settings/nvd").json()["rate_limit"]
+    finally:
+        cve.set_api_key("")
+
+
 def test_nvd_key_requires_admin(monkeypatch):
     monkeypatch.setattr(security, "ADMIN_TOKEN", "adm1n")
-    assert client.post("/api/settings/nvd-key", json={"key": "x"}).status_code == 401
+    assert client.post("/api/settings/nvd-key", json={"key": _NVD_KEY}).status_code == 401
     ok = client.post("/api/settings/nvd-key?token=adm1n", json={"key": ""})
     assert ok.status_code == 200
 
@@ -882,3 +900,76 @@ def test_scheduler_loop_covers_enqueue_error_and_timeout(monkeypatch, tmp_path):
 
     asyncio.run(_run())
     A._sched_stop.clear()
+
+
+# --------------------------------------------------------------------------- #
+# Input validation at the HTTP boundary. Each of these used to be a 500, a
+# silently-widened scan, or an accepted-then-impossible job.
+# --------------------------------------------------------------------------- #
+def test_credscan_rejects_unparseable_port():
+    r = client.post("/api/host/credscan", json={"ip": "192.168.1.5", "username": "u", "port": "abc"})
+    assert r.status_code == 400
+    assert "number" in r.json()["error"]
+
+
+@pytest.mark.parametrize("port", [0, -1, 65536, 99999])
+def test_credscan_rejects_out_of_range_port(port):
+    """0 is a bad value, not a request for the default — it must not become 22."""
+    r = client.post("/api/host/credscan", json={"ip": "192.168.1.5", "username": "u", "port": port})
+    assert r.status_code == 400
+    assert "between 1 and 65535" in r.json()["error"]
+
+
+@pytest.mark.parametrize("port", [0, -1, 65536])
+def test_webscan_rejects_out_of_range_port(port):
+    assert client.get(f"/api/host/webscan?ip=192.168.1.5&port={port}").status_code == 422
+
+
+def test_report_pdf_renders_malformed_payload_instead_of_500():
+    """The dashboard POSTs free-form JSON; junk must not crash the renderer."""
+    r = client.post("/api/report/pdf", json={
+        "target": "x",
+        "hosts": [{"ip": None, "ports": "bad"}, "junk", {"ip": "1.2.3.4", "ports": [{"port": 1, "vulns": "bad"}]}],
+    })
+    assert r.status_code == 200
+    assert r.content.startswith(b"%PDF")
+
+
+def test_network_scan_job_is_scope_checked_at_submit():
+    """An out-of-scope subnet is refused up front, not queued to fail in a worker."""
+    r = client.post("/api/jobs/submit", json={"kind": "network_scan", "target": "8.8.8.0/24"})
+    assert r.status_code == 400
+    assert "refused" in r.json()["error"]
+    # and nothing was enqueued for it
+    assert all(j["kind"] != "network_scan" or j["status"] != "queued"
+               for j in client.get("/api/jobs").json()["jobs"][:1])
+
+
+def test_root_serves_head_for_healthchecks():
+    """FastAPI does not add HEAD to a GET route; container healthchecks use it."""
+    assert client.head("/").status_code == 200
+    assert client.get("/").status_code == 200
+
+
+def test_root_stream_example_is_actually_scannable():
+    """The self-documenting example must not be a target the scope guard refuses."""
+    from security import vet_target
+
+    example = client.get("/").json()["stream"]
+    vet_target(example.split("target=", 1)[1])  # raises ScopeRejected if bad
+
+
+def test_profiles_expose_the_command_that_will_really_run(monkeypatch):
+    """Root-only profiles must advertise their adapted form when unprivileged."""
+    import scanner
+
+    monkeypatch.setattr(scanner, "can_raw_scan", lambda: False)
+    profiles = client.get("/api/profiles").json()["profiles"]
+    stealth = profiles["stealth"]
+    assert "-sS" in stealth["args"]                    # declared
+    assert "-sS" not in stealth["effective_args"]      # actual
+    assert "-sT" in stealth["effective_args"]
+    assert "needs root" in stealth["adapt_note"]
+    # A profile with no root-only flags is untouched and carries no note.
+    assert profiles["quick"]["effective_args"] == profiles["quick"]["args"]
+    assert profiles["quick"]["adapt_note"] == ""

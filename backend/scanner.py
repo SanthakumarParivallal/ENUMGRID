@@ -623,6 +623,21 @@ def _adapt_args(args: str) -> tuple[str, str]:
     return " ".join(deduped), note
 
 
+def effective_args(args: str) -> tuple[str, str]:
+    """What nmap will *actually* be invoked with right now, plus why it differs.
+
+    Public wrapper over the privilege adaptation so the dashboard can print the
+    real command instead of the profile's declared one. Without this the scan
+    options drawer shows ``nmap -sS …`` for the Stealth profile on an
+    unprivileged backend while ``-sT`` is what runs — exactly the kind of
+    displayed-vs-actual gap this tool exists to eliminate. When raw scans *are*
+    available the profile args are already the real ones, so nothing changes.
+    """
+    if can_raw_scan():
+        return args, ""
+    return _adapt_args(args)
+
+
 def _sudo_scan(hosts: str, args: str) -> "nmap.PortScanner | None":
     """Run ``sudo -n nmap -oX - <args> <hosts>`` and parse the XML, or None.
 

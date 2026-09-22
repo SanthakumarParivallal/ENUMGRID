@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+from contextlib import asynccontextmanager
 from datetime import datetime
 
 import adscan
@@ -51,6 +52,7 @@ from scanner import (
     SCAN_PROFILES,
     can_raw_scan,
     drop_privileges,
+    effective_args,
     elevate_sudo,
     is_privileged,
     nmap_available,
@@ -69,7 +71,35 @@ from security import (
     vet_target,
 )
 
-app = FastAPI(title="Enumeration Platform API", version="1.0.0")
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI):
+    """Start the job workers + schedule ticker, and stop them cleanly on shutdown.
+
+    Replaces the deprecated ``@app.on_event`` hooks (FastAPI emits a
+    DeprecationWarning for those and will drop them). The names it touches —
+    ``_JOB_HANDLERS``, ``_job_stop``, ``_scheduler_loop`` — are module globals
+    defined further down; that is fine because they are only looked up when the
+    app actually starts, long after import finishes.
+
+    The task handles are kept in locals and awaited on the way out: a bare
+    ``create_task`` whose result nobody holds can be garbage-collected mid-flight,
+    and without the await the process could exit while a worker is still inside a
+    scan.
+    """
+    workers = asyncio.create_task(jobs.run_workers(_JOB_HANDLERS, _job_stop))
+    ticker = asyncio.create_task(_scheduler_loop())
+    try:
+        yield
+    finally:
+        _job_stop.set()
+        _sched_stop.set()
+        for task in (workers, ticker):
+            task.cancel()
+        await asyncio.gather(workers, ticker, return_exceptions=True)
+
+
+app = FastAPI(title="Enumeration Platform API", version="1.0.0", lifespan=_lifespan)
 
 # The Vite proxy makes calls same-origin in dev, but allow direct localhost
 # access too (e.g. hitting :8000 from a browser or curl).
@@ -402,7 +432,14 @@ def profiles() -> dict:
         args = spec.get("args", "")
         if scripts:
             args = f"{args} --script {scripts}"
-        merged[key] = {**meta, "args": args.strip()}
+        args = args.strip()
+        # `args` is the profile as declared; `effective_args` is what nmap is
+        # actually invoked with on THIS backend. They differ whenever a root-only
+        # profile (-sS/-sU/-A) runs unprivileged, and the UI must print the
+        # second one — otherwise the "exact command" it shows is not the command
+        # that runs. `adapt_note` explains the difference in one line.
+        real, note = effective_args(args)
+        merged[key] = {**meta, "args": args, "effective_args": real, "adapt_note": note}
     # `capability`/`can_raw` let the UI explain that root-only profiles still run
     # (auto-adapted) rather than blocking them.
     return {
@@ -489,18 +526,24 @@ def set_nvd_key(
     token: str | None = Query(None),
     authorization: str | None = Header(None),
 ) -> JSONResponse:
-    """Set (or clear) the NVD API key at runtime — in memory only, never logged.
+    """Set (or clear) the NVD API key at runtime — never logged, never echoed back.
 
     This is the user-friendly alternative to editing the environment: paste the
     free key from nvd.nist.gov in the dashboard and live CVE lookups immediately
-    use the higher rate limit. For a permanent setup, also add
-    ``ENUMGRID_NVD_API_KEY`` to your ``.env`` (so it survives a restart).
-    Admin-gated; the key value is never echoed back.
+    use the higher rate limit. ``cve.set_api_key`` persists it to a local,
+    owner-only (0600), gitignored file so it survives a restart; clearing removes
+    that file. ``ENUMGRID_NVD_API_KEY`` still wins on the next startup, so a
+    permanent setup can live in ``.env`` instead. Admin-gated.
     """
     if not admin_ok(token, authorization):
         raise HTTPException(status_code=401, detail="admin token required")
     key = str(payload.get("key") or "")
-    active = cve.set_api_key(key)
+    try:
+        active = cve.set_api_key(key)
+    except ValueError as exc:
+        # Refuse a malformed key instead of storing it and then reporting the
+        # higher rate limit the operator would never actually get.
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=400)
     audit.record("nvd_key_set", active=active)  # records the action, never the key
     return JSONResponse({
         "ok": True,
@@ -707,13 +750,24 @@ def host_credscan(
         vet_target(ip)
     except ScopeRejected as exc:
         return JSONResponse({"ok": False, "error": exc.reason}, status_code=400)
+    # `port` arrives as free-form JSON, so a non-numeric or out-of-range value has
+    # to be refused here — bare int() would raise and surface as a 500. Only an
+    # absent/blank port falls back to 22; an explicit 0 is a bad value, not a
+    # request for the default, and is rejected below rather than silently rewritten.
+    raw_port = payload.get("port")
+    try:
+        port = 22 if raw_port in (None, "") else int(raw_port)
+    except (TypeError, ValueError):
+        return JSONResponse({"ok": False, "error": "port must be a number"}, status_code=400)
+    if not 1 <= port <= 65535:
+        return JSONResponse({"ok": False, "error": "port must be between 1 and 65535"}, status_code=400)
 
     facts = credscan.ssh_facts(
         ip,
         username,
         password=payload.get("password"),
         key_filename=payload.get("key_filename"),
-        port=int(payload.get("port") or 22),
+        port=port,
     )
     # Backport-aware CVEs from the *exact* installed packages (OSV.dev): this is
     # authoritative assessment — a fix backported by the distro is not flagged.
@@ -735,7 +789,9 @@ def host_credscan(
 @app.get("/api/host/webscan")
 def host_webscan(
     ip: str = Query(...),
-    port: int = Query(80),
+    # Bounded so an impossible port is refused up front (422) rather than reaching
+    # the socket layer and coming back as a bare "web fetch failed (gaierror)".
+    port: int = Query(80, ge=1, le=65535),
     https: bool | None = Query(None),
     token: str | None = Query(None),
     authorization: str | None = Header(None),
@@ -1009,18 +1065,6 @@ async def _scheduler_loop() -> None:
             pass
 
 
-@app.on_event("startup")
-async def _start_workers() -> None:
-    asyncio.create_task(jobs.run_workers(_JOB_HANDLERS, _job_stop))
-    asyncio.create_task(_scheduler_loop())
-
-
-@app.on_event("shutdown")
-async def _stop_workers() -> None:
-    _job_stop.set()
-    _sched_stop.set()
-
-
 @app.post("/api/jobs/submit")
 def jobs_submit(
     payload: dict = Body(...),
@@ -1036,11 +1080,17 @@ def jobs_submit(
     if kind not in _JOB_HANDLERS:
         return JSONResponse({"error": f"unknown job kind '{kind}'"}, status_code=400)
     params = {k: v for k, v in payload.items() if k != "kind"}
-    if params.get("ip"):
-        try:
-            vet_target(str(params["ip"]))
-        except ScopeRejected as exc:
-            return JSONResponse({"error": exc.reason}, status_code=400)
+    # Vet the scope *before* queueing. The worker vets again (defence in depth),
+    # but only checking there would have this endpoint answer "queued" for a job
+    # that can never run — and record a job_submit with no matching refusal.
+    # `ip` is the host_scan param, `target` the network_scan one.
+    for field in ("ip", "target"):
+        if params.get(field):
+            try:
+                vet_target(str(params[field]))
+            except ScopeRejected as exc:
+                audit.record("scan_refused", mode=kind, target=str(params[field]), reason=exc.reason)
+                return JSONResponse({"error": exc.reason}, status_code=400)
     job_id = jobs.enqueue(kind, params)
     audit.record("job_submit", kind=kind, job_id=job_id, target=params.get("ip"))
     return JSONResponse({"job_id": job_id, "status": "queued"})
@@ -1150,12 +1200,22 @@ def schedules_toggle(
     return JSONResponse(rule.to_dict())
 
 
-@app.get("/")
+@app.api_route("/", methods=["GET", "HEAD"])
 def root() -> JSONResponse:
+    """Service banner + the two entry points a new caller needs.
+
+    HEAD is served alongside GET because this is the natural liveness URL for a
+    container healthcheck or load balancer, and FastAPI (unlike plain Starlette)
+    does not add HEAD to a GET route on its own.
+
+    The stream example deliberately uses a private-LAN address: the scope
+    validator refuses loopback, so an example of ``target=127.0.0.1`` would hand
+    every new user a request that is guaranteed to be rejected.
+    """
     return JSONResponse(
         {
             "service": "Enumeration Platform API",
-            "stream": "/api/scan/stream?target=127.0.0.1",
+            "stream": "/api/scan/stream?target=192.168.1.0/24",
             "health": "/api/health",
         }
     )

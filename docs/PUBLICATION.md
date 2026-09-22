@@ -40,8 +40,8 @@ Full table + methodology in [`ACCURACY.md`](ACCURACY.md); raw artifacts in
 
 ## Quality status
 
-- **1,307 automated tests** — Python 1,101 (CLI 197 + backend 726 + evaluation 178) +
-  frontend 206. All green.
+- **1,355 automated tests** — Python 1,148 (CLI 197 + backend 773 + evaluation 178) +
+  frontend 207. All green.
 - ruff clean; SAST (bandit) + dependency audit (pip-audit) clean; SBOM; digest-pinned
   non-root Docker image.
 - All scoring math is pure + unit-tested → the published numbers re-run in CI with no

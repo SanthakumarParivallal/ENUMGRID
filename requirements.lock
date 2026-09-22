@@ -1,6 +1,6 @@
 annotated-doc==0.0.4
 annotated-types==0.7.0
-anyio==4.13.0
+anyio==4.14.2
 bandit==1.9.4
 blinker==1.9.0
 boolean.py==5.0
@@ -30,7 +30,7 @@ mdurl==0.1.2
 msgpack==1.2.1
 packageurl-python==0.17.6
 packaging==26.2
-pillow==12.2.0
+pillow==12.3.0
 pip-api==0.0.34
 pip-requirements-parser==32.0.1
 pip_audit==2.10.0

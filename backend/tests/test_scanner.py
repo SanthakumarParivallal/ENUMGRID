@@ -1223,3 +1223,21 @@ def test_sudo_output_noninteractive_and_failures(monkeypatch):
 
     monkeypatch.setattr(scanner.subprocess, "run", lambda *a, **k: (_ for _ in ()).throw(OSError()))
     assert scanner.sudo_output(["arp", "-an"]) is None
+
+
+# --- effective_args: what the UI is allowed to print --------------------------
+# The dashboard prints the command it is about to run. If it printed the profile
+# as declared, a root-only profile on an unprivileged backend would show a -sS /
+# -sU / -A command that never executes — the displayed-vs-actual gap this tool
+# exists to close. `effective_args` is the single source of truth for that.
+def test_effective_args_adapts_when_unprivileged(monkeypatch):
+    monkeypatch.setattr(scanner, "can_raw_scan", lambda: False)
+    real, note = scanner.effective_args("-sS -Pn -T2 --top-ports 200")
+    assert real == "-sT -Pn -T2 --top-ports 200"
+    assert "-sS needs root" in note
+
+
+def test_effective_args_is_a_passthrough_when_privileged(monkeypatch):
+    monkeypatch.setattr(scanner, "can_raw_scan", lambda: True)
+    args = "-sS -Pn -T2 --top-ports 200"
+    assert scanner.effective_args(args) == (args, "")

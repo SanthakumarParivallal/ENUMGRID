@@ -7,7 +7,10 @@
  * `rgb(var(--x) / <alpha-value>)`. The dark cockpit is the default; the light
  * "paper" theme (html[data-theme='light']) inverts the neutral ramp so the same
  * utility classes (text-slate-300, border-slate-700, bg-steel-900 …) read
- * correctly on a light surface. Signal accents (amber/matrix/crimson) are shared.
+ * correctly on a light surface. The signal accents (amber/matrix/crimson) are
+ * re-toned per theme rather than shared: a hue that reads at 12:1 on the
+ * near-black chassis lands near 1.5:1 on white, so sharing them left most of the
+ * light theme — including the primary "Start Scan" button — below WCAG AA.
  */
 :root,
 html[data-theme='dark'] {
@@ -20,8 +23,8 @@ html[data-theme='dark'] {
   --slate-200: 226 232 240;
   --slate-300: 203 213 225;
   --slate-400: 148 163 184;
-  --slate-500: 124 140 162; /* muted text — lightened to clear WCAG AA (4.5:1) on dark */
-  --slate-600: 108 122 145; /* placeholder/tertiary text — legible, not sub-3:1 */
+  --slate-500: 140 155 175; /* muted text — clears WCAG AA (4.5:1) on every dark surface */
+  --slate-600: 124 140 162; /* placeholder/tertiary — 4.8:1 even on the hover row */
   --slate-700: 51 65 85; /* hairline borders */
   --slate-800: 30 41 59; /* dividers */
   --app-bg: 2 6 23;
@@ -31,6 +34,17 @@ html[data-theme='dark'] {
   --scroll-track: 11 18 32;
   --scroll-thumb: 30 41 59;
   --scroll-thumb-hover: 51 65 85;
+  /* Signal accents — tuned for the near-black chassis. */
+  --accent-amber: 255 179 0;
+  --accent-amber-glow: 255 194 51;
+  --accent-amber-dim: 122 86 0;
+  --accent-matrix: 0 230 118;
+  --accent-matrix-dim: 10 92 54;
+  --accent-crimson: 211 47 47;
+  --accent-crimson-dim: 90 26 26;
+  /* Sky — the Operations/identity accent (Tailwind's sky-300/400). */
+  --accent-sky: 125 211 252;
+  --accent-sky-strong: 56 189 248;
 }
 
 html[data-theme='light'] {
@@ -44,8 +58,8 @@ html[data-theme='light'] {
   --slate-200: 30 41 59;
   --slate-300: 51 65 85;
   --slate-400: 71 85 105;
-  --slate-500: 100 116 139; /* muted text stays mid */
-  --slate-600: 148 163 184;
+  --slate-500: 85 99 120; /* muted text — 5.6:1 on the app background */
+  --slate-600: 96 109 128; /* placeholder/tertiary — 4.9:1; slate-400 here was 2.3:1 */
   --slate-700: 203 213 225; /* hairline borders (slate-300) */
   --slate-800: 226 232 240; /* dividers (slate-200) */
   --app-bg: 241 245 249;
@@ -55,6 +69,21 @@ html[data-theme='light'] {
   --scroll-track: 226 232 240;
   --scroll-thumb: 148 163 184;
   --scroll-thumb-hover: 100 116 139;
+  /* Darker signal accents for the paper theme. The cockpit hues are ~1.4:1 on
+     white — unreadable — so each is swapped for the deepest shade of the same
+     family that still reads as amber / green / red. These clear WCAG AA (4.5:1)
+     on both the white panels and the slate-100 app background with enough
+     headroom that the /70 and /80 opacity variants stay legible too. */
+  --accent-amber: 146 64 14; /* amber-800  — 7.1:1 on white */
+  --accent-amber-glow: 180 83 9; /* amber-700 */
+  --accent-amber-dim: 254 243 199; /* amber-100 — tints invert on light */
+  --accent-matrix: 6 78 59; /* emerald-900 — 9.4:1 on white, 4.9:1 at the /80 the
+                               grid's OS column uses (emerald-800 landed at 4.47) */
+  --accent-matrix-dim: 209 250 229; /* emerald-100 */
+  --accent-crimson: 153 27 27; /* red-800 — 8.3:1 on white */
+  --accent-crimson-dim: 254 226 226; /* red-100 */
+  --accent-sky: 3 105 161; /* sky-700 — 5.9:1; sky-300 was 1.7:1 here */
+  --accent-sky-strong: 2 132 199; /* sky-600 — 3.7:1, clears the 3:1 non-text bar */
 }
 
 html,

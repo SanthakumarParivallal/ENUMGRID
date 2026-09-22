@@ -32,8 +32,11 @@ jobs:
       - run: pip install bandit pip-audit
       - name: Bandit (static analysis)
         run: bandit -r purple_recon.py backend/ -c pyproject.toml
+      # requirements.txt / requirements-dev.txt carry open ranges, so auditing
+      # them only ever checks whatever pip resolves *today* — the pinned set in
+      # requirements.lock is the one that can silently rot. Audit all three.
       - name: pip-audit (Python dependency CVEs)
-        run: pip-audit -r backend/requirements.txt -r requirements-dev.txt
+        run: pip-audit -r backend/requirements.txt -r requirements-dev.txt -r requirements.lock
 
   cli:
     name: CLI pytest · py${{ matrix.python-version }}

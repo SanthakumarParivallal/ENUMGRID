@@ -849,7 +849,10 @@ function SettingsMenu({ btnBase }) {
               className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-xs text-slate-300 outline-none transition hover:bg-steel-800 hover:text-slate-100 focus-visible:ring-2 focus-visible:ring-sky-400"
             >
               <span className="flex items-center gap-1.5"><Icon.Activity className="h-3.5 w-3.5" /> AI Copilot</span>
-              <span className="text-[10px] text-slate-500">chat · Claude / OpenAI</span>
+              {/* Ollama and Gemini are the free providers and Ollama is the
+                  default — naming only the two paid ones sent operators to the
+                  options that cost money. */}
+              <span className="text-[10px] text-slate-500">chat · local or cloud</span>
             </button>
             <button
               onClick={() => { setOpen(false); window.dispatchEvent(new Event('eg:open-help')); }}
@@ -935,6 +938,11 @@ function CommandBar({ onOpenNav }) {
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && submit()}
             spellCheck={false}
+            // The visible "Target" chip is hidden below the sm breakpoint and is
+            // not associated with this input, so without an aria-label a screen
+            // reader announces only the placeholder — which also disappears the
+            // moment anything is typed. Every other control here is labelled.
+            aria-label="Scan target — IP, CIDR range or hostname"
             placeholder="192.168.1.0/24"
             disabled={running}
             className="w-full rounded-lg border border-slate-700 bg-steel-900/80 py-2 pl-[70px] pr-3 font-mono text-sm text-slate-100 outline-none transition focus:border-amber/60 focus:shadow-glow-amber disabled:opacity-60 sm:pl-[76px]"
@@ -1292,15 +1300,20 @@ function SessionLog() {
 
 /** Engine footer — backend privilege + CVE status, pinned to the sidebar base. */
 function EngineFooter() {
-  const { capability, elevated, canRaw, source } = useScan();
+  const { capability, elevated, canRaw, source, profiles } = useScan();
   const meta = privMeta(capability, elevated);
+  // An empty profile set means /api/profiles never answered — the same signal the
+  // scan-options drawer uses to say "backend offline". Report that here rather
+  // than a green "FastAPI" the operator would read as a healthy engine.
+  // Classes are spelled out in full: Tailwind scans source text, so an
+  // interpolated `bg-${tone}` would be purged from the production build.
+  const backend = source === 'mock'
+    ? { value: 'demo engine', dot: 'bg-amber', valueClass: 'text-amber' }
+    : Object.keys(profiles || {}).length > 0
+      ? { value: 'FastAPI', dot: 'bg-matrix', valueClass: 'text-matrix' }
+      : { value: 'unreachable', dot: 'bg-crimson', valueClass: 'text-crimson' };
   const rows = [
-    {
-      label: 'Backend',
-      value: source === 'mock' ? 'demo engine' : 'FastAPI',
-      dot: source === 'mock' ? 'bg-amber' : 'bg-matrix',
-      valueClass: source === 'mock' ? 'text-amber' : 'text-matrix',
-    },
+    { label: 'Backend', ...backend },
     {
       label: 'Privilege',
       value: meta.label.toLowerCase(),
@@ -1403,8 +1416,11 @@ function Sidebar({ mobileOpen, onClose }) {
     <>
       {/* mobile scrim */}
       {mobileOpen && <Backdrop onClose={onClose} className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm lg:hidden" />}
+      {/* pb-16 keeps the Engine panel (and its "results are always real" note)
+          clear of the floating Copilot launcher, which is fixed at bottom-left
+          and was covering the last two lines of that note. */}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 flex w-[272px] shrink-0 flex-col gap-3 overflow-y-auto border-r border-slate-800 bg-steel-950/95 p-3 transition-transform duration-200 lg:static lg:z-0 lg:w-[264px] lg:translate-x-0 lg:bg-steel-950/50 ${
+        className={`fixed inset-y-0 left-0 z-50 flex w-[272px] shrink-0 flex-col gap-3 overflow-y-auto border-r border-slate-800 bg-steel-950/95 p-3 pb-16 transition-transform duration-200 lg:static lg:z-0 lg:w-[264px] lg:translate-x-0 lg:bg-steel-950/50 ${
           mobileOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
@@ -1599,7 +1615,10 @@ function ColResizeHandle({ col, onResize, onReset }) {
 function PortDetailTable({ host }) {
   const { scanHostVulns, profiles, scanProfile, scanScripts, scanPorts } = useScan();
   const vulns = collectVulns(host);
-  const profArgs = (profiles?.[scanProfile]?.args || '-sV -Pn -T4').trim();
+  // The adapted args, so the live command matches what nmap actually runs when
+  // the backend is unprivileged (see /api/profiles → effective_args).
+  const prof = profiles?.[scanProfile];
+  const profArgs = (prof?.effective_args || prof?.args || '-sV -Pn -T4').trim();
   const liveCmd = `nmap ${profArgs}` + (scanScripts ? ` --script ${scanScripts}` : '') + (scanPorts ? ` -p ${scanPorts}` : '') + ` ${host.ip}`;
 
   return (
@@ -1735,7 +1754,12 @@ function PortDetailTable({ host }) {
 
 function ScanStateBadge({ host }) {
   const cls = 'inline-flex items-center gap-1.5 rounded-lg border px-2 py-1 font-mono text-[10px] uppercase tracking-wider';
-  if (host.vulnScanning) return <span className={`${cls} border-crimson/40 bg-crimson/10 text-crimson`}><Spinner className="h-3 w-3" /> Vuln Scan</span>;
+  // `vulnScanning` means "a per-host nmap scan is in flight" — it is set for every
+  // row scan, not just the Deep (NSE vuln) one. Labelling it "Vuln Scan" in
+  // crimson told the operator a vulnerability scan was running during a plain
+  // -sV pass; "Nmap" in amber matches the row button ("Nmap scanning…") and is
+  // true either way.
+  if (host.vulnScanning) return <span className={`${cls} border-amber/40 bg-amber/10 text-amber`}><Spinner className="h-3 w-3" /> Nmap</span>;
   if (host.scanning) return <span className={`${cls} border-amber/40 bg-amber/10 text-amber`}><Spinner className="h-3 w-3" /> Scanning</span>;
   if (host.status === HostStatus.DOWN) return <span className={`${cls} border-slate-700 bg-steel-900 text-slate-500`}>Skipped</span>;
   if (host.queued) return <span className={`${cls} border-amber/30 bg-amber/5 text-amber/80`}><Spinner className="h-3 w-3" /> Queued</span>;
@@ -1861,13 +1885,16 @@ function EmptyState() {
  * Topology view — a Zenmap-style radial network map.
  * ========================================================================== */
 
+// Read the accents from the theme tokens rather than hardcoding the dark-cockpit
+// hex, so topology nodes and their labels darken with the rest of the light
+// theme instead of staying at ~1.5:1 on a white canvas.
 function topoColor(host) {
-  if (isCriticalHost(host)) return '#D32F2F';
+  if (isCriticalHost(host)) return 'rgb(var(--accent-crimson))';
   const t = (host.device_type || '').toLowerCase();
-  if (t.includes('router') || t.includes('gateway')) return '#FFB300';
-  if (t.includes('smart') || t.includes('iot') || t.includes('media')) return '#00E676';
-  if (t.includes('camera')) return '#D32F2F';
-  return '#94a3b8';
+  if (t.includes('router') || t.includes('gateway')) return 'rgb(var(--accent-amber))';
+  if (t.includes('smart') || t.includes('iot') || t.includes('media')) return 'rgb(var(--accent-matrix))';
+  if (t.includes('camera')) return 'rgb(var(--accent-crimson))';
+  return 'rgb(var(--slate-500))';
 }
 
 function TopoNode({ x, y, host, radius, center, onScan }) {
@@ -1882,12 +1909,12 @@ function TopoNode({ x, y, host, radius, center, onScan }) {
       {center && <circle cx={x} cy={y} r={radius + 9} fill="none" stroke={color} strokeOpacity="0.3" />}
       <circle cx={x} cy={y} r={radius} fill={color} fillOpacity="0.14" stroke={color} strokeWidth={center ? 2.5 : 1.5} />
       {host.vulnScanning && (
-        <circle cx={x} cy={y} r={radius + 5} fill="none" stroke="#FFB300" strokeWidth="2" strokeDasharray="3 3">
+        <circle cx={x} cy={y} r={radius + 5} fill="none" stroke="rgb(var(--accent-amber))" strokeWidth="2" strokeDasharray="3 3">
           <animateTransform attributeName="transform" type="rotate" from={`0 ${x} ${y}`} to={`360 ${x} ${y}`} dur="2s" repeatCount="indefinite" />
         </circle>
       )}
       <text x={x} y={y + 4} textAnchor="middle" fontSize={center ? 13 : 11} fontFamily="monospace" fontWeight="bold" fill={color}>.{last}</text>
-      <text x={x} y={y + radius + 13} textAnchor="middle" fontSize="9" fontFamily="monospace" fill="#94a3b8">{String(label).slice(0, 18)}</text>
+      <text x={x} y={y + radius + 13} textAnchor="middle" fontSize="9" fontFamily="monospace" fill="rgb(var(--slate-400))">{String(label).slice(0, 18)}</text>
     </g>
   );
 }
@@ -2207,7 +2234,13 @@ function NvdKeyButton() {
   const save = () => {
     setSaving(true); setMsg('');
     authFetch('/api/settings/nvd-key', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: keyInput }) })
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(r.status === 401 ? 'admin token required' : `HTTP ${r.status}`))))
+      .then(async (r) => {
+        if (r.ok) return r.json();
+        // The server rejects a malformed key with a specific reason (e.g. "that
+        // does not look like an NVD API key") — show it rather than "HTTP 400".
+        const body = await r.json().catch(() => ({}));
+        throw new Error(body.error || (r.status === 401 ? 'admin token required' : `HTTP ${r.status}`));
+      })
       .then((d) => { setMsg(d.key_active ? '✓ Key applied — higher rate limit active.' : 'Key cleared.'); setKeyInput(''); refresh(); })
       .catch((e) => setMsg(`✗ ${e.message}`))
       .finally(() => setSaving(false));
@@ -2320,12 +2353,24 @@ function ScanConfigPanel() {
           </div>
 
           {sel.args && (
-            <div className="overflow-x-auto whitespace-nowrap rounded-lg border border-slate-800 bg-steel-950/70 px-2.5 py-1.5 font-mono text-[10px] text-slate-500">
-              <span className="text-slate-600">$</span> nmap <span className="text-slate-300">{sel.args}</span>
-              {scriptSet.size > 0 && <span className="text-amber"> --script {[...scriptSet].join(',')}</span>}
-              {scanPorts && <span className="text-amber"> -p {scanPorts}</span>}
-              {canRaw && !/-A|-sS|-sU/.test(sel.args) && <span className="text-matrix"> -O</span>}
-              <span className="text-slate-600"> &lt;host&gt;</span>
+            <div className="space-y-1">
+              {/* `effective_args` is what nmap is really invoked with on this
+                  backend — it differs from the declared `args` whenever a
+                  root-only profile is auto-adapted. Printing `args` here would
+                  show a -sS/-sU/-A command that never runs. */}
+              <div className="overflow-x-auto whitespace-nowrap rounded-lg border border-slate-800 bg-steel-950/70 px-2.5 py-1.5 font-mono text-[10px] text-slate-500">
+                <span className="text-slate-600">$</span> nmap <span className="text-slate-300">{sel.effective_args || sel.args}</span>
+                {scriptSet.size > 0 && <span className="text-amber"> --script {[...scriptSet].join(',')}</span>}
+                {scanPorts && <span className="text-amber"> -p {scanPorts}</span>}
+                {canRaw && !/-A|-sS|-sU/.test(sel.args) && <span className="text-matrix"> -O</span>}
+                <span className="text-slate-600"> &lt;host&gt;</span>
+              </div>
+              {sel.adapt_note && (
+                <div className="flex items-start gap-1.5 px-0.5 text-[10px] leading-relaxed text-amber/90">
+                  <Icon.Info className="mt-px h-3 w-3 shrink-0" />
+                  <span>Running unprivileged — auto-adapted from <code className="font-mono text-slate-400">{sel.args}</code>: {sel.adapt_note}.</span>
+                </div>
+              )}
             </div>
           )}
 

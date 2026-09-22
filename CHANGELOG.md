@@ -5,6 +5,125 @@ All notable changes to **ENUMGRID: the Enumeration Platform**. Format based on
 
 ## [Unreleased]
 
+### Full API + UI sweep — crash fixes, honest commands, and a readable light theme (2026-09-22)
+A second pass over the same live `192.168.0.0/24`, this time driving **every one of the 34 API
+endpoints** (happy path, malformed input, out-of-range values, auth) and **every UI surface**
+(scan options, per-host detail, topology, exports, settings, operations, command palette,
+copilot, both themes, 375 px). Fifteen defects, the worst of which were two unhandled 500s and
+a light theme that failed WCAG AA on 74 elements.
+
+**Crashes and validation (unhandled input reaching the user as a 500)**
+- **`POST /api/host/credscan` crashed on a non-numeric port.** `int(payload["port"])` on
+  free-form JSON raised `ValueError` straight out of the handler — `{"port": "abc"}` returned
+  *500 Internal Server Error*. Now a 400 naming the problem. An explicit `0` is also refused
+  rather than silently becoming 22: `int(x or 22)` treated the falsy `0` as "unset", so a bad
+  value quietly turned into a real SSH attempt on a port the caller never asked for.
+- **`POST /api/report/pdf` crashed on a malformed payload.** The endpoint formats whatever the
+  dashboard POSTs, so the body is untrusted; a string where a port dict was expected raised
+  `AttributeError: 'str' object has no attribute 'get'` out of `report._summary` — another 500.
+  A single `_normalise_hosts` pass at the entry point now coerces the shape once (instead of an
+  `isinstance` check at each of a dozen access sites) and **drops** malformed entries rather
+  than rendering blanks — a report must never show a host that was not in the scan.
+- **`GET /api/host/webscan` accepted impossible ports.** `port=0`, `-1` and `99999` returned
+  200 with `web fetch failed (gaierror)` — an internal exception name standing in for "that is
+  not a port". Bounded to 1–65535 (422), matching `/api/passive`'s existing bounds.
+- **`POST /api/jobs/submit` queued out-of-scope network scans.** The scope guard only checked
+  the `host_scan` parameter (`ip`), never the `network_scan` one (`target`), so a public
+  subnet came back `{"status": "queued"}` and failed later inside a worker — and the audit log
+  recorded a `job_submit` with no matching refusal. Both parameters are now vetted at submit,
+  and a refusal is audited like any other.
+
+**Honesty — where the screen disagreed with what the tool actually did**
+- **The scan-options drawer printed a command that never runs.** `/api/profiles` returned each
+  profile's *declared* arguments, so an unprivileged backend showed `nmap -sS -Pn -T2
+  --top-ports 200` for Stealth while `_adapt_args` rewrote it to `-sT` before execution (same
+  for `-sU` and `-A`). The endpoint now also returns `effective_args` + `adapt_note` from a new
+  `scanner.effective_args()`, keeping one source of truth, and the drawer and the per-host live
+  command both print the real one with a line explaining the difference.
+- **`POST /api/settings/nvd-key` accepted any string as an API key** and reported
+  `key_active: true` / "50 req / 30s" — so a typo'd paste left the dashboard asserting a rate
+  limit NVD would never grant, with every live lookup silently falling back to the anonymous
+  limit. The runtime setter now validates NVD's documented UUID shape and returns a 400 naming
+  the problem; `ENUMGRID_NVD_API_KEY` stays unchecked as an escape hatch.
+- **The grid showed a crimson "VULN SCAN" badge during ordinary service scans.** The flag
+  behind it (`vulnScanning`) means "a per-host nmap scan is in flight" and is set for every row
+  scan, deep or not — every other affordance already said "Nmap scanning…". The badge now
+  matches.
+
+**Accessibility and layout**
+- **The light theme failed WCAG AA on 74 elements** (measured with alpha compositing), the
+  worst at **1.39:1** — including the primary **Start Scan** button, the KPI figures and every
+  OS string in the grid. Root cause: the chassis and neutral ramp were themeable but the three
+  signal accents were shared hex, and `#00E676` / `#FFB300` are tuned for a near-black surface.
+  The accents (plus the two sky shades and the muted end of the neutral ramp) are now theme
+  tokens with darker light-mode values. **Light: 74 → 0 failures. Dark: 6 → 0.**
+- **The floating Copilot launcher covered the Engine panel's honesty note** — the last two
+  lines of "Results are always real. Backend unreachable → the scan fails with a clear error,
+  never simulated." sat underneath it at every desktop size. The sidebar now reserves space.
+- **The target input had no accessible label**, leaving a screen reader to announce the
+  placeholder — which disappears as soon as anything is typed. Every other control was already
+  labelled.
+
+**Maintenance**
+- `@app.on_event("startup"/"shutdown")` are deprecated and emitted a `DeprecationWarning` on
+  every boot; replaced with a `lifespan` context manager that also **holds and awaits** the
+  worker/ticker task handles (a bare `create_task` nobody references can be garbage-collected
+  mid-flight, and shutdown could return while a worker was still inside a scan).
+- **`/api/ad/enum` hung for ~75 s on an unreachable DC** — `ldap3` inherited the OS TCP retry
+  schedule — so a mistyped hostname froze the AD panel. Bounded to 8 s connect / 30 s per
+  operation (`ENUMGRID_LDAP_TIMEOUT`, `ENUMGRID_LDAP_READ_TIMEOUT`); measured 75 s → 8 s.
+- `HEAD /` returned 405. FastAPI does not add HEAD to a GET route the way plain Starlette does,
+  and `/` is the natural liveness URL for a container healthcheck. Served now.
+- The service banner at `/` advertised `?target=127.0.0.1` — a target the scope validator
+  refuses, so the API's own example was guaranteed to fail. Changed to a private-LAN example,
+  with a test that asserts the advertised example passes `vet_target`.
+- The settings menu labelled the copilot "chat · Claude / OpenAI", naming only the two paid
+  providers and omitting the free local Ollama it defaults to.
+- 22 regression tests added (backend 751 → **773**, total 1333 → **1355**); backend line
+  coverage stays at 100 %.
+
+### End-to-end audit on a real LAN — supply-chain, audit-trail and reporting fixes (2026-09-22)
+Every feature was exercised against the operator's own `192.168.0.0/24` (CLI, web cockpit,
+API, copilot, Docker image) rather than assumed. The scan pipeline itself held up — a deep
+`vuln` pass on the gateway identified **dnsmasq 2.87** and correlated **10 CVEs** from both
+NSE `vulners` and live NVD, EPSS-ranked and banded `version · verify`; the **0 CVEs** it
+reported for that gateway's lighttpd 1.4.67 was confirmed correct against NVD directly
+(1.4.66 has one, 1.4.67 has none). These are the defects the pass turned up.
+- **The test suite was writing into the operator's real audit trail.** Endpoint tests call the
+  same `audit.record()` the live API does, so every run appended fixture events
+  (`192.168.50.0/24`, `corp.local`) to `backend/enumgrid_audit.log` — the file `/api/audit`
+  serves. 647 of 4,650 entries (14 %) were synthetic. For a tool whose contract is that every
+  recorded result is real, that is a correctness bug, not untidiness. A new
+  `backend/tests/conftest.py` repoints `audit.AUDIT_LOG` at a temp file for the session
+  (verified: a full backend run now leaves the log byte-identical). Entries written before
+  this fix are still there; purge them if the trail matters to you.
+- **Pinned dependencies had rotted: 27 known advisories** in `requirements.lock`
+  (`pillow` 12.2.0 → **12.3.0**, `anyio` 4.13.0 → **4.14.2**). CI never caught it because
+  `pip-audit` only ran against `backend/requirements.txt` and `requirements-dev.txt`, whose
+  open ranges always resolve to something current — the *pinned* set is the one that can rot
+  silently. CI now audits `requirements.lock` too.
+- **The dashboard claimed a healthy backend while the backend was down.** With the API killed
+  the scan error is correct ("Backend unreachable…", counters zeroed, nothing fabricated), but
+  the Engine footer still showed a green "FastAPI". It now reads a crimson **unreachable**,
+  derived from the same empty-profile-set signal the scan-options drawer already used.
+- **PDF report wrapped IP addresses mid-octet**: at 26 mm the inventory table's monospace IP
+  column could not fit a 13-character address, so `192.168.0.106` broke across two lines.
+  Widened to 30 mm (hostname and vendor give up 2 mm each; total width unchanged).
+- **Documented test counts were stale**: 1307 → **1333** (CLI 197 + backend 751 + evaluation
+  178 + frontend 207) across the README badge and table, `docs/PUBLICATION.md` and
+  `docs/PAPER.md`. Also corrected the README's claim that `docker-compose` deploys a
+  `requirements.lock`-pinned environment — the Dockerfile installs from
+  `backend/requirements.txt`; what *is* pinned is the base image's `sha256` digest.
+- The `/api/settings/nvd-key` docstring said the key was held "in memory only"; it is
+  persisted by `cve.set_api_key` to a 0600, gitignored file. Docstring corrected.
+- **`.env.example` was missing the settings the README tells you to use.** It documented
+  only the legacy `ENUMGRID_API_TOKEN`, so the `ADMIN`/`VIEWER` RBAC pair, all three
+  outbound-alerting channels (`ENUMGRID_WEBHOOK_URL`, `ENUMGRID_SLACK_WEBHOOK`,
+  `ENUMGRID_SYSLOG`) and `ENUMGRID_SSH_AUTOADD` were undiscoverable from the config
+  template. Added, with the open-mode and host-key-verification caveats spelled out.
+  (All three alert channels were verified against local sinks; syslog emits
+  `<12>EnumGrid: scan_complete target=… kev=1` and Slack calls KEV hits out.)
+
 ### Startup fix + live-scan accuracy fixes (2026-09-16)
 Found by running real scans on the operator's own `192.168.1.0/24`, both unprivileged and as
 root via `./start.sh`.

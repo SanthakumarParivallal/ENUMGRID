@@ -8,7 +8,7 @@ snapshots — the property that matters for a one-click "download report" button
 
 from __future__ import annotations
 
-from report import build_pdf
+from report import _normalise_hosts, build_pdf
 
 
 def _is_pdf(data: bytes) -> bool:
@@ -140,3 +140,35 @@ def test_scanned_host_with_no_open_ports_is_noted():
     ]}
     pdf = build_pdf(payload)
     assert _is_pdf(pdf) and len(pdf) > 2000
+
+
+# --- malformed payloads ------------------------------------------------------
+# /api/report/pdf renders whatever the client POSTs, so the payload is untrusted
+# input. Before `_normalise_hosts` a string where a dict was expected escaped the
+# endpoint as a 500 (AttributeError: 'str' object has no attribute 'get').
+def test_build_pdf_survives_non_dict_hosts():
+    pdf = build_pdf({"target": "x", "hosts": ["nope", 123, None, []]})
+    assert _is_pdf(pdf)
+
+
+def test_build_pdf_survives_non_list_ports_and_vulns():
+    pdf = build_pdf({"target": "x", "hosts": [{"ip": None, "ports": "bad", "vulns": "bad"}]})
+    assert _is_pdf(pdf)
+
+
+def test_build_pdf_survives_junk_inside_ports_and_vulns():
+    pdf = build_pdf({"target": "x", "hosts": [
+        {"ip": "1.2.3.4", "status": "up",
+         "ports": [{"port": 22, "state": "open", "vulns": "bad"}, "str", None],
+         "vulns": ["str", 7]},
+    ]})
+    assert _is_pdf(pdf)
+
+
+def test_build_pdf_drops_malformed_entries_rather_than_inventing_them():
+    """A junk entry must vanish from the report, never appear as a blank host."""
+    good = {"ip": "10.0.0.5", "status": "up", "ports": [{"port": 80, "state": "open", "service": "http"}]}
+    pdf = build_pdf({"target": "10.0.0.0/24", "hosts": [good, "junk", {"ports": "bad"}]})
+    assert _is_pdf(pdf)
+    # Only the well-formed host survives normalisation.
+    assert len(_normalise_hosts([good, "junk", 5])) == 1

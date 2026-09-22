@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
 import threading
 import time
@@ -110,6 +111,20 @@ def _persist_key(key: str | None) -> None:
         pass
 
 
+# NVD issues API keys as UUIDs (8-4-4-4-12 hex). Checking the shape turns a
+# typo'd or truncated paste into an immediate, honest rejection instead of a
+# dashboard that reports "key active · 50 req/30s" while every live lookup is
+# quietly refused by NVD and silently falls back to the anonymous limit. Only the
+# runtime setter is validated: `ENUMGRID_NVD_API_KEY` stays an unchecked escape
+# hatch, so a future change to NVD's key format can never lock an operator out.
+_KEY_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.IGNORECASE)
+
+
+def valid_api_key(key: str) -> bool:
+    """True when `key` has NVD's documented UUID shape."""
+    return bool(_KEY_RE.match(key.strip()))
+
+
 def set_api_key(key: str | None) -> bool:
     """Set (or clear) the NVD API key at runtime, and persist it across restarts.
 
@@ -118,9 +133,17 @@ def set_api_key(key: str | None) -> bool:
     a restart — it is still never logged. A blank/None value clears it (removes
     the file and drops back to the anonymous rate limit). An ``ENUMGRID_NVD_API_KEY``
     env var still takes precedence on the next startup.
+
+    Raises ``ValueError`` for a non-empty value that is not a valid NVD key, so
+    the caller can report the real problem rather than storing a dud.
     """
     global API_KEY
     cleaned = (key or "").strip()
+    if cleaned and not valid_api_key(cleaned):
+        raise ValueError(
+            "That does not look like an NVD API key — expected the UUID form "
+            "(e.g. 1a2b3c4d-5e6f-7a8b-9c0d-1e2f3a4b5c6d) emailed by nvd.nist.gov."
+        )
     API_KEY = cleaned or None
     _persist_key(API_KEY)
     return bool(API_KEY)
