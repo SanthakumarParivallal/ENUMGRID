@@ -664,7 +664,7 @@ function PrivilegeDialog({ onClose }) {
             No <span className="font-mono">sudo</span> is available on this host (or it&#39;s disabled), so runtime
             elevation isn&#39;t possible. Scans still run — root-only techniques auto-adapt to unprivileged
             equivalents (SYN→connect, UDP→connect, OS detection skipped). For full fidelity, start the backend with{' '}
-            <code className="rounded bg-black/40 px-1 font-mono text-amber-200">./start.sh --accurate-os</code>.
+            <code className="rounded bg-steel-950/40 px-1 font-mono text-amber">./start.sh --accurate-os</code>.
           </p>
         )}
 
@@ -1713,7 +1713,7 @@ function PortDetailTable({ host }) {
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                         {v.url ? (
-                          <a href={v.url} target="_blank" rel="noopener noreferrer" title={`Open ${v.id} on NVD`} className="inline-flex items-center gap-1 font-mono text-xs font-semibold text-amber-300 underline decoration-dotted underline-offset-2 hover:text-amber-200">
+                          <a href={v.url} target="_blank" rel="noopener noreferrer" title={`Open ${v.id} on NVD`} className="inline-flex items-center gap-1 font-mono text-xs font-semibold text-amber underline decoration-dotted underline-offset-2 hover:text-amber-glow">
                             {v.id}<Icon.External className="h-3 w-3 opacity-70" />
                           </a>
                         ) : (<span className="font-mono text-xs font-semibold text-slate-100">{v.id}</span>)}
@@ -2268,7 +2268,7 @@ function NvdKeyButton() {
             <div className="mb-2 flex items-center gap-1.5 font-semibold uppercase tracking-wider text-amber"><Icon.Key className="h-3.5 w-3.5" /> NVD API key</div>
             <p className="mb-2 leading-relaxed text-slate-400">A <b>free</b> key raises the live-CVE limit from <b>5</b> to <b>50</b> req/30s. Current: <span className="font-mono text-slate-200">{status?.rate_limit || '—'}</span>.</p>
             <ol className="mb-2 list-decimal space-y-1 pl-4 text-slate-400">
-              <li>Get a key: <a href={status?.get_key_url || 'https://nvd.nist.gov/developers/request-an-api-key'} target="_blank" rel="noopener noreferrer" className="font-mono text-amber-300 underline decoration-dotted underline-offset-2 hover:text-amber-200">nvd.nist.gov ↗</a></li>
+              <li>Get a key: <a href={status?.get_key_url || 'https://nvd.nist.gov/developers/request-an-api-key'} target="_blank" rel="noopener noreferrer" className="font-mono text-amber underline decoration-dotted underline-offset-2 hover:text-amber-glow">nvd.nist.gov ↗</a></li>
               <li>Paste it below and click Apply.</li>
             </ol>
             <div className="flex items-center gap-1.5">
@@ -2445,7 +2445,7 @@ function BootSplash({ onDone }) {
       </div>
       <h1 className="font-mono text-3xl font-bold tracking-[0.3em] text-slate-100">ENUM<span className="eg-brand-gradient">GRID</span></h1>
       <p className="mt-1 font-mono text-[10px] uppercase tracking-[0.4em] text-slate-500">the Enumeration Platform</p>
-      <div className="relative mt-8 h-40 w-[min(90vw,420px)] overflow-hidden rounded-lg border border-slate-800 bg-black/40 p-4">
+      <div className="relative mt-8 h-40 w-[min(90vw,420px)] overflow-hidden rounded-lg border border-slate-800 bg-steel-950/40 p-4">
         <span className="eg-scanline pointer-events-none absolute inset-x-0 top-0 h-12 bg-gradient-to-b from-matrix/15 to-transparent" />
         <ul className="space-y-1.5 font-mono text-[11px]">
           {BOOT_LINES.slice(0, shown).map((line, i) => (

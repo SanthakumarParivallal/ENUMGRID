@@ -28,6 +28,7 @@ import {
 } from '../lib/schema.js';
 import { createScanEngine, deepScanHost } from '../lib/mockScanEngine.js';
 import { authFetch, authHeaders, streamUrl } from '../lib/auth.js';
+import { retryDelayMs } from '../lib/retry.js';
 import { hostsToCsv, snapshotToJson, exportFilename, downloadText } from '../lib/exporters.js';
 
 /* ---------------------------------------------------------- initial state -- */
@@ -710,8 +711,23 @@ export function ScanProvider({ children }) {
     if (sp.scanProfile && sp.scanProfile !== 'default') params.set('profile', sp.scanProfile);
     if (sp.scanScripts) params.set('scripts', sp.scanScripts);
     if (sp.scanPorts) params.set('ports', sp.scanPorts);
-    return authFetch(`/api/host/scan?${params.toString()}`, { signal })
-      .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`HTTP ${r.status}`))))
+    // A 429 is the backend saying "too many concurrent scans, retry shortly" —
+    // it has not scanned this host, so reporting "Failed" would be a lie about a
+    // scan that never ran. Come back a few times first (see lib/retry.js); only
+    // a server that stays busy through all of them is a real failure.
+    const attemptScan = (attempt) =>
+      authFetch(`/api/host/scan?${params.toString()}`, { signal }).then((r) => {
+        if (!r.ok) {
+          const wait = retryDelayMs(r.status, attempt);
+          if (wait === null) throw new Error(`HTTP ${r.status}`);
+          return new Promise((resolve) => setTimeout(resolve, wait)).then(() =>
+            attemptScan(attempt + 1),
+          );
+        }
+        return r.json();
+      });
+
+    return attemptScan(1)
       .then((host) => {
         if (host && host.ip) dispatch({ type: 'HOST_MERGE', host });
         else dispatch({ type: 'HOST_VULN_ERROR', ip });

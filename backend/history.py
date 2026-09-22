@@ -146,8 +146,18 @@ def list_scans(target: str | None = None, limit: int = 50) -> list[dict]:
 def get_scan(row_id: int) -> dict | None:
     """Full stored row (including the parsed snapshot) for one scan, or None."""
     init_db()
+    # An id SQLite cannot represent (beyond 64 bits) matches no row, so it has to
+    # read as "not found"; passing it through raises OverflowError from the driver.
+    # Same guard as `jobs.get` — today this is only ever called with an id that came
+    # out of the database, but it is one route away from taking caller input.
+    try:
+        scan_id = int(row_id)
+    except (TypeError, ValueError):
+        return None
+    if not -(2**63) <= scan_id <= 2**63 - 1:
+        return None
     with _connect() as conn:
-        row = conn.execute("SELECT * FROM scans WHERE id = ?", (int(row_id),)).fetchone()
+        row = conn.execute("SELECT * FROM scans WHERE id = ?", (scan_id,)).fetchone()
     if row is None:
         return None
     data = dict(row)

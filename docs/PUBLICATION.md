@@ -9,7 +9,7 @@ inputs that cannot be fabricated.
 | Artifact | Files | Notes |
 | --- | --- | --- |
 | **Paper** | [`PAPER.md`](PAPER.md) · [`ENUMGRID_Paper.docx`](ENUMGRID_Paper.docx) · [`ENUMGRID_Paper.pdf`](ENUMGRID_Paper.pdf) | Engineering + measurement paper; Word has title page, auto-TOC, embedded **redacted** figures + eval plots |
-| **Defense deck** | [`ENUMGRID_Defense.pptx`](ENUMGRID_Defense.pptx) · [`ENUMGRID_Defense.pdf`](ENUMGRID_Defense.pdf) | 16 slides, speaker notes, visually QA'd |
+| **Defense deck** | *not currently checked in* | 16 slides, speaker notes, visually QA'd — the `.pptx`/`.pdf` were removed from `docs/`, so this index no longer links them |
 | **Reproducibility map** | [`REPRODUCE.md`](REPRODUCE.md) | Every headline number → its command → its artifact |
 
 ## Supporting documents
@@ -40,8 +40,8 @@ Full table + methodology in [`ACCURACY.md`](ACCURACY.md); raw artifacts in
 
 ## Quality status
 
-- **1,355 automated tests** — Python 1,148 (CLI 197 + backend 773 + evaluation 178) +
-  frontend 207. All green.
+- **1,365 automated tests** — Python 1,151 (CLI 197 + backend 776 + evaluation 178) +
+  frontend 214. All green.
 - ruff clean; SAST (bandit) + dependency audit (pip-audit) clean; SBOM; digest-pinned
   non-root Docker image.
 - All scoring math is pure + unit-tested → the published numbers re-run in CI with no

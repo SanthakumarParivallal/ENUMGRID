@@ -5,9 +5,52 @@ All notable changes to **ENUMGRID: the Enumeration Platform**. Format based on
 
 ## [Unreleased]
 
+### Verification pass on the sweep — one more 500, and the last unthemed colours (2026-09-22)
+A re-check of the sweep below, run as an A/B against the pre-fix tree rather than as a
+re-reading of the diff: every claimed defect was reproduced on the old code and re-probed on
+the new one, and the API was then fuzzed with 463 malformed / hostile / out-of-range requests
+to see what the first pass had missed. Four things had.
+
+- **`GET /api/jobs/{job_id}` still returned a 500** for an id beyond SQLite's 64-bit integer
+  range. FastAPI's `int` coercion accepts arbitrary precision, so a 21-digit path segment
+  reached the driver and raised `OverflowError: Python int too large to convert to SQLite
+  INTEGER`. `/api/history?limit=<the same number>` already clamped and answered 200, which is
+  what made the inconsistency visible. An id SQLite cannot represent names no row, so it now
+  reads as "not found" — checked in `jobs.get()` (and the identical `history.get_scan()`)
+  rather than at the route, so the scheduler and any future caller get it too.
+- **Selecting text in the light theme made it disappear.** `::selection` hardcoded the cockpit
+  amber wash *and* white text; on a white panel that is white-on-pale-amber at **1.28:1**. The
+  wash now follows `--accent-amber` and the text keeps the theme's own `--app-fg` — **10.5:1**
+  on light, unchanged on dark.
+- **Ten places still painted with colours from outside the theme** (eight JSX class strings,
+  two stylesheet rules), each invisible or near-invisible on paper: the copilot's user chat bubble (`text-sky-100` on a sky wash — measured **1.10:1**
+  live), its error box and Stop button (`text-rose-300`), the CVE and NVD-key links
+  (`text-amber-300`, **1.44:1**), two `bg-black/40` code/boot surfaces, and the brand wordmark's
+  gradient (**1.32:1** — exempt from WCAG 1.4.3 as a logotype, but legible only as a smudge).
+  All now read theme tokens; a new `crimson.glow` carries error text, which needs to invert
+  across themes (pale red on the cockpit, deep red on paper) where `crimson` itself cannot.
+  Measured after: bubble **5.1:1**, error box **6.97:1**, links **7.09:1**, wordmark **4.58:1**,
+  and 0 AA failures on either theme across seven rendered surfaces (base view, copilot, scan
+  options, export menu, settings, privilege dialog, topology).
+- **A throttled host was labelled "Failed".** The backend answers `/api/host/scan` with a 429
+  and *"server busy — too many concurrent scans, retry shortly"* once more than
+  `ENUMGRID_MAX_SCANS` (4) are in flight — reachable from "Scan All" (3 workers) plus a row
+  click, or a second open tab; the live log from this session has four of them. The dashboard
+  collapsed it into the generic error path, so the grid showed a red **Failed** badge, tooltip
+  "the last nmap scan for this host failed", for a host nmap had never been pointed at. The
+  client now honours the server's own advice: retry at 750 ms / 1.5 s / 3 s and only call it a
+  failure if the server stays busy through all four attempts (new `lib/retry.js`, unit-tested;
+  a 504 stays non-retryable because that scan really did run and time out). Verified in the
+  browser against a stubbed 429: attempts at 1 / 766 / 2267 / 5268 ms, no badge before 5 s.
+
+Also corrected: the entry below says 34 API endpoints; there are **35** route declarations.
+After the fuzz run the API returns **0 5xx across 463 hostile requests** (161 × 200, 167 × 400,
+97 × 422, 35 × 404). 10 regression tests added (backend 773 → **776**, frontend 207 → **214**,
+total 1355 → **1365**).
+
 ### Full API + UI sweep — crash fixes, honest commands, and a readable light theme (2026-09-22)
-A second pass over the same live `192.168.0.0/24`, this time driving **every one of the 34 API
-endpoints** (happy path, malformed input, out-of-range values, auth) and **every UI surface**
+A second pass over the same live `192.168.0.0/24`, this time driving **every one of the 35 API
+route declarations** (happy path, malformed input, out-of-range values, auth) and **every UI surface**
 (scan options, per-host detail, topology, exports, settings, operations, command palette,
 copilot, both themes, 375 px). Fifteen defects, the worst of which were two unhandled 500s and
 a light theme that failed WCAG AA on 74 elements.

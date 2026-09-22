@@ -663,6 +663,20 @@ def test_jobs_submit_list_get(monkeypatch, tmp_path):
     assert client.post("/api/jobs/submit", json={"kind": "host_scan", "ip": "8.8.8.8"}).status_code == 400
 
 
+def test_jobs_get_out_of_range_id_is_404_not_500(monkeypatch, tmp_path):
+    """A 21-digit job id is a wrong URL, not a server fault.
+
+    FastAPI's `int` coercion accepts arbitrary precision, so the value reached sqlite3
+    and raised OverflowError — a 500. `/api/history?limit=<same number>` already
+    clamped and answered 200, which is what made the inconsistency obvious.
+    """
+    import jobs
+    monkeypatch.setattr(jobs, "DB_PATH", str(tmp_path / "jobs.db"))
+    r = client.get("/api/jobs/999999999999999999999")
+    assert r.status_code == 404
+    assert r.json() == {"error": "not found"}
+
+
 def test_job_handlers_run_scans(monkeypatch):
     async def fake_scan(ip, deep, profile, scripts, ports, adaptive=False):
         return Host(ip=ip, status=HostStatus.UP)

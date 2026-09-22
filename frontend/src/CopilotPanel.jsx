@@ -389,7 +389,7 @@ function Bubble({ who, children, html }) {
       <div
         className={`max-w-[85%] rounded-lg px-3 py-2 text-xs leading-relaxed ${
           mine
-            ? 'whitespace-pre-wrap border border-sky-500/30 bg-sky-500/15 text-sky-100'
+            ? 'whitespace-pre-wrap border border-sky-500/30 bg-sky-500/15 text-sky-300'
             : 'border border-slate-700/70 bg-steel-900/70 text-slate-200'
         }`}
       >
@@ -628,7 +628,7 @@ function CopilotPanel({ onClose }) {
                   )
               )}
               {m.error && (
-                <div className="rounded-md border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-[11px] text-rose-300">
+                <div className="rounded-md border border-crimson/40 bg-crimson/10 px-3 py-2 text-[11px] text-crimson-glow">
                   {m.error}
                 </div>
               )}
@@ -663,7 +663,7 @@ function CopilotPanel({ onClose }) {
             {streaming ? (
               <button
                 type="button" onClick={stop} aria-label="Stop generating"
-                className="shrink-0 rounded-md border border-rose-500/50 bg-rose-500/10 px-3 py-2 text-xs font-semibold text-rose-300 transition hover:bg-rose-500 hover:text-steel-950"
+                className="shrink-0 rounded-md border border-crimson/50 bg-crimson/10 px-3 py-2 text-xs font-semibold text-crimson-glow transition hover:bg-crimson hover:text-steel-950"
               >
                 ◼ Stop
               </button>

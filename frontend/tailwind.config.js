@@ -54,6 +54,10 @@ export default {
         // Crimson — critical errors, filtered/blocked ports, hosts down
         crimson: {
           DEFAULT: 'rgb(var(--accent-crimson) / <alpha-value>)',
+          // `glow` is error TEXT sitting on an error-tinted surface, where the
+          // DEFAULT is too close to the tint to read (3.6:1 on the cockpit). It
+          // inverts across themes: pale red on dark, deep red on paper.
+          glow: 'rgb(var(--accent-crimson-glow) / <alpha-value>)',
           dim: 'rgb(var(--accent-crimson-dim) / <alpha-value>)',
         },
       },

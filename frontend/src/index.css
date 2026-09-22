@@ -41,10 +41,16 @@ html[data-theme='dark'] {
   --accent-matrix: 0 230 118;
   --accent-matrix-dim: 10 92 54;
   --accent-crimson: 211 47 47;
+  --accent-crimson-glow: 253 164 175; /* rose-300 — 9.1:1 on a crimson/10 wash */
   --accent-crimson-dim: 90 26 26;
   /* Sky — the Operations/identity accent (Tailwind's sky-300/400). */
   --accent-sky: 125 211 252;
   --accent-sky-strong: 56 189 248;
+  /* The brand wordmark's gradient ramp. It is themed for the same reason the
+     other accents are: these cockpit hues measure 1.3:1 on a white header. */
+  --brand-1: 255 209 102;
+  --brand-2: 255 179 0;
+  --brand-3: 255 143 63;
 }
 
 html[data-theme='light'] {
@@ -81,9 +87,18 @@ html[data-theme='light'] {
                                grid's OS column uses (emerald-800 landed at 4.47) */
   --accent-matrix-dim: 209 250 229; /* emerald-100 */
   --accent-crimson: 153 27 27; /* red-800 — 8.3:1 on white */
+  --accent-crimson-glow: 153 27 27; /* the same deep red: on paper the tinted
+                                       surface is pale, so light text would vanish */
   --accent-crimson-dim: 254 226 226; /* red-100 */
   --accent-sky: 3 105 161; /* sky-700 — 5.9:1; sky-300 was 1.7:1 here */
   --accent-sky-strong: 2 132 199; /* sky-600 — 3.7:1, clears the 3:1 non-text bar */
+  /* The same amber→orange sweep, two shades down so the wordmark still reads as
+     the brand on paper. A logotype is exempt from WCAG 1.4.3, but the cockpit
+     ramp rendered it at 1.3:1 here — visible only as a pale smudge. Every stop
+     below clears 4.5:1 on white and on the slate-100 app background. */
+  --brand-1: 180 83 9; /* amber-700 — 5.0:1 on white, the lightest stop */
+  --brand-2: 146 64 14; /* amber-800 */
+  --brand-3: 154 52 18; /* orange-800 */
 }
 
 html,
@@ -114,9 +129,14 @@ body {
   letter-spacing: -0.01em;
 }
 
+/* The selection wash follows the theme, and the selected text keeps the theme's
+   own ink. Hardcoding white was right for the cockpit (9:1 over the amber tint on
+   near-black) and wrong for paper: white on a 28% amber wash over a white panel
+   measures 1.28:1, so selecting text used to make it vanish. `--app-fg` gives
+   5.9:1 there and loses nothing on dark. */
 ::selection {
-  background: rgba(255, 179, 0, 0.28);
-  color: #fff;
+  background: rgb(var(--accent-amber) / 0.28);
+  color: rgb(var(--app-fg));
 }
 
 /* Industrial thin scrollbars (theme-aware) ---------------------------------- */
@@ -233,7 +253,12 @@ html[data-theme='light'] .eg-aurora {
 
 /* Gradient brand wordmark. */
 .eg-brand-gradient {
-  background: linear-gradient(92deg, #ffd166 0%, #ffb300 42%, #ff8f3f 100%);
+  background: linear-gradient(
+    92deg,
+    rgb(var(--brand-1)) 0%,
+    rgb(var(--brand-2)) 42%,
+    rgb(var(--brand-3)) 100%
+  );
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;

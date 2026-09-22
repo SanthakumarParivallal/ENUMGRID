@@ -102,3 +102,20 @@ def test_run_workers_drains_the_queue_until_stopped():
     asyncio.run(_run())
     assert seen == {"target": "y"}
     assert jobs.get(1)["status"] == jobs.STATUS_DONE
+
+
+def test_get_refuses_an_id_sqlite_cannot_hold_instead_of_raising():
+    """An id outside SQLite's 64-bit range names no row — it must read as a miss.
+
+    `GET /api/jobs/<21-digit number>` used to answer 500: the driver raises
+    OverflowError rather than simply matching nothing, and the exception escaped the
+    route. Returning None here makes it a 404 like every other unknown id, and keeps
+    the bound in the store so the scheduler and any future caller get it too.
+    """
+    jid = jobs.enqueue("scan", {"n": 1})
+    assert jobs.get(2**63) is None
+    assert jobs.get(-(2**63) - 1) is None
+    assert jobs.get("not-a-number") is None
+    assert jobs.get(None) is None
+    assert jobs.get(jid)["kind"] == "scan"          # a real id still resolves
+

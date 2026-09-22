@@ -37,7 +37,7 @@ export default class ErrorBoundary extends React.Component {
               backend is unaffected — reload to recover. If it persists, check the
               browser console and report it.
             </p>
-            <p className="mb-4 break-words rounded bg-black/40 px-2 py-1 text-left font-mono text-[11px] text-slate-500">
+            <p className="mb-4 break-words rounded bg-steel-950/40 px-2 py-1 text-left font-mono text-[11px] text-slate-500">
               {String(this.state.error?.message || this.state.error)}
             </p>
             <button

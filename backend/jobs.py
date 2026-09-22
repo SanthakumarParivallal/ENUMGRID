@@ -83,9 +83,23 @@ def _row_to_dict(row: sqlite3.Row) -> dict:
     return d
 
 
+# SQLite stores integers in 64 bits. An id outside that range cannot name a row,
+# but handing it to the driver raises OverflowError instead of simply matching
+# nothing — which left `GET /api/jobs/{job_id}` answering 500 for a URL that is
+# merely wrong. The bound is checked here rather than at the route so every caller
+# (the API, the scheduler, a future CLI) gets the same honest "no such job".
+_SQLITE_INT_MIN, _SQLITE_INT_MAX = -(2**63), 2**63 - 1
+
+
 def get(job_id: int) -> dict | None:
+    try:
+        row_id = int(job_id)
+    except (TypeError, ValueError):
+        return None
+    if not _SQLITE_INT_MIN <= row_id <= _SQLITE_INT_MAX:
+        return None
     with _conn() as conn:
-        row = conn.execute("SELECT * FROM jobs WHERE id = ?", (int(job_id),)).fetchone()
+        row = conn.execute("SELECT * FROM jobs WHERE id = ?", (row_id,)).fetchone()
     return _row_to_dict(row) if row else None
 
 

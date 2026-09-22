@@ -82,6 +82,22 @@ def test_get_scan_parses_snapshot(db):
     assert history.get_scan(999999) is None
 
 
+def test_get_scan_refuses_an_id_sqlite_cannot_hold(db):
+    """Same 64-bit bound as `jobs.get`: an unrepresentable id is a miss, not a crash.
+
+    Today this function is only ever called with an id that came out of the database,
+    so the guard is not reachable from the API — but it is one route away from taking
+    caller input, and the OverflowError it would raise is the same 500 that bit
+    `/api/jobs/{job_id}`.
+    """
+    rid = history.save_scan(_snap("net/24", [_host("9.9.9.9")]))
+    assert history.get_scan(2**63) is None
+    assert history.get_scan(-(2**63) - 1) is None
+    assert history.get_scan("nope") is None
+    assert history.get_scan(None) is None
+    assert history.get_scan(rid) is not None        # a real id still resolves
+
+
 # --- drift ---------------------------------------------------------------- #
 def test_drift_unavailable_until_two_scans(db):
     history.save_scan(_snap("net/24", [_host("192.168.0.1")]))
