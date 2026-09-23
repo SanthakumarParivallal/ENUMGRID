@@ -22,7 +22,7 @@ zeroconf>=0.130  # mDNS device discovery (test_mdns.py)
 # under mocked I/O (no real network) and the 100% coverage gate is meaningful.
 paramiko>=3.4     # credentialed SSH host facts        (backend/credscan.py)
 boto3>=1.34       # AWS cloud asset discovery          (backend/cloudscan.py)
-ldap3>=2.9        # Active Directory (LDAP) enumeration (backend/adscan.py)
+ldap3>=2.9.1        # Active Directory (LDAP) enumeration (backend/adscan.py)
 scapy>=2.5        # passive (zero-packet) discovery    (backend/passive.py)
 anthropic>=0.40   # AI copilot, Anthropic Claude       (backend/copilot.py)
 openai>=1.40      # AI copilot, OpenAI / Gemini / Ollama (shared SDK) (backend/copilot.py)
