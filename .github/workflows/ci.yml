@@ -33,7 +33,7 @@ jobs:
       - name: Bandit (static analysis)
         run: bandit -r purple_recon.py backend/ -c pyproject.toml
       # requirements.txt / requirements-dev.txt carry open ranges, so auditing
-      # them only ever checks whatever pip resolves *today* — the pinned set in
+      # them only ever checks whatever pip resolves *today*; the pinned set in
       # requirements.lock is the one that can silently rot. Audit all three.
       - name: pip-audit (Python dependency CVEs)
         run: pip-audit -r backend/requirements.txt -r requirements-dev.txt -r requirements.lock
@@ -75,7 +75,7 @@ jobs:
         run: python -m pytest -v --cov=purple_recon --cov-report=term-missing --cov-fail-under=100
       - name: Evaluation harness unit tests (benchmark + detection + copilot scoring)
         run: python -m pytest evaluation/ -v
-      - name: Accuracy gate — offline CVE matching (precision & recall == 1.0, no false CVE)
+      - name: "Accuracy gate: offline CVE matching (precision & recall == 1.0, no false CVE)"
         run: python evaluation/cve_precision.py --min-precision 1.0 --min-recall 1.0
 
   backend:
@@ -103,13 +103,13 @@ jobs:
           --cov=report --cov=fingerprint --cov=mdns --cov=osfp --cov=models --cov=obs
           --cov-report=term --cov-fail-under=65
 
-      # A total (100%) gate on EVERY backend module — the scan engine, the FastAPI
+      # A total (100%) gate on EVERY backend module: the scan engine, the FastAPI
       # service, the scope/auth guardrails, the CVE matchers, and every parser /
       # persistence / integration module. Live-I/O paths (nmap, sockets, SSH, AWS,
       # LDAP, the LLM SDKs) are driven through mocked boundaries, so a regression
       # anywhere in the backend fails the build. The optional SDKs are installed in
       # CI (requirements-dev.txt) precisely so this gate is real, not a stub.
-      - name: Coverage gate — all backend modules (100%, no regression)
+      - name: "Coverage gate: all backend modules (100%, no regression)"
         working-directory: backend
         run: >
           python -m pytest -q tests
@@ -137,11 +137,11 @@ jobs:
         run: npm ci
       - name: Audit shipped dependencies (dev tooling excluded)
         run: npm audit --omit=dev
-      - name: Lint (ESLint — react-hooks + jsx-a11y)
+      - name: Lint (ESLint, react-hooks + jsx-a11y)
         run: npm run lint
       # Vitest + a per-file 100% coverage gate on src/lib/** (the pure logic +
       # security layer: schema coercion, markdown/CSV escaping, auth, toast,
-      # focus-trap, preferences, the offline engine) — the frontend peer of the
+      # focus-trap, preferences, the offline engine), the frontend peer of the
       # CLI/backend 100% line-coverage gate. Real DOM/timers, nothing faked.
       - name: Unit tests + coverage gate (src/lib at 100%)
         run: npm run coverage
@@ -149,12 +149,12 @@ jobs:
         run: npm run build
 
   sbom:
-    name: SBOM (CycloneDX — Python + npm dependencies)
+    name: SBOM (CycloneDX, Python + npm dependencies)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       # Syft scans the repo (backend/requirements.txt + frontend/package-lock.json)
-      # and emits one CycloneDX SBOM — the software bill of materials reviewers now
+      # and emits one CycloneDX SBOM, the software bill of materials reviewers now
       # expect. Uploaded as a build artifact for release attach / vuln scanning.
       - name: Generate CycloneDX SBOM
         uses: anchore/sbom-action@v0

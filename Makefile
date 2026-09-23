@@ -1,9 +1,9 @@
-# EnumGrid — Industrial-Level Network Enumeration Platform
+# EnumGrid: Industrial-Level Network Enumeration Platform
 # One entry point for setup, running, and the full test suite.
 #
 #   make setup   # one-time: venv + python deps + npm install
 #   make dev     # run backend (:8011) + frontend (:5173) together
-#   make test    # CLI + backend + frontend tests + lint
+#   make test    # lint + CLI + backend + evaluation + frontend (the full gate)
 #   make lint    # ruff only
 #   make clean   # remove caches / build output
 #
@@ -13,7 +13,7 @@ PY      := .venv/bin/python
 PIP     := .venv/bin/pip
 
 .DEFAULT_GOAL := help
-.PHONY: help setup dev backend frontend test test-cli test-backend test-frontend lint clean
+.PHONY: help setup dev backend frontend test test-cli test-backend test-eval test-frontend lint clean
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
@@ -24,7 +24,7 @@ setup: ## One-time setup: create venv, install python + node deps
 	$(PIP) install --upgrade pip
 	$(PIP) install -r backend/requirements.txt -r requirements-dev.txt
 	cd frontend && npm install
-	@echo "✓ setup complete — run 'make dev'"
+	@echo "✓ setup complete. Run 'make dev'"
 
 dev: ## Run backend + frontend together (Ctrl-C stops both)
 	@bash scripts/dev.sh
@@ -35,14 +35,20 @@ backend: ## Run only the FastAPI backend (:8011)
 frontend: ## Run only the Vite frontend (:5173)
 	cd frontend && npm run dev
 
-test: lint test-cli test-backend test-frontend ## Run lint + all test suites
+# The same gate CI runs and CONTRIBUTING.md documents. `test-backend` used to name
+# two files and `evaluation/` was never run at all, so `make test` reported success
+# after ~200 of the ~1,365 tests, the one command a contributor is told to trust.
+test: lint test-cli test-backend test-eval test-frontend ## Run lint + every suite (the full gate)
 	@echo "✓ all checks passed"
 
-test-cli: ## CLI engine test suite
-	$(PY) -m pytest -q
+test-cli: ## CLI engine suite: tests/
+	$(PY) -m pytest tests -q
 
-test-backend: ## Backend (scope guard + NSE parsing) test suite
-	cd backend && ../$(PY) -m pytest tests/test_scanner.py tests/test_security.py -q
+test-backend: ## Backend service suite: backend/tests/
+	$(PY) -m pytest backend -q
+
+test-eval: ## Evaluation + benchmark-scoring suite: evaluation/
+	$(PY) -m pytest evaluation -q
 
 test-frontend: ## Frontend unit tests (Vitest)
 	cd frontend && npm test

@@ -1,5 +1,5 @@
 """
-test_benchmark.py — the benchmark's metric math (no network).
+test_benchmark.py: the benchmark's metric math (no network).
 
 Verifies the parsing and precision/recall/Jaccard computation so the published
 numbers are trustworthy and reproducible.

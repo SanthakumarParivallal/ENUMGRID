@@ -1,5 +1,5 @@
 """
-test_aggregate_runs.py — the cross-environment pooling math (no network, no files).
+test_aggregate_runs.py: the cross-environment pooling math (no network, no files).
 Locks how benchmark.py results (both the single-run and multi-run JSON shapes) are
 normalised and macro-averaged across environments, so the pooled "recall across N
 networks" figure is trustworthy and CI-checked.

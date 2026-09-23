@@ -1,4 +1,4 @@
-"""test_cloudscan.py — AWS response parsers (no boto3/network)."""
+"""test_cloudscan.py: AWS response parsers (no boto3/network)."""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ def test_open_sg_findings_flags_world_ingress():
             {"IpProtocol": "tcp", "FromPort": 22, "ToPort": 22,
              "IpRanges": [{"CidrIp": "0.0.0.0/0"}]},
             {"IpProtocol": "tcp", "FromPort": 80, "ToPort": 80,
-             "IpRanges": [{"CidrIp": "10.0.0.0/8"}]},  # internal — not flagged
+             "IpRanges": [{"CidrIp": "10.0.0.0/8"}]},  # internal, not flagged
         ],
     }]
     out = cloudscan.open_sg_findings(sgs)

@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 336" role="img"
-     aria-label="ENUMGRID — the Enumeration Platform. Purple-team network enumeration: Angry-IP discovery, nmap service and vulnerability depth, live CVE intelligence. A terminal cockpit and a web cockpit sharing one engine.">
+     aria-label="ENUMGRID: the Enumeration Platform. Purple-team network enumeration: Angry-IP discovery, nmap service and vulnerability depth, live CVE intelligence. A terminal cockpit and a web cockpit sharing one engine.">
   <defs>
     <radialGradient id="bgGlow" cx="82%" cy="42%" r="60%">
       <stop offset="0%" stop-color="#0f2036"/>
@@ -98,7 +98,7 @@
     <g>
       <rect x="306" y="0" width="150" height="26" rx="7" fill="#0e1a30" stroke="#24344f"/>
       <circle cx="322" cy="13" r="3.5" fill="#34d399"/>
-      <text class="chip" x="334" y="17">1292 TESTS &#10003;</text>
+      <text class="chip" x="334" y="17">1365 TESTS &#10003;</text>
     </g>
     <g>
       <rect x="466" y="0" width="152" height="26" rx="7" fill="#0e1a30" stroke="#24344f"/>

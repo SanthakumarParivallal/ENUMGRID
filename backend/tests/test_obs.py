@@ -1,5 +1,5 @@
 """
-test_obs.py — structured logging + request/scan correlation ids.
+test_obs.py: structured logging + request/scan correlation ids.
 
 Verifies the JSON/text formatters embed the context-var correlation ids and any
 extra fields, that configuration is idempotent (no duplicate handlers), and that

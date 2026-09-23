@@ -1,4 +1,4 @@
-"""test_snmp.py — SNMP v2c BER encode/decode (no network)."""
+"""test_snmp.py: SNMP v2c BER encode/decode (no network)."""
 
 from __future__ import annotations
 

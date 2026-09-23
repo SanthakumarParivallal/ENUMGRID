@@ -1,10 +1,10 @@
 /**
- * exporters.js — client-side CSV / JSON export of the current scan, matching the
+ * exporters.js: client-side CSV / JSON export of the current scan, matching the
  * CLI's export formats. Pure functions (unit-tested) + a Blob download helper.
  *
  * The CSV escaper also neutralises spreadsheet formula injection (OWASP): device
  * banners, hostnames and vendor strings are attacker-influenced and could start
- * with `=`, `+`, `-`, `@` — which Excel/Sheets would execute as a formula. Such
+ * with `=`, `+`, `-`, `@`, which Excel/Sheets would execute as a formula. Such
  * fields are prefixed with a single quote so they render as literal text.
  */
 

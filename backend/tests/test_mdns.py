@@ -1,5 +1,5 @@
 """
-test_mdns.py — mDNS service → device-type mapping.
+test_mdns.py: mDNS service → device-type mapping.
 
 Pins the priority order so a Mac advertising AirPlay + Bonjour-companion is
 labelled an Apple device (not a TV), while dedicated cast/printer/home devices

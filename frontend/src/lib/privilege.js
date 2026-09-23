@@ -1,5 +1,5 @@
 /**
- * privilege.js — pure presentation logic for the scan-privilege control.
+ * privilege.js: pure presentation logic for the scan-privilege control.
  * ---------------------------------------------------------------------------
  * The backend reports a capability tier (see /api/privilege). These helpers turn
  * that tier + the runtime-elevated flag into the label / tone / note the command
@@ -29,7 +29,7 @@ export function privMeta(capability, elevated = false) {
       label: 'Root',
       tone: 'matrix',
       raw: true,
-      note: 'running as root — full nmap (SYN/UDP/OS)',
+      note: 'running as root: full nmap (SYN/UDP/OS)',
     };
   }
   if (capability === 'sudo') {
@@ -38,12 +38,12 @@ export function privMeta(capability, elevated = false) {
       tone: 'matrix',
       raw: true,
       note: elevated
-        ? 'elevated this session — full nmap (SYN/UDP/OS)'
-        : 'passwordless sudo — full nmap (SYN/UDP/OS)',
+        ? 'elevated this session: full nmap (SYN/UDP/OS)'
+        : 'passwordless sudo: full nmap (SYN/UDP/OS)',
     };
   }
   // Anything else (incl. 'unprivileged' or an unknown/empty value) is treated as
-  // unprivileged — scans still run, auto-adapted.
+  // unprivileged: scans still run, auto-adapted.
   return {
     label: 'Unprivileged',
     tone: 'slate',

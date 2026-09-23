@@ -1,24 +1,24 @@
 """
-cve.py — live, cached CVE enrichment from the authoritative NVD feed.
+cve.py: live, cached CVE enrichment from the authoritative NVD feed.
 
 A hardcoded table can't keep up with real-world scanning, which hits thousands of
 distinct product/versions. This module closes that gap by querying the **NVD API
-2.0** (the US-government National Vulnerability Database — the canonical, complete
+2.0** (the US-government National Vulnerability Database, the canonical and complete
 CVE corpus) using the **CPE** that nmap's service/version detection emits. So any
 service nmap fingerprints gets matched against *every* published CVE, and
-newly-published CVEs appear automatically — no code change, ever.
+newly-published CVEs appear automatically, with no code change, ever.
 
 Design for real use:
-  * **CPE-precise** — we query by the exact `cpe:2.3:a:vendor:product:version`,
+  * **CPE-precise**: we query by the exact `cpe:2.3:a:vendor:product:version`,
     so results are version-scoped (few false positives), not keyword soup.
-  * **Cached + growing** — every result is stored in a local SQLite cache, so
+  * **Cached + growing**: every result is stored in a local SQLite cache, so
     repeat scans are instant and the tool keeps working **offline** once a
     service has been seen. The cache becomes a real, environment-specific DB.
-  * **Rate-limit aware** — honours NVD's published limits (5 req/30s anonymous,
+  * **Rate-limit aware**: honours NVD's published limits (5 req/30s anonymous,
     50/30s with `ENUMGRID_NVD_API_KEY`) via a rolling window, plus a per-scan
     time budget so a scan never stalls. Anything not fetched in budget is still
     covered by the in-scan `vulners` script and filled into the cache next time.
-  * **Best-effort** — any network/parse error degrades silently to cache +
+  * **Best-effort**: any network/parse error degrades silently to cache +
     vulners + the curated offline set; a scan never fails because NVD is slow.
 
 Env:
@@ -48,7 +48,7 @@ _DIR = os.path.dirname(os.path.abspath(__file__))
 
 NVD_URL = "https://services.nvd.nist.gov/rest/json/cves/2.0"
 # Where a dashboard-entered key is persisted so it survives a restart. Owner-only
-# (0600) and gitignored — the key is still never logged. Overridable for tests.
+# (0600) and gitignored; the key is still never logged. Overridable for tests.
 KEY_FILE = os.environ.get("ENUMGRID_NVD_KEY_FILE", os.path.join(_DIR, ".enumgrid_nvd_key"))
 
 
@@ -82,7 +82,7 @@ _calls: list[float] = []
 
 
 def _rate_max() -> int:
-    """Live NVD calls allowed per window — higher with an API key."""
+    """Live NVD calls allowed per window, higher with an API key."""
     return 45 if API_KEY else 5
 
 
@@ -130,7 +130,7 @@ def set_api_key(key: str | None) -> bool:
 
     Returns True if a non-empty key is now active. The key is saved to a local,
     owner-only (0600), gitignored file so a key entered in the dashboard survives
-    a restart — it is still never logged. A blank/None value clears it (removes
+    a restart; it is still never logged. A blank/None value clears it (removes
     the file and drops back to the anonymous rate limit). An ``ENUMGRID_NVD_API_KEY``
     env var still takes precedence on the next startup.
 
@@ -141,7 +141,7 @@ def set_api_key(key: str | None) -> bool:
     cleaned = (key or "").strip()
     if cleaned and not valid_api_key(cleaned):
         raise ValueError(
-            "That does not look like an NVD API key — expected the UUID form "
+            "That does not look like an NVD API key. Expected the UUID form "
             "(e.g. 1a2b3c4d-5e6f-7a8b-9c0d-1e2f3a4b5c6d) emailed by nvd.nist.gov."
         )
     API_KEY = cleaned or None
@@ -150,7 +150,7 @@ def set_api_key(key: str | None) -> bool:
 
 
 # --------------------------------------------------------------------------- #
-# Local cache (SQLite) — makes repeat scans instant and the tool offline-capable.
+# Local cache (SQLite): makes repeat scans instant and the tool offline-capable.
 # --------------------------------------------------------------------------- #
 @contextmanager
 def _conn():
@@ -168,7 +168,7 @@ def _conn():
 
 
 def cache_count() -> int:
-    """Number of cached (service → CVEs) entries — the local DB's size."""
+    """Number of cached (service → CVEs) entries, i.e. the local DB's size."""
     try:
         with _conn() as conn:
             return int(conn.execute("SELECT COUNT(*) FROM cve_cache").fetchone()[0])
@@ -273,7 +273,7 @@ def parse_nvd(data: dict) -> list[Vuln]:
                 title=desc[:140],
                 severity=severity,
                 cvss=score,
-                output=f"{cid}{f' — CVSS {score:.1f}' if score else ''} (NVD, version-matched)",
+                output=f"{cid}{f': CVSS {score:.1f}' if score else ''} (NVD, version-matched)",
                 url=f"https://nvd.nist.gov/vuln/detail/{cid}",
                 confidence="version",
             )
@@ -311,7 +311,7 @@ def lookup(cpe: str | None, deadline: float | None = None) -> list[Vuln]:
     if DISABLED:
         return []
     if deadline is not None and time.time() >= deadline:
-        return []  # out of per-scan budget — vulners covers it; cache next time
+        return []  # out of per-scan budget; vulners covers it and the cache fills next time
     if not _acquire_slot(deadline):
         return []
     try:

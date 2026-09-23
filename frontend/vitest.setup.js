@@ -1,5 +1,5 @@
 /**
- * vitest.setup.js — test environment shims.
+ * vitest.setup.js: test environment shims.
  * ---------------------------------------------------------------------------
  * jsdom 25 (as wired by vitest) doesn't instantiate window.localStorage, so
  * the bare `localStorage` global would fall through to Node's flag-gated one

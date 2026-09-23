@@ -29,7 +29,7 @@
           "epss": null,
           "id": "CVE-2021-42013",
           "kev": false,
-          "output": "CVE-2021-42013 \u2014 CVSS 9.8 (vulners, version-matched)",
+          "output": "CVE-2021-42013: CVSS 9.8 (vulners, version-matched)",
           "severity": "critical",
           "title": "",
           "url": "https://nvd.nist.gov/vuln/detail/CVE-2021-42013"
@@ -40,7 +40,7 @@
           "epss": null,
           "id": "CVE-2021-41773",
           "kev": false,
-          "output": "CVE-2021-41773 \u2014 CVSS 7.5 (vulners, version-matched)",
+          "output": "CVE-2021-41773: CVSS 7.5 (vulners, version-matched)",
           "severity": "high",
           "title": "",
           "url": "https://nvd.nist.gov/vuln/detail/CVE-2021-41773"

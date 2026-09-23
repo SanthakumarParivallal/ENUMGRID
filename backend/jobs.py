@@ -1,15 +1,15 @@
 """
-jobs.py — a persistent scan-job queue with a bounded worker pool.
+jobs.py: a persistent scan-job queue with a bounded worker pool.
 
 The synchronous request → scan model doesn't scale: a big sweep ties up the
 request, and there's no way to queue work or survive a restart. This adds a real
-job queue — submit a scan, get a job id, poll for the result — backed by SQLite
+job queue (submit a scan, get a job id, poll for the result) backed by SQLite
 and drained by a fixed pool of background workers (so load is bounded, not a
 fork-bomb). Jobs persist across restarts.
 
 This is the architecture for scale: it scales *vertically* now (more workers per
 host) and the SQLite queue is deliberately swappable for Redis/SQS to scale
-*horizontally* across machines — the worker logic is unchanged. The persistence
+*horizontally* across machines; the worker logic is unchanged. The persistence
 and atomic-claim logic are fully unit-tested.
 """
 
@@ -85,7 +85,7 @@ def _row_to_dict(row: sqlite3.Row) -> dict:
 
 # SQLite stores integers in 64 bits. An id outside that range cannot name a row,
 # but handing it to the driver raises OverflowError instead of simply matching
-# nothing — which left `GET /api/jobs/{job_id}` answering 500 for a URL that is
+# nothing, which left `GET /api/jobs/{job_id}` answering 500 for a URL that is
 # merely wrong. The bound is checked here rather than at the route so every caller
 # (the API, the scheduler, a future CLI) gets the same honest "no such job".
 _SQLITE_INT_MIN, _SQLITE_INT_MAX = -(2**63), 2**63 - 1
@@ -156,7 +156,7 @@ def process_one(handlers: dict[str, Callable[[dict], dict]]) -> bool:
     """Claim and run one queued job with the matching handler.
 
     Returns True if a job was processed, False if the queue was empty. Sync and
-    deterministic — this is the unit-tested core of the worker.
+    deterministic. This is the unit-tested core of the worker.
     """
     job = claim_next()
     if not job:

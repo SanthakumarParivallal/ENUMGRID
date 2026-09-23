@@ -1,5 +1,5 @@
 """
-test_passive.py — the passive-discovery aggregation core (no scapy, no root).
+test_passive.py: the passive-discovery aggregation core (no scapy, no root).
 
 Covers protocol classification, host accumulation, snapshot shape/ordering, and
 the honest "unavailable" paths (no scapy, bad interface). The scapy capture
@@ -123,7 +123,7 @@ def test_discover_passive_maps_generic_capture_failure(monkeypatch):
     assert "device" in res["reason"].lower()
 
 
-# --- packet handling (real scapy packets — parsing only, no capture) -------- #
+# --- packet handling (real scapy packets, parsing only, no capture) -------- #
 from scapy.all import ARP, BOOTP, DHCP, IP, UDP, Ether  # noqa: E402
 
 

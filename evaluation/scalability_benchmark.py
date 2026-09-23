@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """
-scalability_benchmark.py — how EnumGrid discovery scales with network size.
+scalability_benchmark.py: how EnumGrid discovery scales with network size.
 
 The whole evaluation is on `/24`s. A reviewer will ask *"does it scale?"*. This
 harness measures **discovery time (and best-effort peak memory) versus the target's
 address-space size** across a sweep of increasingly large CIDRs you are authorised
 to scan, then fits the scaling curve:
 
-  * **throughput** — addresses probed per second (higher = better);
+  * **throughput**: addresses probed per second (higher = better);
   * a least-squares **linear fit** (seconds per address + R²) so "does it grow
     linearly with the address space?" is answered with a number, not a hunch.
 
-    # authorised targets only — a widening sweep of the SAME network:
+    # authorised targets only, a widening sweep of the SAME network:
     python scalability_benchmark.py 10.0.0.0/26 10.0.0.0/25 10.0.0.0/24 10.0.0.0/23 \
         --repeat 3 --md scaling.md --plot scaling.png
 
@@ -21,7 +21,7 @@ Two layers, like the rest of the harness:
   * the live runner shells out to EnumGrid discovery and is operator-run.
 
 Peak memory is a best-effort figure from ``resource.getrusage`` (a child
-high-water mark; KiB on Linux, bytes on macOS — normalised to KB with a caveat)
+high-water mark; KiB on Linux, bytes on macOS, normalised to KB with a caveat)
 and is reported, never used to make a claim. Nothing is fabricated: a target that
 fails is surfaced as an error, not as "0 seconds".
 """
@@ -46,11 +46,11 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 # --------------------------------------------------------------------------- #
-# Pure scaling analysis (unit-tested — the trustworthy core)
+# Pure scaling analysis (unit-tested: the trustworthy core)
 # --------------------------------------------------------------------------- #
 def cidr_size(target: str) -> int:
     """Number of addresses the target covers (a CIDR's size, a single IP = 1, a
-    comma-list = the sum). The independent variable for the scaling curve — known
+    comma-list = the sum). The independent variable for the scaling curve, known
     exactly a priori, so the x-axis is not itself a measurement."""
     total = 0
     for part in str(target).split(","):
@@ -266,7 +266,7 @@ def main(argv=None) -> int:
     md = render_md(result)
     if args.plot:
         saved = write_plot(result, args.plot)
-        md += f"\n\n{'![scaling](' + args.plot + ')' if saved else '_(plot skipped — matplotlib not installed)_'}"
+        md += f"\n\n{'![scaling](' + args.plot + ')' if saved else '_(plot skipped: matplotlib not installed)_'}"
     print("\n" + md + "\n")
     if args.json:
         with open(args.json, "w", encoding="utf-8") as fh:

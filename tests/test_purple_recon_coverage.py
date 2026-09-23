@@ -3,7 +3,7 @@
 The curated :mod:`tests.test_purple_recon` suite proves the security-critical
 and pure-logic behaviour.  This file completes the picture: it drives the
 threaded engines, the orchestrator, both run-loops, the CLI ``main``/``cli``
-entrypoints, and every defensive branch — all with the network, subprocess and
+entrypoints, and every defensive branch, all with the network, subprocess and
 nmap boundaries mocked, so the suite stays deterministic and offline while
 holding the whole module at 100 % line coverage.
 
@@ -48,7 +48,7 @@ def _term_console() -> Console:
 
 
 # --------------------------------------------------------------------------- #
-# SharedState — the locked mutation/read API the cockpit renders from
+# SharedState: the locked mutation/read API the cockpit renders from
 # --------------------------------------------------------------------------- #
 def test_shared_state_full_mutation_and_read_api():
     st = pr.SharedState(target="10.0.0.0/30", privileged=True, engine_label="nmap -sV")
@@ -66,7 +66,7 @@ def test_shared_state_full_mutation_and_read_api():
     assert st.seed_ports_of("10.0.0.1") == [22, 80]
     assert st.seed_ports_of("10.0.0.99") == []      # unknown host -> empty
 
-    # add_live_host is idempotent — a second call for the same IP is a no-op.
+    # add_live_host is idempotent: a second call for the same IP is a no-op.
     st.add_live_host("10.0.0.1", "arp", [443], "weak")
     assert st.seed_ports_of("10.0.0.1") == [22, 80]
 
@@ -133,7 +133,7 @@ def test_update_host_record_creates_when_absent_and_merges_when_present():
 
 
 # --------------------------------------------------------------------------- #
-# ScopeValidator — the two defensive branches unreachable via real IP input
+# ScopeValidator: the two defensive branches unreachable via real IP input
 # --------------------------------------------------------------------------- #
 def test_classify_limited_broadcast_explicit_guard(monkeypatch):
     """255.255.255.255 is normally caught by ``is_reserved``; the explicit
@@ -147,7 +147,7 @@ def test_classify_limited_broadcast_explicit_guard(monkeypatch):
 
 def test_validate_records_forbidden_host_surfacing_mid_expansion(monkeypatch):
     """A forbidden address that only appears while expanding a clean network is
-    recorded in ``blocked`` (not scanned) — the per-host guard inside the loop."""
+    recorded in ``blocked`` (not scanned) by the per-host guard inside the loop."""
     def fake_classify(addr):
         return "test-forbidden" if str(addr) == "192.168.1.2" else None
 
@@ -651,7 +651,7 @@ def test_orchestrator_converts_fatal_error_to_state():
 
 
 # --------------------------------------------------------------------------- #
-# Renderers — style helpers and per-cell branches
+# Renderers: style helpers and per-cell branches
 # --------------------------------------------------------------------------- #
 @pytest.mark.parametrize(
     "phase, expected_fragment",
@@ -723,7 +723,7 @@ def test_render_device_list_empty():
 
 
 # --------------------------------------------------------------------------- #
-# Run-loops — cockpit (Live) and headless fallback, normal + Ctrl-C
+# Run-loops: cockpit (Live) and headless fallback, normal + Ctrl-C
 # --------------------------------------------------------------------------- #
 class _FakeOrchestrator:
     """Orchestrator stand-in that keeps the worker thread alive for a bounded
@@ -770,7 +770,7 @@ def test_run_headless_keyboard_interrupt_aborts(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# Provenance probes — exception branches
+# Provenance probes: exception branches
 # --------------------------------------------------------------------------- #
 def test_git_commit_and_nmap_version_handle_missing_binaries(monkeypatch):
     monkeypatch.setattr(
@@ -803,7 +803,7 @@ def test_nmap_version_parses_and_missing(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# Atomic writers — the best-effort chmod guard
+# Atomic writers: the best-effort chmod guard
 # --------------------------------------------------------------------------- #
 def _one_host_report():
     st = pr.SharedState("10.0.0.0/30", False, "socket-scan")
@@ -835,7 +835,7 @@ def test_atomic_write_text_chmod_failure_is_ignored(monkeypatch, tmp_path):
 
 
 # --------------------------------------------------------------------------- #
-# HTML report — the port-less host is skipped in the service-detail section
+# HTML report: the port-less host is skipped in the service-detail section
 # --------------------------------------------------------------------------- #
 def test_html_report_skips_hosts_without_ports_in_detail():
     report = {
@@ -853,7 +853,7 @@ def test_html_report_skips_hosts_without_ports_in_detail():
 
 
 # --------------------------------------------------------------------------- #
-# load_baseline — the success return
+# load_baseline: the success return
 # --------------------------------------------------------------------------- #
 def test_load_baseline_accepts_valid_report(tmp_path):
     good = tmp_path / "report.json"
@@ -863,7 +863,7 @@ def test_load_baseline_accepts_valid_report(tmp_path):
 
 
 # --------------------------------------------------------------------------- #
-# render_diff_panel — stable and full-change renderings
+# render_diff_panel: stable and full-change renderings
 # --------------------------------------------------------------------------- #
 def test_render_diff_panel_no_changes():
     diff = {"has_changes": False, "appeared_hosts": [], "disappeared_hosts": [],
@@ -895,7 +895,7 @@ def test_render_diff_panel_all_change_kinds():
 
 
 # --------------------------------------------------------------------------- #
-# print_summary — weak-host and blocked-entry rows
+# print_summary: weak-host and blocked-entry rows
 # --------------------------------------------------------------------------- #
 def test_print_summary_with_weak_and_blocked():
     st = pr.SharedState("10.0.0.0/24", False, "socket-scan")
@@ -1147,7 +1147,7 @@ def test_detect_nmap_binary_missing(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# CLI plumbing — parser, banner, scope confirmation
+# CLI plumbing: parser, banner, scope confirmation
 # --------------------------------------------------------------------------- #
 def test_build_parser_defaults_and_flags():
     parser = pr.build_parser()
@@ -1191,11 +1191,11 @@ def test_confirm_scope_terminal_prompts(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# main() — end-to-end CLI driver (network engines & run-loops stubbed)
+# main(): end-to-end CLI driver (network engines & run-loops stubbed)
 # --------------------------------------------------------------------------- #
 def _stub_runner(add_host=True):
     """A run_cockpit/run_headless stand-in that (optionally) seeds one live host
-    then marks the scan finished — no threads, no network."""
+    then marks the scan finished, with no threads and no network."""
     def _run(state, orchestrator, console):
         if add_host:
             state.add_live_host("10.0.0.1", "icmp", [80], "strong")
@@ -1274,7 +1274,7 @@ def test_main_blocked_entries_and_downloaded_oui(monkeypatch, tmp_path):
 
 
 # --------------------------------------------------------------------------- #
-# cli() — the installed console-script last-resort guard
+# cli(): the installed console-script last-resort guard
 # --------------------------------------------------------------------------- #
 def test_cli_success_exit_code(monkeypatch):
     monkeypatch.setattr(pr, "main", lambda: 0)

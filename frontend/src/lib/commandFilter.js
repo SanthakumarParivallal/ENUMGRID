@@ -1,5 +1,5 @@
 /**
- * commandFilter.js — pure ranking for the ⌘K command palette.
+ * commandFilter.js: pure ranking for the ⌘K command palette.
  * ---------------------------------------------------------------------------
  * Kept dependency-free so the match/rank logic is unit-testable in isolation.
  * A command is `{ id, label, keywords?, ... }`; only label + keywords are read

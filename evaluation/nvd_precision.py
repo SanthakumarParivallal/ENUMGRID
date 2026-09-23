@@ -1,25 +1,25 @@
 #!/usr/bin/env python3
 """
-nvd_precision.py — precision / recall of EnumGrid's **live-NVD** CPE->CVE pipeline.
+nvd_precision.py: precision / recall of EnumGrid's **live-NVD** CPE->CVE pipeline.
 
 `cve_precision.py` measures the OFFLINE curated matcher (a hand-maintained table).
 This harness measures the **primary** path: the live NVD API 2.0 lookup in
-`backend/cve.py` — `cpe_to_23` -> query NVD by the version-scoped CPE ->
+`backend/cve.py`: `cpe_to_23` -> query NVD by the version-scoped CPE ->
 `parse_nvd` -> keep the top `MAX_PER_SERVICE` by CVSS. That pipeline is EnumGrid's
 *own* logic layered on the authoritative feed, and it has two failure modes that a
 serious tool must quantify rather than assume away:
 
-  * **RECALL** — does query + parse + truncate actually surface the known-important
+  * **RECALL**: does query + parse + truncate actually surface the known-important
     CVEs for a version? The "top-N-by-CVSS" cap can silently drop a documented bug
     when a version carries many higher-scored CVEs. Each corpus case pins an
     `expect_present` set: a **lower bound** of CVE ids that MUST appear. NVD returns
-    more, and those extras are **not** scored as false positives — a version's full
+    more, and those extras are **not** scored as false positives, because a version's full
     CVE set is not knowable a priori, so scoring "unlisted => wrong" would be
     dishonest. Missed ids are split into *truncated* (present in the raw NVD
     response but dropped by the top-N cap) vs *absent* (NVD didn't return it at all)
     so a recall miss is attributed to the right cause.
 
-  * **VERSION-SCOPING PRECISION** — does the version-scoped CPE query correctly
+  * **VERSION-SCOPING PRECISION**: does the version-scoped CPE query correctly
     EXCLUDE CVEs that do not apply to this exact build (fixed upstream, or belonging
     to a different product)? Each case pins an `expect_absent` set that MUST NOT
     appear; any that does is a precision violation. This is the honest precision
@@ -29,7 +29,7 @@ serious tool must quantify rather than assume away:
 
 Two layers, exactly like `detection_benchmark.py`:
   * the pure scoring + the REAL parser (`backend/cve.parse_nvd`) run on NVD-2.0
-    **schema fixtures** — unit-tested in CI, no network. This proves the scorer and
+    **schema fixtures**, unit-tested in CI with no network. This proves the scorer and
     parser are correct; it deliberately does NOT publish a "live" number.
   * the LIVE runner (`--live`) hits the authoritative NVD feed for every corpus CPE
     and computes the PUBLISHED precision / recall. It needs network and honours
@@ -76,7 +76,7 @@ def raw_cve_ids(data: dict) -> set[str]:
 
     Used to attribute a recall miss to *truncation* (the id was in the response but
     dropped by the top-`MAX_PER_SERVICE` cap) vs genuine *absence* (NVD never
-    returned it — a query/CPE issue, not a truncation one)."""
+    returned it, which is a query/CPE issue, not a truncation one)."""
     out: set[str] = set()
     for item in (data or {}).get("vulnerabilities", []):
         cid = (item.get("cve", {}) or {}).get("id", "")
@@ -122,7 +122,7 @@ def aggregate(cases: list[dict]) -> dict:
     """Micro-average recall (over expect_present) + version-scoping precision.
 
     Recall is a binomial proportion (recalled / expected-present) with a 95 % Wilson
-    CI — the same interval the offline harness uses, correct at the 0/1 boundary.
+    CI, the same interval the offline harness uses, correct at the 0/1 boundary.
     Version-scoping precision is (absent labels correctly excluded) / (absent
     labels); a single violation drops it below 1.0 and is named explicitly.
     """
@@ -200,7 +200,7 @@ def _import_cve():
 def evaluate_response(data: dict, expect_present, expect_absent, parser=None) -> dict:
     """Run the REAL `cve.parse_nvd` on one NVD response dict and score it.
 
-    Deterministic and network-free — this is what CI exercises with schema fixtures,
+    Deterministic and network-free. This is what CI exercises with schema fixtures,
     and what the live runner calls per fetched response, so the published number and
     the unit test share the exact production parser."""
     parser = parser or _import_cve().parse_nvd
@@ -226,7 +226,7 @@ def run_fixtures(fixtures: list[dict], parser=None) -> dict:
 
 
 # --------------------------------------------------------------------------- #
-# Live runner (needs network; hits the authoritative NVD feed — operator-run)
+# Live runner (needs network; hits the authoritative NVD feed; operator-run)
 # --------------------------------------------------------------------------- #
 def run_live(corpus: dict, cve_mod=None, limit: int | None = None) -> dict:
     """Query real NVD for every corpus CPE and score the live-NVD pipeline.
@@ -278,7 +278,7 @@ def _nvd_item(cid: str, score: float | None) -> dict:
 def _nvd_response(items: list[tuple[str, float | None]]) -> dict:
     """A minimal, hand-authored NVD-2.0 response following the documented schema.
 
-    These are SCHEMA FIXTURES for the offline scorer self-check — not live captures.
+    These are SCHEMA FIXTURES for the offline scorer self-check, not live captures.
     CVE ids/CVSS quoted here are publicly-documented facts; `CVE-2099-*` ids are
     synthetic filler used only to force the top-N truncation path. `--live` is the
     authoritative source of real numbers."""
@@ -310,7 +310,7 @@ def render_md(result: dict) -> str:
     s = result["summary"]
     live = result.get("source") == "live-nvd"
     head = (
-        f"### Live-NVD CVE pipeline — precision / recall ({s['scored']} CPEs, "
+        f"### Live-NVD CVE pipeline: precision / recall ({s['scored']} CPEs, "
         f"{'live NVD feed' if live else 'schema fixtures'})"
     )
     lines = [
@@ -331,7 +331,7 @@ def render_md(result: dict) -> str:
     if not live:
         lines += [
             "",
-            "> Fixture self-check only — proves the scorer + `parse_nvd` are correct. "
+            "> Fixture self-check only. It proves the scorer + `parse_nvd` are correct. "
             "Run `--live` for the authoritative measurement against real NVD.",
         ]
     lines += [

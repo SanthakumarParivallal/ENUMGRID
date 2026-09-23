@@ -1,5 +1,5 @@
 """
-osfp.py — best-effort OS identification WITHOUT root (no raw sockets).
+osfp.py: best-effort OS identification WITHOUT root (no raw sockets).
 
 nmap's authoritative OS detection (`-O`) needs raw sockets (root). When the
 backend isn't privileged we still want a *specific*, honest OS label instead of
@@ -14,7 +14,7 @@ observable signals:
 
 `refine_os()` combines them into the most specific label the evidence supports
 (e.g. "macOS (Apple)", "Android", "Windows", "Router/embedded Linux") and never
-fabricates an exact version — that only comes from a privileged `nmap -O` scan,
+fabricates an exact version. That only comes from a privileged `nmap -O` scan,
 which the per-host scan performs when the backend runs as root.
 """
 
@@ -69,7 +69,7 @@ def os_from_ttl(ttl: int | None) -> str:
 # --------------------------------------------------------------------------- #
 # Signal fusion: turn the coarse TTL family into a specific OS using vendor,
 # hostname and the already-computed device type. Every branch is grounded in a
-# real observation — we sharpen the label, we never invent a version.
+# real observation: we sharpen the label, we never invent a version.
 # --------------------------------------------------------------------------- #
 
 # Android handset / tablet makers (their phones run Android = Linux kernel).
@@ -144,10 +144,10 @@ def refine_os(
         # A 128-TTL stack is Windows; otherwise the maker tells us it's Android.
         return "Windows" if ttl_family == "Windows" else "Android"
 
-    # 3b) "Phone / Laptop" is the *randomized-MAC* fallback — there is NO real
+    # 3b) "Phone / Laptop" is the *randomized-MAC* fallback: there is NO real
     #     vendor/hostname signal, so we must NOT assert a mobile OS. A private MAC
     #     is just as likely a Windows/macOS/Linux laptop as a phone. Report only
-    #     the honest TTL family (or nothing) — never a fabricated "Android / iOS".
+    #     the honest TTL family (or nothing), never a fabricated "Android / iOS".
     if dtype == "Phone / Laptop":
         return ttl_family
 

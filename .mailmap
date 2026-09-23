@@ -1,0 +1,18 @@
+# .mailmap: one canonical identity for this repository.
+#
+# The history carries four spellings of the same author: a local machine
+# identity, two GitHub noreply addresses, and the primary address. This file
+# collapses them for every tool that honours a mailmap: `git shortlog -sne`,
+# `git log --use-mailmap`, `git blame`, and GitHub's blame view.
+#
+# NOTE: GitHub's repository "Contributors" panel does NOT read .mailmap. It
+# counts commit-author e-mail addresses and `Co-Authored-By:` trailers straight
+# from the object store, so that panel only changes if the history itself is
+# rewritten. See CONTRIBUTING.md § Commit identity.
+
+Santhakumar Parivallal <santha6383@gmail.com> <santha@santhas-MacBook-Air.local>
+Santhakumar Parivallal <santha6383@gmail.com> <santhakumar@users.noreply.github.com>
+Santhakumar Parivallal <santha6383@gmail.com> <114275889+SanthakumarParivallal@users.noreply.github.com>
+Santhakumar Parivallal <santha6383@gmail.com> santha <santha@santhas-MacBook-Air.local>
+Santhakumar Parivallal <santha6383@gmail.com> santhakumarParivallal <santhakumar@users.noreply.github.com>
+Santhakumar Parivallal <santha6383@gmail.com> SanthakumarParivallal <114275889+SanthakumarParivallal@users.noreply.github.com>

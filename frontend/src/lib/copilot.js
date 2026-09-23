@@ -1,5 +1,5 @@
 /**
- * copilot.js — pure helpers for the AI copilot panel.
+ * copilot.js: pure helpers for the AI copilot panel.
  * ---------------------------------------------------------------------------
  * All logic here is side-effect-free and unit-tested: building the grounding
  * context sent to the backend, parsing the SSE event stream, validating the
@@ -23,7 +23,7 @@ export const PROVIDER_HINTS = Object.freeze({
     keyless: true,
     url: 'https://ollama.com/download',
     linkText: 'Install Ollama ↗',
-    note: 'No key, no cloud — runs on this machine. Install Ollama, run '
+    note: 'No key, no cloud: runs on this machine. Install Ollama, run '
       + '“ollama pull llama3.1”, then Connect. Your scan never leaves the laptop.',
   },
   gemini: {
@@ -31,7 +31,7 @@ export const PROVIDER_HINTS = Object.freeze({
     placeholder: 'AIza…',
     url: 'https://aistudio.google.com/apikey',
     linkText: 'Get a free key ↗',
-    note: 'Free tier from Google AI Studio — no billing required.',
+    note: 'Free tier from Google AI Studio, no billing required.',
   },
   anthropic: { tag: 'Paid', placeholder: 'sk-ant-…', url: 'https://console.anthropic.com/settings/keys' },
   openai: { tag: 'Paid', placeholder: 'sk-…', url: 'https://platform.openai.com/api-keys' },
@@ -96,7 +96,7 @@ export function validateKeyForm({ provider, key } = {}) {
   if (!Object.prototype.hasOwnProperty.call(PROVIDER_LABELS, provider)) {
     return { ok: false, error: 'Choose a provider.' };
   }
-  if (provider === 'ollama') return { ok: true }; // keyless — connect straight away
+  if (provider === 'ollama') return { ok: true }; // keyless: connect straight away
   const k = (key || '').trim();
   if (!k) return { ok: false, error: 'Paste an API key.' };
   if (k.length < 12) return { ok: false, error: 'That key looks too short.' };
@@ -138,8 +138,8 @@ export function ollamaSetupState(status) {
 
 /** Fallback list of recommended Ollama models if the backend doesn't supply one. */
 export const OLLAMA_RECOMMENDED = Object.freeze([
-  { name: 'llama3.2', label: 'Llama 3.2 (3B)', size: '~2 GB', note: 'Lightest — good on ~8 GB RAM' },
-  { name: 'llama3.1', label: 'Llama 3.1 (8B)', size: '~4.7 GB', note: 'Balanced default — needs ~16 GB RAM', recommended: true },
+  { name: 'llama3.2', label: 'Llama 3.2 (3B)', size: '~2 GB', note: 'Lightest: good on ~8 GB RAM' },
+  { name: 'llama3.1', label: 'Llama 3.1 (8B)', size: '~4.7 GB', note: 'Balanced default: needs ~16 GB RAM', recommended: true },
   { name: 'qwen2.5', label: 'Qwen 2.5 (7B)', size: '~4.7 GB', note: 'Strong reasoning + tool use' },
 ]);
 

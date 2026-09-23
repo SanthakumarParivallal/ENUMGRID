@@ -1,4 +1,4 @@
-# EnumGrid — one-command deployment of the API + CLI image.
+# EnumGrid: one-command deployment of the API + CLI image.
 #
 #   ENUMGRID_API_TOKEN=changeme docker compose up --build
 #
@@ -12,7 +12,7 @@ services:
     image: enumgrid
     # LAN device discovery needs the HOST network namespace (Linux): a bridged
     # container only sees its own subnet, not your real devices. On macOS/Windows
-    # Docker Desktop, host networking is limited — prefer `make dev` there.
+    # Docker Desktop, host networking is limited, so prefer `make dev` there.
     network_mode: host
     environment:
       # With host networking the API binds the host's interfaces, but it is safe

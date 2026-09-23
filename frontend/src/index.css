@@ -10,7 +10,7 @@
  * correctly on a light surface. The signal accents (amber/matrix/crimson) are
  * re-toned per theme rather than shared: a hue that reads at 12:1 on the
  * near-black chassis lands near 1.5:1 on white, so sharing them left most of the
- * light theme — including the primary "Start Scan" button — below WCAG AA.
+ * light theme, including the primary "Start Scan" button, below WCAG AA.
  */
 :root,
 html[data-theme='dark'] {
@@ -23,8 +23,8 @@ html[data-theme='dark'] {
   --slate-200: 226 232 240;
   --slate-300: 203 213 225;
   --slate-400: 148 163 184;
-  --slate-500: 140 155 175; /* muted text — clears WCAG AA (4.5:1) on every dark surface */
-  --slate-600: 124 140 162; /* placeholder/tertiary — 4.8:1 even on the hover row */
+  --slate-500: 140 155 175; /* muted text: clears WCAG AA (4.5:1) on every dark surface */
+  --slate-600: 124 140 162; /* placeholder/tertiary: 4.8:1 even on the hover row */
   --slate-700: 51 65 85; /* hairline borders */
   --slate-800: 30 41 59; /* dividers */
   --app-bg: 2 6 23;
@@ -34,16 +34,16 @@ html[data-theme='dark'] {
   --scroll-track: 11 18 32;
   --scroll-thumb: 30 41 59;
   --scroll-thumb-hover: 51 65 85;
-  /* Signal accents — tuned for the near-black chassis. */
+  /* Signal accents, tuned for the near-black chassis. */
   --accent-amber: 255 179 0;
   --accent-amber-glow: 255 194 51;
   --accent-amber-dim: 122 86 0;
   --accent-matrix: 0 230 118;
   --accent-matrix-dim: 10 92 54;
   --accent-crimson: 211 47 47;
-  --accent-crimson-glow: 253 164 175; /* rose-300 — 9.1:1 on a crimson/10 wash */
+  --accent-crimson-glow: 253 164 175; /* rose-300: 9.1:1 on a crimson/10 wash */
   --accent-crimson-dim: 90 26 26;
-  /* Sky — the Operations/identity accent (Tailwind's sky-300/400). */
+  /* Sky: the Operations/identity accent (Tailwind's sky-300/400). */
   --accent-sky: 125 211 252;
   --accent-sky-strong: 56 189 248;
   /* The brand wordmark's gradient ramp. It is themed for the same reason the
@@ -56,7 +56,7 @@ html[data-theme='dark'] {
 html[data-theme='light'] {
   color-scheme: light;
   --steel-950: 241 245 249; /* app background (slate-100) */
-  --steel-900: 255 255 255; /* panels — white */
+  --steel-900: 255 255 255; /* panels: white */
   --steel-850: 248 250 252; /* header strips (slate-50) */
   --steel-800: 226 232 240; /* hover / active row (slate-200) */
   /* Invert the neutral ramp: low = dark ink, high = light hairline. */
@@ -64,8 +64,8 @@ html[data-theme='light'] {
   --slate-200: 30 41 59;
   --slate-300: 51 65 85;
   --slate-400: 71 85 105;
-  --slate-500: 85 99 120; /* muted text — 5.6:1 on the app background */
-  --slate-600: 96 109 128; /* placeholder/tertiary — 4.9:1; slate-400 here was 2.3:1 */
+  --slate-500: 85 99 120; /* muted text: 5.6:1 on the app background */
+  --slate-600: 96 109 128; /* placeholder/tertiary: 4.9:1; slate-400 here was 2.3:1 */
   --slate-700: 203 213 225; /* hairline borders (slate-300) */
   --slate-800: 226 232 240; /* dividers (slate-200) */
   --app-bg: 241 245 249;
@@ -76,27 +76,27 @@ html[data-theme='light'] {
   --scroll-thumb: 148 163 184;
   --scroll-thumb-hover: 100 116 139;
   /* Darker signal accents for the paper theme. The cockpit hues are ~1.4:1 on
-     white — unreadable — so each is swapped for the deepest shade of the same
+     white (unreadable), so each is swapped for the deepest shade of the same
      family that still reads as amber / green / red. These clear WCAG AA (4.5:1)
      on both the white panels and the slate-100 app background with enough
      headroom that the /70 and /80 opacity variants stay legible too. */
-  --accent-amber: 146 64 14; /* amber-800  — 7.1:1 on white */
+  --accent-amber: 146 64 14; /* amber-800: 7.1:1 on white */
   --accent-amber-glow: 180 83 9; /* amber-700 */
-  --accent-amber-dim: 254 243 199; /* amber-100 — tints invert on light */
-  --accent-matrix: 6 78 59; /* emerald-900 — 9.4:1 on white, 4.9:1 at the /80 the
+  --accent-amber-dim: 254 243 199; /* amber-100: tints invert on light */
+  --accent-matrix: 6 78 59; /* emerald-900: 9.4:1 on white, 4.9:1 at the /80 the
                                grid's OS column uses (emerald-800 landed at 4.47) */
   --accent-matrix-dim: 209 250 229; /* emerald-100 */
-  --accent-crimson: 153 27 27; /* red-800 — 8.3:1 on white */
+  --accent-crimson: 153 27 27; /* red-800: 8.3:1 on white */
   --accent-crimson-glow: 153 27 27; /* the same deep red: on paper the tinted
                                        surface is pale, so light text would vanish */
   --accent-crimson-dim: 254 226 226; /* red-100 */
-  --accent-sky: 3 105 161; /* sky-700 — 5.9:1; sky-300 was 1.7:1 here */
-  --accent-sky-strong: 2 132 199; /* sky-600 — 3.7:1, clears the 3:1 non-text bar */
+  --accent-sky: 3 105 161; /* sky-700: 5.9:1; sky-300 was 1.7:1 here */
+  --accent-sky-strong: 2 132 199; /* sky-600: 3.7:1, clears the 3:1 non-text bar */
   /* The same amber→orange sweep, two shades down so the wordmark still reads as
      the brand on paper. A logotype is exempt from WCAG 1.4.3, but the cockpit
-     ramp rendered it at 1.3:1 here — visible only as a pale smudge. Every stop
+     ramp rendered it at 1.3:1 here, visible only as a pale smudge. Every stop
      below clears 4.5:1 on white and on the slate-100 app background. */
-  --brand-1: 180 83 9; /* amber-700 — 5.0:1 on white, the lightest stop */
+  --brand-1: 180 83 9; /* amber-700: 5.0:1 on white, the lightest stop */
   --brand-2: 146 64 14; /* amber-800 */
   --brand-3: 154 52 18; /* orange-800 */
 }
@@ -181,7 +181,7 @@ body {
 /* ---- Large-inventory performance ------------------------------------------
  * A wide scan (a /22 is ~1000 hosts) puts ~1000 rows in the matrix. `content-
  * visibility: auto` lets the browser SKIP layout + paint for rows scrolled off
- * screen — a near-virtualization win with no JS and no change to the sticky-
+ * screen, a near-virtualization win with no JS and no change to the sticky-
  * header / horizontal-scroll layout. `contain-intrinsic-size` supplies a size
  * placeholder for skipped rows so the scrollbar stays accurate; `auto` remembers
  * the real measured height once a row has been rendered once.
@@ -213,17 +213,37 @@ input[type='number']::-webkit-inner-spin-button {
 /* ==========================================================================
  * Command-center design system (v2 redesign)
  * Glassy surfaces, gradient accents, KPI tiles, animated brand mark and an
- * elevation glow — all theme-aware via the CSS variables above.
+ * elevation glow, all theme-aware via the CSS variables above.
  * ======================================================================== */
 
-/* Frosted-glass surface used by the top command bar + sidebar. */
+/* Frosted-glass surface worn by the sticky top command bar.
+   The blur sits on a ::before layer rather than on the element itself, and that
+   indirection is load-bearing: `backdrop-filter` makes an element the
+   containing block for every `position: fixed` DESCENDANT. This class is worn
+   by the sticky header, and the header hosts the privilege dialog and the
+   Export / Settings menus, so with the filter on the header, their
+   `fixed inset-0` resolved to the header's own box (measured: 1016x146) instead
+   of the viewport. The dialog was centred inside a 146px-tall band, which put
+   its title and close button 65px above the top of the screen with no way to
+   scroll to them, and the menus' click-outside scrims covered only the bar.
+   Painting the frost one level down keeps the surface pixel-identical and hands
+   those overlays the viewport back. `isolation` keeps the z-index:-1 layer
+   inside this element instead of letting it fall behind the page. */
 .eg-glass {
+  position: relative;
+  isolation: isolate;
+}
+.eg-glass::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
   background-color: rgb(var(--steel-950) / 0.72);
   backdrop-filter: blur(14px) saturate(1.2);
   -webkit-backdrop-filter: blur(14px) saturate(1.2);
 }
 
-/* Raised card — the base panel surface for the redesigned cockpit. */
+/* Raised card: the base panel surface for the redesigned cockpit. */
 .eg-card {
   background-color: rgb(var(--steel-900) / 0.85);
   border: 1px solid rgb(var(--slate-700) / 0.7);
@@ -233,7 +253,7 @@ input[type='number']::-webkit-inner-spin-button {
     0 1px 2px 0 rgb(0 0 0 / 0.25);
 }
 
-/* Ambient aurora backdrop behind the whole app — subtle, non-distracting. */
+/* Ambient aurora backdrop behind the whole app: subtle and non-distracting. */
 .eg-aurora {
   position: fixed;
   inset: 0;
@@ -264,7 +284,7 @@ html[data-theme='light'] .eg-aurora {
   color: transparent;
 }
 
-/* KPI tile — subtle top-lit gradient + a slow diagonal sheen sweep. */
+/* KPI tile: subtle top-lit gradient + a slow diagonal sheen sweep. */
 .eg-kpi {
   position: relative;
   overflow: hidden;
@@ -299,7 +319,7 @@ html[data-theme='light'] .eg-aurora {
   transition: background-color 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
 
-/* Elevation glow — the privilege control when running elevated. */
+/* Elevation glow: the privilege control when running elevated. */
 @keyframes eg-priv-glow {
   0%, 100% { box-shadow: 0 0 0 1px rgb(0 230 118 / 0.4), 0 0 14px -3px rgb(0 230 118 / 0.5); }
   50% { box-shadow: 0 0 0 1px rgb(0 230 118 / 0.55), 0 0 20px -2px rgb(0 230 118 / 0.7); }

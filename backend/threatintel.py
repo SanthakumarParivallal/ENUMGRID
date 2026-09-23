@@ -1,18 +1,18 @@
 """
-threatintel.py — CVE prioritization with CISA KEV + FIRST EPSS.
+threatintel.py: CVE prioritization with CISA KEV + FIRST EPSS.
 
 CVSS tells you how bad a CVE *could* be; it doesn't tell you what's actually
 being attacked. This module adds the two signals practitioners use to triage:
 
-  * **CISA KEV** — the U.S. Known Exploited Vulnerabilities catalog: CVEs with
+  * **CISA KEV**: the U.S. Known Exploited Vulnerabilities catalog: CVEs with
     confirmed in-the-wild exploitation. A KEV hit means "patch this now".
-  * **FIRST EPSS** — a daily-updated probability (0..1) that a CVE will be
+  * **FIRST EPSS**: a daily-updated probability (0..1) that a CVE will be
     exploited in the next 30 days.
 
 Both feeds are free and need no key. KEV is cached as a local JSON file; EPSS
 scores are cached in SQLite. Everything is best-effort: offline or on error we
 simply skip enrichment (the CVE list is still shown, just without the extra
-signals). This turns "here are 40 CVEs" into "these 3 are actively exploited —
+signals). This turns "here are 40 CVEs" into "these 3 are actively exploited;
 fix them first".
 """
 
@@ -71,7 +71,7 @@ def kev_set() -> set[str]:
 
     Guarded by ``_lock`` so concurrent host scans (this runs in the scanner's
     thread pool) can't each trigger a duplicate download or race the module-level
-    memory cache — the first caller on a cold cache fetches, the rest reuse it."""
+    memory cache: the first caller on a cold cache fetches, the rest reuse it."""
     global _kev_mem, _kev_mem_at
     if DISABLED:
         return set()

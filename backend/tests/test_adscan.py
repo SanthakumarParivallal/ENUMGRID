@@ -1,4 +1,4 @@
-"""test_adscan.py — AD/LDAP helpers + entry shaping (no ldap3/network)."""
+"""test_adscan.py: AD/LDAP helpers + entry shaping (no ldap3/network)."""
 
 from __future__ import annotations
 

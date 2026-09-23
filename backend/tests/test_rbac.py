@@ -1,4 +1,4 @@
-"""test_rbac.py — role-based access (admin vs viewer vs open dev mode).
+"""test_rbac.py: role-based access (admin vs viewer vs open dev mode).
 
 Uses monkeypatch.setattr on the module-level token vars (auto-restored) rather
 than reloading the module, so it never pollutes shared state for other tests.

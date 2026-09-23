@@ -1,5 +1,5 @@
 """
-test_fingerprint.py — device-type heuristic classification.
+test_fingerprint.py: device-type heuristic classification.
 
 Pins the priority order (open ports > services > hostname > vendor) and the
 "no signal -> empty string" contract so the UI never shows a guessed label

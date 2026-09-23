@@ -1,16 +1,16 @@
 """
-schedule.py — cron-style recurring scans.
+schedule.py: cron-style recurring scans.
 
 The dashboard's monitor mode re-scans on a fixed *interval* while a tab is open.
 This adds the other half: **unattended, time-of-day schedules** that fire even
-with no browser connected — "sweep 192.168.0.0/24 every weekday at 02:00". When a
+with no browser connected: "sweep 192.168.0.0/24 every weekday at 02:00". When a
 rule is due the backend enqueues a headless `network_scan` job (the same tested
 pipeline the UI drives), so results land in history/drift automatically.
 
 Design
 ------
 * The recurrence math (`due`, `next_run`) and the spec parsers (`parse_days`,
-  `parse_time`) are pure and fully unit-tested — deterministic given an injected
+  `parse_time`) are pure and fully unit-tested, deterministic given an injected
   ``now``. No clock, no threads, no I/O.
 * `ScheduleStore` is a small thread-safe, JSON-persisted registry (add / list /
   remove / toggle) so rules survive a restart. The firing itself lives in app.py's

@@ -1,4 +1,4 @@
-"""test_webscan.py — web-posture audit parsers (no network)."""
+"""test_webscan.py: web-posture audit parsers (no network)."""
 
 from __future__ import annotations
 

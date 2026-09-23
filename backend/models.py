@@ -1,5 +1,5 @@
 """
-models.py — Pydantic models for the Two-Tiered Scan Pipeline.
+models.py: Pydantic models for the Two-Tiered Scan Pipeline.
 
 These are the canonical server-side definitions. The frontend's
 `src/lib/schema.js` mirrors them field-for-field, so a serialized `ScanState`
@@ -55,12 +55,12 @@ class Vuln(BaseModel):
 
     `confidence` records *how* the finding was established, so the UI can be
     honest about false-positive risk:
-      * "confirmed" — an NSE script actively tested the host and reported it
+      * "confirmed": an NSE script actively tested the host and reported it
         VULNERABLE (high confidence);
-      * "version"   — inferred from the detected product/version or CPE
+      * "version":   inferred from the detected product/version or CPE
         (vulners / offline reference / a referenced CVE). Accurate in general
         but can be a false positive when a vendor backported the fix without
-        bumping the version — so it's flagged "verify".
+        bumping the version, so it's flagged "verify".
     """
 
     id: str  # CVE id when available, else the script name
@@ -68,7 +68,7 @@ class Vuln(BaseModel):
     severity: Severity = Severity.INFO
     cvss: float | None = None  # CVSS base score (from the `vulners` script)
     output: str = ""  # trimmed raw script output
-    url: str = ""  # authoritative reference (NVD CVE page) — clickable in the UI
+    url: str = ""  # authoritative reference (NVD CVE page), clickable in the UI
     confidence: str = ""  # "confirmed" | "version"  (basis of the finding)
     # Real-world prioritization signals (so "which of 40 CVEs matters first?"):
     kev: bool = False           # in CISA's Known Exploited Vulnerabilities catalog
@@ -80,7 +80,7 @@ class Port(BaseModel):
     protocol: Protocol = Protocol.TCP
     service: str = "unknown"
     version: str = ""
-    # nmap's service/version-detection confidence, 1 (low) – 10 (high). 10 means
+    # nmap's service/version-detection confidence, 1 (low) to 10 (high). 10 means
     # the service was confirmed by an active probe; a low value means it was
     # guessed from the port-number table. Surfaced so accuracy can be reported
     # *by confidence* (a high-confidence detection is far more trustworthy than a
@@ -100,15 +100,15 @@ class Host(BaseModel):
     mac: str | None = None          # L2 address (local subnet, from ARP)
     vendor: str | None = None       # OUI vendor or "(private/random)"
     ipv6: list[str] = Field(default_factory=list)  # IPv6 addrs (NDP cache, same MAC)
-    device_type: str = ""           # heuristic type (Router/Phone/Printer/...) — not nmap -O
+    device_type: str = ""           # heuristic type (Router/Phone/Printer/...), not nmap -O
     discovered_via: str = ""        # "icmp" / "arp" / "tcp/<port>" / "mdns" / "ssdp"
     scanning: bool = False
     # When the backend lacks root (and no passwordless sudo), root-only scan flags
     # (-sS/-sU/-O) are auto-rewritten to unprivileged equivalents so the scan still
-    # runs; this records what was adapted, e.g. "UDP scan needs root — ran TCP
-    # connect instead". Empty when the scan ran exactly as requested.
+    # runs; this records what was adapted, e.g. "UDP scan needs root, so TCP
+    # connect ran instead". Empty when the scan ran exactly as requested.
     scan_note: str = ""
-    # Set when the port results are incomplete — nmap gave up on a slow host at its
+    # Set when the port results are incomplete: nmap gave up on a slow host at its
     # --host-timeout (so "no ports" would be a false claim), or the results come
     # from the faster timeout retry. Empty when the scan completed normally.
     scan_warning: str = ""
@@ -117,7 +117,7 @@ class Host(BaseModel):
 
 
 class ScanState(BaseModel):
-    """A single streamed snapshot of the whole scan — the SSE frame payload."""
+    """A single streamed snapshot of the whole scan: the SSE frame payload."""
 
     scan_id: str | None = None
     target: str = ""

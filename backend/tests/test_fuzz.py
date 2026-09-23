@@ -1,10 +1,10 @@
 """
-test_fuzz.py — property-based fuzzing of the parsing / classification layer.
+test_fuzz.py: property-based fuzzing of the parsing / classification layer.
 
 Every value these functions see can originate from a hostile network (banners,
 ARP/NDP/mDNS replies, nmap script output) or an untrusted API request. The
 property under test is simple but important for a security tool: **they must
-never raise on arbitrary input** — only return a well-typed result (or, for the
+never raise on arbitrary input**, only return a well-typed result (or, for the
 scope validator, the one expected `ScopeRejected`).
 """
 
@@ -70,7 +70,7 @@ def test_script_to_vuln_never_crashes(name, output):
 
 @given(target=_HOSTILE)
 def test_vet_target_only_rejects_cleanly(target):
-    # The contract: validate either returns None or raises *ScopeRejected* —
+    # The contract: validate either returns None or raises *ScopeRejected*,
     # never any other exception, no matter how hostile the string.
     try:
         vet_target(target)

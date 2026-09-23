@@ -1,5 +1,5 @@
 """
-test_provenance.py — the reproducibility manifest is honest and deterministic.
+test_provenance.py: the reproducibility manifest is honest and deterministic.
 
 Verifies injected values pass through unchanged (deterministic under test), that
 unknown probes are labelled rather than fabricated, and that build_info carries

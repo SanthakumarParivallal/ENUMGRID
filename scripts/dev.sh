@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 #
-# dev.sh — start the WHOLE platform with one command.
+# dev.sh: start the WHOLE platform with one command.
 #
 # Runs the FastAPI backend (the *real* scanner) on :8011 and the Vite frontend
 # on :5173 together, and tears both down cleanly on Ctrl-C. This exists because
 # running the frontend alone makes the dashboard fall back to the offline mock
-# engine (fake 10.0.0.x devices, amber "DEMO STREAM" badge) — which looks broken.
+# engine (fake 10.0.0.x devices, amber "DEMO STREAM" badge), which looks broken.
 # One command, both servers, no footgun.
 #
 # Usage:   ./scripts/dev.sh        (or: make dev)
@@ -21,11 +21,11 @@ PYTHON="$ROOT/.venv/bin/python"
 
 # --- preflight: fail with a helpful message, not a stack trace -------------- #
 if [[ ! -x "$PYTHON" ]]; then
-  echo "✖ No virtualenv at .venv — run 'make setup' first." >&2
+  echo "✖ No virtualenv at .venv. Run 'make setup' first." >&2
   exit 1
 fi
 if [[ ! -d "$ROOT/frontend/node_modules" ]]; then
-  echo "✖ frontend/node_modules missing — run 'make setup' (or 'cd frontend && npm install')." >&2
+  echo "✖ frontend/node_modules missing. Run 'make setup' (or 'cd frontend && npm install')." >&2
   exit 1
 fi
 
@@ -58,7 +58,7 @@ pids+=("$!")
 
 echo ""
 echo "✓ Both servers up. Open  http://localhost:${FRONTEND_PORT}"
-echo "  The target auto-fills to your network — just click Start Scan."
+echo "  The target auto-fills to your network. Just click Start Scan."
 echo "  Look for the green 'LIVE STREAM' badge (amber = backend not reachable)."
 echo "  Press Ctrl-C to stop both."
 echo ""

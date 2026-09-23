@@ -1,4 +1,4 @@
-"""test_credscan.py — credentialed-scan parsers (no SSH/network)."""
+"""test_credscan.py: credentialed-scan parsers (no SSH/network)."""
 
 from __future__ import annotations
 
@@ -38,7 +38,7 @@ def test_count_packages_dpkg():
         "+++-====-====\n"
         "ii  bash  5.1\n"
         "ii  curl  7.81\n"
-        "rc  oldpkg 1.0\n"  # removed-but-config — not counted
+        "rc  oldpkg 1.0\n"  # removed-but-config, not counted
     )
     assert credscan.count_packages(text) == 2
 

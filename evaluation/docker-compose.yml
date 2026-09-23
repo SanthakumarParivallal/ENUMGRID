@@ -1,13 +1,13 @@
 # Deterministic evaluation testbed for EnumGrid.
 #
 # Brings up service containers at FIXED IPs on an isolated bridge network, so the
-# set of live hosts AND their open ports/services/CVEs is known exactly — the
+# set of live hosts AND their open ports/services/CVEs is known exactly, giving the
 # ground truth (evaluation/ground_truth.json) for measuring detection
 # precision/recall and confirming there are no false positives.
 #
 # Images are PINNED (not :latest) so the ground truth is reproducible run-to-run.
-# Two hosts deliberately run a known-vulnerable Apache — 2.4.49 (172.28.0.11) and
-# 2.4.50 (172.28.0.16) — so CVE *detection recall* can be measured against planted,
+# Two hosts deliberately run a known-vulnerable Apache, 2.4.49 (172.28.0.11) and
+# 2.4.50 (172.28.0.16), so CVE *detection recall* can be measured against planted,
 # documented CVEs (CVE-2021-41773 and its incomplete-fix twin CVE-2021-42013).
 #
 #   docker compose up -d
@@ -28,28 +28,28 @@
 #
 # RECONCILIATION (first run): the service/version/planted-CVE ground truth for the
 # hosts added beyond the original six is pinned from each image's published version,
-# but the EXACT strings your nmap build reports should be confirmed once — run
+# but the EXACT strings your nmap build reports should be confirmed once: run
 # `python detection_benchmark.py` and any mismatch is surfaced (never hidden), then
 # corrected with a one-line ground_truth.json edit. Version tokens are asserted only
 # where nmap fingerprints reliably (the Apache builds); mysql/mongodb are
-# service-scored but not version-scored until confirmed — honest by omission.
+# service-scored but not version-scored until confirmed, i.e. honest by omission.
 #
-# Authorized by construction — you own these containers.
+# Authorized by construction: you own these containers.
 
 services:
-  web-nginx:          # 172.28.0.10 — http (80), current/patched (no planted CVE)
+  web-nginx:          # 172.28.0.10: http (80), current/patched (no planted CVE)
     image: nginx:1.25.3-alpine
     networks:
       testbed:
         ipv4_address: 172.28.0.10
 
-  web-apache:         # 172.28.0.11 — http (80), Apache 2.4.49: PLANTED CVE-2021-41773/42013
+  web-apache:         # 172.28.0.11: http (80), Apache 2.4.49: PLANTED CVE-2021-41773/42013
     image: httpd:2.4.49
     networks:
       testbed:
         ipv4_address: 172.28.0.11
 
-  ssh-server:         # 172.28.0.12 — ssh (2222 -> sshd)
+  ssh-server:         # 172.28.0.12: ssh (2222 -> sshd)
     image: linuxserver/openssh-server:version-9.3_p2-r0
     environment:
       - PUID=1000
@@ -59,13 +59,13 @@ services:
       testbed:
         ipv4_address: 172.28.0.12
 
-  redis:              # 172.28.0.13 — redis (6379), current/patched (no planted CVE)
+  redis:              # 172.28.0.13: redis (6379), current/patched (no planted CVE)
     image: redis:7.2.3-alpine
     networks:
       testbed:
         ipv4_address: 172.28.0.13
 
-  db-postgres:        # 172.28.0.14 — postgresql (5432), relational-DB diversity
+  db-postgres:        # 172.28.0.14: postgresql (5432), relational-DB diversity
     image: postgres:14.2
     environment:
       - POSTGRES_PASSWORD=benchmark
@@ -73,20 +73,20 @@ services:
       testbed:
         ipv4_address: 172.28.0.14
 
-  redis-nonstd:       # 172.28.0.15 — redis on a NON-STANDARD port (1999): the
+  redis-nonstd:       # 172.28.0.15: redis on a NON-STANDARD port (1999); the
     image: redis:7.2.3-alpine   # service must be identified by banner, not by port
     command: ["redis-server", "--port", "1999"]
     networks:
       testbed:
         ipv4_address: 172.28.0.15
 
-  web-apache-50:      # 172.28.0.16 — http (80), Apache 2.4.50: PLANTED CVE-2021-42013
+  web-apache-50:      # 172.28.0.16: http (80), Apache 2.4.50: PLANTED CVE-2021-42013
     image: httpd:2.4.50         # the incomplete-fix twin of 2.4.49's CVE-2021-41773
     networks:
       testbed:
         ipv4_address: 172.28.0.16
 
-  db-mysql:           # 172.28.0.17 — mysql (3306), a second relational-DB banner
+  db-mysql:           # 172.28.0.17: mysql (3306), a second relational-DB banner
     image: mysql:8.0.34
     environment:
       - MYSQL_ROOT_PASSWORD=benchmark
@@ -94,7 +94,7 @@ services:
       testbed:
         ipv4_address: 172.28.0.17
 
-  db-mongo:           # 172.28.0.18 — mongodb (27017), document-store diversity
+  db-mongo:           # 172.28.0.18: mongodb (27017), document-store diversity
     image: mongo:6.0.13
     networks:
       testbed:

@@ -1,5 +1,5 @@
 """
-test_copilot.py — the copilot's pure core: key storage, provider selection,
+test_copilot.py: the copilot's pure core: key storage, provider selection,
 scan-context grounding, request hygiene, tool schemas, and the honest
 "unavailable" streaming paths. No SDK, no API key, no network.
 """
@@ -191,7 +191,7 @@ def test_key_save_load_clear(state):
     assert copilot.save_key("anthropic", "sk-ant-test") is True
     assert copilot.load_key("anthropic") == "sk-ant-test"
     assert copilot.has_key("anthropic") is True
-    # keys are per-provider — saving anthropic must not set openai
+    # keys are per-provider: saving anthropic must not set openai
     assert copilot.has_key("openai") is False
     assert copilot.save_key("anthropic", "") is False          # blank clears
     assert copilot.load_key("anthropic") is None
@@ -349,7 +349,7 @@ def test_wants_scan_intent_gate():
     assert not copilot.wants_scan([
         {"role": "user", "content": "scan it"},
         {"role": "assistant", "content": "ok"},
-        {"role": "user", "content": "thanks — what did you find?"},
+        {"role": "user", "content": "thanks, what did you find?"},
     ])
 
 
@@ -380,7 +380,7 @@ def test_stream_reply_gemini_missing_key(state, monkeypatch):
 
 def test_stream_reply_ollama_passes_key_gate_and_routes_local(state, monkeypatch):
     # Ollama needs no key, so the stream must clear the key gate and reach the SDK
-    # call — routed at the local base URL with the placeholder key. Stub the SDK
+    # call, routed at the local base URL with the placeholder key. Stub the SDK
     # so the test never touches the network.
     monkeypatch.setattr(copilot, "_HAVE_OPENAI", True)
     seen = {}
@@ -524,7 +524,7 @@ def test_ollama_probe_up_but_tags_fail(monkeypatch):
     assert copilot.ollama_probe() == {"up": True, "models": []}
 
 
-# --- streaming internals (SDK clients mocked — no network) ------------------- #
+# --- streaming internals (SDK clients mocked, no network) ------------------- #
 class _AntStream:
     text_stream = ["Hello ", "world"]
 

@@ -1,8 +1,8 @@
 """
-test_vulndb.py — the curated offline version→CVE reference.
+test_vulndb.py: the curated offline version→CVE reference.
 
 Confirms well-known vulnerable builds are flagged (with NVD links + CVSS) while
-patched/unrelated versions are not — the offline supplement must never guess.
+patched/unrelated versions are not. The offline supplement must never guess.
 """
 
 from __future__ import annotations
@@ -36,7 +36,7 @@ def test_known_vulnerable_versions_are_flagged(banner, cve):
     hit = next(v for v in vulns if v.id == cve)
     assert hit.url == f"https://nvd.nist.gov/vuln/detail/{cve}"
     assert hit.cvss is not None and hit.cvss > 0
-    # Offline matches are version-based — flagged for verification, never "confirmed".
+    # Offline matches are version-based, flagged for verification and never "confirmed".
     assert hit.confidence == "version"
 
 

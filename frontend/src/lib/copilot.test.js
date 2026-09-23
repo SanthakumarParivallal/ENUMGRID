@@ -53,7 +53,7 @@ describe('buildScanContext', () => {
   it('applies every fallback branch (null host, bare port/vuln, defaults)', () => {
     const ctx = buildScanContext({
       hosts: [
-        null, // `h || {}` — a null host must not throw
+        null, // `h || {}`: a null host must not throw
         {
           // `src.services` fallback (neither ports nor open_ports), a port with
           // no service/name, a vuln keyed only by `id`, no ip/status/os.

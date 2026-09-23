@@ -1,5 +1,5 @@
 /**
- * IndustrialDashboard.jsx — the ENUMGRID command center.
+ * IndustrialDashboard.jsx: the ENUMGRID command center.
  * ---------------------------------------------------------------------------
  * A professional network-security operations console (v2 redesign). All scan
  * state flows from `useScan()`; this file is presentation + interaction.
@@ -14,7 +14,7 @@
  *   │  sessions│ AssetMatrix  (matrix ⇄ topology)                            │
  *   └──────────┴────────────────────────────────────────────────────────────┘
  *
- * The one truly new capability vs. the CLI: runtime privilege elevation — the
+ * The one truly new capability vs. the CLI: runtime privilege elevation. The
  * operator can raise the backend from unprivileged to real raw-socket scans
  * (-sS / -sU / -O) by entering a sudo password, without restarting (see
  * PrivilegeControl → /api/privilege/elevate).
@@ -48,7 +48,7 @@ import {
 } from './lib/schema.js';
 
 /* ========================================================================== *
- * Icons — inline SVG, zero-dependency, stroke-based so they inherit color.
+ * Icons: inline SVG, zero-dependency, stroke-based so they inherit color.
  * ========================================================================== */
 
 const I = ({ children, className = 'w-4 h-4', viewBox = '0 0 24 24', ...rest }) => (
@@ -291,20 +291,20 @@ const PHASE_STYLE = {
   [ScanPhase.PING_SWEEP]: { dot: 'bg-amber', text: 'text-amber', pulse: true },
   [ScanPhase.NMAP_ENUMERATION]: { dot: 'bg-amber', text: 'text-amber', pulse: true },
   [ScanPhase.COMPLETE]: { dot: 'bg-matrix', text: 'text-matrix', pulse: false },
-  [ScanPhase.HALTED]: { dot: 'bg-crimson', text: 'text-crimson', pulse: false },
-  [ScanPhase.ERROR]: { dot: 'bg-crimson', text: 'text-crimson', pulse: false },
+  [ScanPhase.HALTED]: { dot: 'bg-crimson', text: 'text-crimson-glow', pulse: false },
+  [ScanPhase.ERROR]: { dot: 'bg-crimson', text: 'text-crimson-glow', pulse: false },
 };
 
 const PORT_STATE_STYLE = {
   [PortState.OPEN]: 'text-matrix border-matrix/40 bg-matrix/10',
   [PortState.OPEN_FILTERED]: 'text-amber border-amber/40 bg-amber/10',
-  [PortState.FILTERED]: 'text-crimson border-crimson/40 bg-crimson/10',
+  [PortState.FILTERED]: 'text-crimson-glow border-crimson/40 bg-crimson/10',
   [PortState.CLOSED]: 'text-slate-500 border-slate-600/40 bg-slate-700/20',
 };
 
 const SEVERITY_STYLE = {
-  [Severity.CRITICAL]: 'text-crimson border-crimson/50 bg-crimson/15',
-  [Severity.HIGH]: 'text-crimson border-crimson/40 bg-crimson/10',
+  [Severity.CRITICAL]: 'text-crimson-glow border-crimson/50 bg-crimson/15',
+  [Severity.HIGH]: 'text-crimson-glow border-crimson/40 bg-crimson/10',
   [Severity.MEDIUM]: 'text-amber border-amber/40 bg-amber/10',
   [Severity.LOW]: 'text-slate-300 border-slate-600/50 bg-slate-700/20',
   [Severity.INFO]: 'text-slate-400 border-slate-600/40 bg-slate-700/10',
@@ -313,7 +313,7 @@ const SEVERITY_STYLE = {
 // Brand colours (match tailwind.config) for inline-style gradient fills.
 const PROGRESS_RGB = { amber: '255,179,0', matrix: '0,230,118', crimson: '211,47,47' };
 
-// Shared matrix column template — header + every row use the SAME string so they
+// Shared matrix column template: header + every row use the SAME string so they
 // stay aligned. Fixed: chevron, status, IP, ports, scan-status. Resizable
 // (persisted px): hostname, vendor, device, mac. Trailing spacer absorbs slack.
 const GRID_COLS = 'grid items-center';
@@ -398,7 +398,7 @@ function useEscapeToClose(open, close) {
 }
 
 /**
- * "This device" identity — the operator's own IP on the LAN, hostname and the
+ * "This device" identity: the operator's own IP on the LAN, hostname and the
  * /24 they're attached to. Real data, fetched once from the backend's
  * /api/network (which reads it from the OS); absent fields come back null so the
  * UI shows "—" rather than inventing anything.
@@ -505,7 +505,7 @@ const SCRIPT_GROUPS = [
 ];
 
 /* ========================================================================== *
- * NEW — Runtime privilege elevation (the headline feature)
+ * Runtime privilege elevation (the headline feature)
  * A dashboard-driven jump from unprivileged → real raw-socket scans (SYN/UDP/OS
  * detection) by validating a sudo password. No restart, nothing to do at start.
  * ========================================================================== */
@@ -514,7 +514,7 @@ const SCRIPT_GROUPS = [
 // The label/tone/note come from the pure `privMeta` helper (lib/privilege.js).
 const privIcon = (meta) => (meta.raw ? Icon.ShieldCheck : Icon.Shield);
 
-/** The elevation dialog — enter a sudo password to unlock raw-socket scans. */
+/** The elevation dialog: enter a sudo password to unlock raw-socket scans. */
 function PrivilegeDialog({ onClose }) {
   const { capability, canElevate, elevated, isRoot, elevatePrivilege, dropPrivilege } = useScan();
   const { toast } = useToast();
@@ -537,7 +537,7 @@ function PrivilegeDialog({ onClose }) {
       .then((d) => {
         setPw('');
         if (d.ok) {
-          // Close on success — the pill updates to "Elevated" and the toast
+          // Close on success. The pill updates to "Elevated" and the toast
           // confirms; this also hands focus cleanly back to the trigger.
           toast(d.message || 'Raw-socket scans (SYN/UDP/OS) enabled.', { type: 'success', title: 'Privilege elevated' });
           onClose();
@@ -569,122 +569,126 @@ function PrivilegeDialog({ onClose }) {
   };
 
   return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Scan privilege">
-      <Backdrop onClose={onClose} className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
-      <div ref={dialogRef} tabIndex={-1} className="eg-card relative z-10 w-full max-w-md p-5 outline-none">
-        {/* header */}
-        <div className="mb-3 flex items-start justify-between gap-3">
-          <div className="flex items-center gap-2.5">
-            <span className={`grid h-9 w-9 place-items-center rounded-lg border ${raw ? 'border-matrix/50 bg-matrix/10 text-matrix' : 'border-amber/50 bg-amber/10 text-amber'}`}>
-              <Icon.Bolt className="h-5 w-5" />
-            </span>
-            <div>
-              <h2 className="text-sm font-semibold text-slate-100">Scan privilege</h2>
-              <p className="font-mono text-[11px] text-slate-500">
-                current tier: <span className={raw ? 'text-matrix' : 'text-amber'}>{capability}</span>
-              </p>
-            </div>
-          </div>
-          <button onClick={onClose} aria-label="Close" className="rounded p-1 text-slate-500 hover:bg-steel-800 hover:text-slate-200">
-            <Icon.X className="h-4 w-4" />
-          </button>
-        </div>
-
-        {/* capability explainer */}
-        <div className="mb-4 grid grid-cols-3 gap-1.5 text-center">
-          {[
-            { k: '-sS', t: 'SYN stealth' },
-            { k: '-sU', t: 'UDP scan' },
-            { k: '-O', t: 'OS detect' },
-          ].map((c) => (
-            <div key={c.k} className={`rounded-lg border px-2 py-2 ${raw ? 'border-matrix/40 bg-matrix/[0.07]' : 'border-slate-700 bg-steel-900'}`}>
-              <div className={`font-mono text-sm font-bold ${raw ? 'text-matrix' : 'text-slate-500'}`}>{c.k}</div>
-              <div className="mt-0.5 flex items-center justify-center gap-1 text-[10px] text-slate-500">
-                {raw ? <Icon.Check className="h-3 w-3 text-matrix" /> : <Icon.X className="h-3 w-3 text-slate-600" />}
-                {c.t}
+    <div className="fixed inset-0 z-[70] overflow-y-auto overscroll-contain p-4" role="dialog" aria-modal="true" aria-label="Scan privilege">
+      {/* `fixed`, not `absolute`: the scrim has to keep covering the viewport
+          while the overlay above it scrolls. */}
+      <Backdrop onClose={onClose} className="fixed inset-0 bg-black/60 backdrop-blur-sm" />
+      <div className="relative z-10 flex min-h-full items-center justify-center">
+        <div ref={dialogRef} tabIndex={-1} className="eg-card w-full max-w-md p-5 outline-none">
+          {/* header */}
+          <div className="mb-3 flex items-start justify-between gap-3">
+            <div className="flex items-center gap-2.5">
+              <span className={`grid h-9 w-9 place-items-center rounded-lg border ${raw ? 'border-matrix/50 bg-matrix/10 text-matrix' : 'border-amber/50 bg-amber/10 text-amber'}`}>
+                <Icon.Bolt className="h-5 w-5" />
+              </span>
+              <div>
+                <h2 className="text-sm font-semibold text-slate-100">Scan privilege</h2>
+                <p className="font-mono text-[11px] text-slate-500">
+                  current tier: <span className={raw ? 'text-matrix' : 'text-amber'}>{capability}</span>
+                </p>
               </div>
             </div>
-          ))}
-        </div>
+            <button onClick={onClose} aria-label="Close" className="rounded p-1 text-slate-500 hover:bg-steel-800 hover:text-slate-200">
+              <Icon.X className="h-4 w-4" />
+            </button>
+          </div>
 
-        {isRoot ? (
-          <p className="rounded-lg border border-matrix/30 bg-matrix/[0.07] px-3 py-2.5 text-xs text-matrix">
-            The backend is already running as <b>root</b> — every scan uses real raw sockets. Nothing to elevate.
-          </p>
-        ) : raw ? (
-          <div className="space-y-3">
+          {/* capability explainer */}
+          <div className="mb-4 grid grid-cols-3 gap-1.5 text-center">
+            {[
+              { k: '-sS', t: 'SYN stealth' },
+              { k: '-sU', t: 'UDP scan' },
+              { k: '-O', t: 'OS detect' },
+            ].map((c) => (
+              <div key={c.k} className={`rounded-lg border px-2 py-2 ${raw ? 'border-matrix/40 bg-matrix/[0.07]' : 'border-slate-700 bg-steel-900'}`}>
+                <div className={`font-mono text-sm font-bold ${raw ? 'text-matrix' : 'text-slate-500'}`}>{c.k}</div>
+                <div className="mt-0.5 flex items-center justify-center gap-1 text-[10px] text-slate-500">
+                  {raw ? <Icon.Check className="h-3 w-3 text-matrix" /> : <Icon.X className="h-3 w-3 text-slate-600" />}
+                  {c.t}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {isRoot ? (
             <p className="rounded-lg border border-matrix/30 bg-matrix/[0.07] px-3 py-2.5 text-xs text-matrix">
-              {elevated
-                ? 'This session is elevated — SYN / UDP / OS-detection scans run for real.'
-                : 'Passwordless sudo is available, so scans already elevate automatically.'}
+              The backend is already running as <b>root</b>, so every scan uses real raw sockets. Nothing to elevate.
             </p>
-            {elevated && (
-              <button
-                onClick={drop}
-                disabled={busy}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-slate-600 bg-steel-900 px-3 py-1.5 text-xs font-semibold text-slate-300 transition hover:border-crimson/60 hover:text-crimson disabled:opacity-50"
-              >
-                <Icon.Power className="h-3.5 w-3.5" /> Drop privileges
-              </button>
-            )}
-          </div>
-        ) : canElevate ? (
-          <div className="space-y-3">
-            <p className="text-xs leading-relaxed text-slate-400">
-              Enter your <span className="font-mono text-slate-200">sudo</span> password to elevate this session to
-              real raw-socket scans. The password is validated against sudo and held
-              <b className="text-slate-300"> only in the backend&#39;s memory</b> for this session — never written to
-              disk, never logged, never returned. Click <i>Drop</i> (or restart) to forget it.
-            </p>
-            <div className="flex items-center gap-2">
-              <input
-                ref={pwRef}
-                type="password"
-                value={pw}
-                onChange={(e) => setPw(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && submit()}
-                placeholder="sudo password…"
-                aria-label="sudo password"
-                autoComplete="off"
-                spellCheck={false}
-                className="w-full rounded-lg border border-slate-700 bg-steel-900 px-3 py-2 font-mono text-sm text-slate-100 outline-none transition focus:border-matrix/60 focus:shadow-glow-matrix"
-              />
-              <button
-                onClick={submit}
-                disabled={busy || !pw.trim()}
-                className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-matrix/50 bg-matrix/15 px-3 py-2 text-sm font-semibold text-matrix transition hover:bg-matrix hover:text-steel-950 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {busy ? <Spinner className="h-4 w-4" /> : <Icon.Bolt className="h-4 w-4" />}
-                Elevate
-              </button>
+          ) : raw ? (
+            <div className="space-y-3">
+              <p className="rounded-lg border border-matrix/30 bg-matrix/[0.07] px-3 py-2.5 text-xs text-matrix">
+                {elevated
+                  ? 'This session is elevated: SYN / UDP / OS-detection scans run for real.'
+                  : 'Passwordless sudo is available, so scans already elevate automatically.'}
+              </p>
+              {elevated && (
+                <button
+                  onClick={drop}
+                  disabled={busy}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-slate-600 bg-steel-900 px-3 py-1.5 text-xs font-semibold text-slate-300 transition hover:border-crimson/60 hover:text-crimson-glow disabled:opacity-50"
+                >
+                  <Icon.Power className="h-3.5 w-3.5" /> Drop privileges
+                </button>
+              )}
             </div>
-          </div>
-        ) : (
-          <p className="rounded-lg border border-slate-700 bg-steel-900 px-3 py-2.5 text-xs text-slate-400">
-            No <span className="font-mono">sudo</span> is available on this host (or it&#39;s disabled), so runtime
-            elevation isn&#39;t possible. Scans still run — root-only techniques auto-adapt to unprivileged
-            equivalents (SYN→connect, UDP→connect, OS detection skipped). For full fidelity, start the backend with{' '}
-            <code className="rounded bg-steel-950/40 px-1 font-mono text-amber">./start.sh --accurate-os</code>.
-          </p>
-        )}
+          ) : canElevate ? (
+            <div className="space-y-3">
+              <p className="text-xs leading-relaxed text-slate-400">
+                Enter your <span className="font-mono text-slate-200">sudo</span> password to elevate this session to
+                real raw-socket scans. The password is validated against sudo and held
+                <b className="text-slate-300"> only in the backend&#39;s memory</b> for this session, never written to
+                disk, never logged, never returned. Click <i>Drop</i> (or restart) to forget it.
+              </p>
+              <div className="flex items-center gap-2">
+                <input
+                  ref={pwRef}
+                  type="password"
+                  value={pw}
+                  onChange={(e) => setPw(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && submit()}
+                  placeholder="sudo password…"
+                  aria-label="sudo password"
+                  autoComplete="off"
+                  spellCheck={false}
+                  className="w-full rounded-lg border border-slate-700 bg-steel-900 px-3 py-2 font-mono text-sm text-slate-100 outline-none transition focus:border-matrix/60 focus:shadow-glow-matrix"
+                />
+                <button
+                  onClick={submit}
+                  disabled={busy || !pw.trim()}
+                  className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-matrix/50 bg-matrix/15 px-3 py-2 text-sm font-semibold text-matrix transition hover:bg-matrix hover:text-steel-950 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {busy ? <Spinner className="h-4 w-4" /> : <Icon.Bolt className="h-4 w-4" />}
+                  Elevate
+                </button>
+              </div>
+            </div>
+          ) : (
+            <p className="rounded-lg border border-slate-700 bg-steel-900 px-3 py-2.5 text-xs text-slate-400">
+              No <span className="font-mono">sudo</span> is available on this host (or it&#39;s disabled), so runtime
+              elevation isn&#39;t possible. Scans still run, and root-only techniques auto-adapt to unprivileged
+              equivalents (SYN→connect, UDP→connect, OS detection skipped). For full fidelity, start the backend with{' '}
+              <code className="rounded bg-steel-950/40 px-1 font-mono text-amber">./start.sh --accurate-os</code>.
+            </p>
+          )}
 
-        {msg && (
-          <p className={`mt-3 flex items-start gap-1.5 font-mono text-[11px] ${msg.ok ? 'text-matrix' : 'text-crimson'}`}>
-            {msg.ok ? <Icon.Check className="mt-0.5 h-3.5 w-3.5 shrink-0" /> : <Icon.Alert className="mt-0.5 h-3.5 w-3.5 shrink-0" />}
-            <span>{msg.text}</span>
-          </p>
-        )}
+          {msg && (
+            <p className={`mt-3 flex items-start gap-1.5 font-mono text-[11px] ${msg.ok ? 'text-matrix' : 'text-crimson-glow'}`}>
+              {msg.ok ? <Icon.Check className="mt-0.5 h-3.5 w-3.5 shrink-0" /> : <Icon.Alert className="mt-0.5 h-3.5 w-3.5 shrink-0" />}
+              <span>{msg.text}</span>
+            </p>
+          )}
 
-        <p className="mt-4 border-t border-slate-700/60 pt-3 text-[10px] leading-relaxed text-slate-500">
-          Only authorized, in-scope networks should ever be scanned. Elevation is gated to the local operator
-          (or an admin token when RBAC is enabled).
-        </p>
+          <p className="mt-4 border-t border-slate-700/60 pt-3 text-[10px] leading-relaxed text-slate-500">
+            Only authorized, in-scope networks should ever be scanned. Elevation is gated to the local operator
+            (or an admin token when RBAC is enabled).
+          </p>
+        </div>
       </div>
     </div>
   );
 }
 
-/** Compact privilege pill for the command bar — opens the elevation dialog. */
+/** Compact privilege pill for the command bar; opens the elevation dialog. */
 function PrivilegeControl() {
   const { capability, elevated, canElevate } = useScan();
   const [open, setOpen] = useState(false);
@@ -722,7 +726,7 @@ function PrivilegeControl() {
 }
 
 /* ========================================================================== *
- * Export menu (PDF report / CSV / JSON) — matches the CLI's export formats.
+ * Export menu (PDF report / CSV / JSON), matching the CLI's export formats.
  * ========================================================================== */
 
 function ExportMenu({ disabled, btnBase }) {
@@ -740,7 +744,7 @@ function ExportMenu({ disabled, btnBase }) {
       if (result && typeof result.then === 'function') {
         result
           .then(() => toast(okMsg, { type: 'success' }))
-          .catch(() => toast('Export failed — is the backend running?', { type: 'error' }));
+          .catch(() => toast('Export failed. Is the backend running?', { type: 'error' }));
       } else {
         toast(okMsg, { type: 'success' });
       }
@@ -756,7 +760,7 @@ function ExportMenu({ disabled, btnBase }) {
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label="Export scan results"
-        title="Export the current scan — PDF report, CSV or JSON"
+        title="Export the current scan: PDF report, CSV or JSON"
         className={`${btnBase} border-slate-700 bg-steel-900 text-slate-300 hover:border-slate-500 hover:text-slate-100 disabled:opacity-50`}
       >
         <Icon.Download className="h-4 w-4" />
@@ -792,7 +796,7 @@ function ExportMenu({ disabled, btnBase }) {
 }
 
 /* ========================================================================== *
- * Settings menu — theme · API token (RBAC) · NVD key. Consolidated so
+ * Settings menu: theme · API token (RBAC) · NVD key. Consolidated so
  * the command bar stays clean.
  * ========================================================================== */
 
@@ -813,7 +817,7 @@ function SettingsMenu({ btnBase }) {
         aria-haspopup="menu"
         aria-expanded={open}
         aria-label="Settings"
-        title="Settings — theme, API token, NVD key"
+        title="Settings: theme, API token, NVD key"
         className={`${btnBase} border-slate-700 bg-steel-900 text-slate-400 hover:border-slate-500 hover:text-slate-200`}
       >
         <Icon.Gear className="h-4 w-4" />
@@ -850,7 +854,7 @@ function SettingsMenu({ btnBase }) {
             >
               <span className="flex items-center gap-1.5"><Icon.Activity className="h-3.5 w-3.5" /> AI Copilot</span>
               {/* Ollama and Gemini are the free providers and Ollama is the
-                  default — naming only the two paid ones sent operators to the
+                  default, and naming only the two paid ones sent operators to the
                   options that cost money. */}
               <span className="text-[10px] text-slate-500">chat · local or cloud</span>
             </button>
@@ -908,7 +912,7 @@ function CommandBar({ onOpenNav }) {
 
   // Every command-bar button shares this base. `focus:outline-none` drops the
   // browser default; `focus-visible:ring-*` puts a clearly-visible keyboard
-  // focus ring back (WCAG 2.4.7) — sky reads on both the dark and light themes.
+  // focus ring back (WCAG 2.4.7); sky reads on both the dark and light themes.
   const btnBase =
     'inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-sm font-semibold transition focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400 focus-visible:ring-offset-1 focus-visible:ring-offset-steel-950 disabled:cursor-not-allowed';
 
@@ -940,9 +944,9 @@ function CommandBar({ onOpenNav }) {
             spellCheck={false}
             // The visible "Target" chip is hidden below the sm breakpoint and is
             // not associated with this input, so without an aria-label a screen
-            // reader announces only the placeholder — which also disappears the
+            // reader announces only the placeholder, which also disappears the
             // moment anything is typed. Every other control here is labelled.
-            aria-label="Scan target — IP, CIDR range or hostname"
+            aria-label="Scan target: IP, CIDR range or hostname"
             placeholder="192.168.1.0/24"
             disabled={running}
             className="w-full rounded-lg border border-slate-700 bg-steel-900/80 py-2 pl-[70px] pr-3 font-mono text-sm text-slate-100 outline-none transition focus:border-amber/60 focus:shadow-glow-amber disabled:opacity-60 sm:pl-[76px]"
@@ -963,7 +967,7 @@ function CommandBar({ onOpenNav }) {
           <button
             onClick={stopScan}
             aria-label="Stop scan"
-            className={`${btnBase} border-crimson/60 bg-crimson/15 text-crimson hover:bg-crimson hover:text-white hover:shadow-glow-crimson`}
+            className={`${btnBase} border-crimson/60 bg-crimson/15 text-crimson-glow hover:bg-crimson hover:text-white hover:shadow-glow-crimson`}
           >
             <Icon.Stop className="h-4 w-4" />
             <span>Stop</span>
@@ -979,7 +983,7 @@ function CommandBar({ onOpenNav }) {
           title="Deep Scan: run NSE vuln scripts (nmap --script vuln) for real CVE findings. Slower."
           className={`${btnBase} disabled:opacity-50 ${
             deepScan
-              ? 'border-crimson/60 bg-crimson/15 text-crimson shadow-glow-crimson'
+              ? 'border-crimson/60 bg-crimson/15 text-crimson-glow shadow-glow-crimson'
               : 'border-slate-700 bg-steel-900 text-slate-400 hover:border-slate-500 hover:text-slate-200'
           }`}
         >
@@ -999,7 +1003,7 @@ function CommandBar({ onOpenNav }) {
           <span className="hidden md:inline">Scan All{unscanned ? ` (${unscanned})` : ''}</span>
         </button>
 
-        {/* Right cluster — grouped so it stays right-aligned and its dropdowns
+        {/* Right cluster, grouped so it stays right-aligned and its dropdowns
             (Export / Settings) always open leftward into content, never off-edge. */}
         <div className="flex flex-wrap items-center gap-2 sm:ml-auto sm:justify-end">
           <span className="mx-0.5 hidden h-6 w-px self-center bg-slate-700/70 lg:block" />
@@ -1084,7 +1088,7 @@ function GlobalProgress({ phase, progress, running }) {
   const rgb = PROGRESS_RGB[accent];
   const glow = isHalted ? 'shadow-glow-crimson' : isComplete ? 'shadow-glow-matrix' : 'shadow-glow-amber';
   const dot = isHalted ? 'bg-crimson' : isComplete ? 'bg-matrix' : 'bg-amber';
-  const pctText = isHalted ? 'text-crimson' : isComplete ? 'text-matrix' : 'text-amber';
+  const pctText = isHalted ? 'text-crimson-glow' : isComplete ? 'text-matrix' : 'text-amber';
 
   const p1 = phase === ScanPhase.PING_SWEEP ? 'active' : progress >= 40 || isComplete ? 'done' : 'pending';
   const p2 = phase === ScanPhase.NMAP_ENUMERATION ? 'active' : isComplete ? 'done' : 'pending';
@@ -1114,7 +1118,7 @@ function GlobalProgress({ phase, progress, running }) {
 }
 
 /* ========================================================================== *
- * B · KPI strip — the SOC-style metric hero.
+ * B · KPI strip: the SOC-style metric hero.
  * ========================================================================== */
 
 function KpiStrip() {
@@ -1131,7 +1135,7 @@ function KpiStrip() {
   const accentBar = { matrix: 'from-matrix/70', amber: 'from-amber/70', crimson: 'from-crimson/70', slate: 'from-slate-600/60' };
 
   return (
-    <div className="grid grid-cols-2 gap-2.5 px-3 pt-3 sm:px-4 md:grid-cols-3 xl:grid-cols-5">
+    <div className="grid shrink-0 grid-cols-2 gap-2.5 px-3 pt-3 sm:px-4 md:grid-cols-3 xl:grid-cols-5">
       {cells.map((c) => (
         <div key={c.label} className="eg-kpi px-3.5 py-3">
           <div className={`absolute inset-x-0 top-0 h-px bg-gradient-to-r ${accentBar[c.accent]} to-transparent`} />
@@ -1150,7 +1154,7 @@ function KpiStrip() {
 }
 
 /* ========================================================================== *
- * Sidebar — brand · pipeline · drift · sessions · engine footer.
+ * Sidebar: brand · pipeline · drift · sessions · engine footer.
  * ========================================================================== */
 
 function PipelineStepper() {
@@ -1223,7 +1227,7 @@ function DriftPanel() {
       <Panel title="What Changed" icon={icon} bodyClassName="px-3 py-2.5">
         <div className="flex items-center gap-2 text-[11px] font-semibold text-matrix">
           <Icon.Check className="h-3.5 w-3.5" />
-          No changes since last scan — network stable.
+          No changes since last scan. Network stable.
         </div>
       </Panel>
     );
@@ -1298,11 +1302,11 @@ function SessionLog() {
   );
 }
 
-/** Engine footer — backend privilege + CVE status, pinned to the sidebar base. */
+/** Engine footer: backend privilege + CVE status, pinned to the sidebar base. */
 function EngineFooter() {
   const { capability, elevated, canRaw, source, profiles } = useScan();
   const meta = privMeta(capability, elevated);
-  // An empty profile set means /api/profiles never answered — the same signal the
+  // An empty profile set means /api/profiles never answered, the same signal the
   // scan-options drawer uses to say "backend offline". Report that here rather
   // than a green "FastAPI" the operator would read as a healthy engine.
   // Classes are spelled out in full: Tailwind scans source text, so an
@@ -1311,7 +1315,7 @@ function EngineFooter() {
     ? { value: 'demo engine', dot: 'bg-amber', valueClass: 'text-amber' }
     : Object.keys(profiles || {}).length > 0
       ? { value: 'FastAPI', dot: 'bg-matrix', valueClass: 'text-matrix' }
-      : { value: 'unreachable', dot: 'bg-crimson', valueClass: 'text-crimson' };
+      : { value: 'unreachable', dot: 'bg-crimson', valueClass: 'text-crimson-glow' };
   const rows = [
     { label: 'Backend', ...backend },
     {
@@ -1369,7 +1373,7 @@ function DeviceRow({ label, value, valueClass = 'text-slate-300', dot, copied, o
 }
 
 /**
- * "This device" card — shows the operator where they're scanning FROM: their
+ * "This device" card: shows the operator where they're scanning FROM: their
  * own IP on the LAN, hostname, and the /24 they're attached to. Click a value
  * to copy it. All values are real (backend /api/network); unknowns show "—".
  */
@@ -1384,7 +1388,7 @@ function DeviceIdentity() {
       setCopied(value);
       setTimeout(() => setCopied((c) => (c === value ? null : c)), 1200);
     } catch {
-      /* clipboard blocked — non-fatal */
+      /* clipboard blocked, non-fatal */
     }
   }, []);
 
@@ -1405,7 +1409,7 @@ function DeviceIdentity() {
         </div>
       )}
       <p className="mt-2 border-t border-slate-700/60 pt-2 font-mono text-[9px] leading-relaxed text-slate-600">
-        Your address on this LAN — read locally, not sent anywhere.
+        Your address on this LAN, read locally and not sent anywhere.
       </p>
     </div>
   );
@@ -1418,9 +1422,21 @@ function Sidebar({ mobileOpen, onClose }) {
       {mobileOpen && <Backdrop onClose={onClose} className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm lg:hidden" />}
       {/* pb-16 keeps the Engine panel (and its "results are always real" note)
           clear of the floating Copilot launcher, which is fixed at bottom-left
-          and was covering the last two lines of that note. */}
+          and was covering the last two lines of that note.
+
+          `[&>*]:shrink-0` is what makes `overflow-y-auto` above it mean anything.
+          Flex items default to `flex-shrink: 1`, so on a short viewport the
+          panels were COMPRESSED to fit the column instead of overflowing it:
+          the sidebar's scrollHeight stayed equal to its height, no scrollbar
+          appeared, and each panel's own `overflow-hidden` (which rounds the
+          header strip's corners) sliced the surplus off. At 1280x700 that cost
+          Scan Pipeline 51px (its card border cut through "Service + version
+          detection") and Session Log 86px, with no way to scroll to either.
+          Pinning the children to their natural height hands the overflow back
+          to the one element that can scroll it. It is set on the container so a
+          sixth panel inherits it instead of re-introducing the bug. */}
       <aside
-        className={`fixed inset-y-0 left-0 z-50 flex w-[272px] shrink-0 flex-col gap-3 overflow-y-auto border-r border-slate-800 bg-steel-950/95 p-3 pb-16 transition-transform duration-200 lg:static lg:z-0 lg:w-[264px] lg:translate-x-0 lg:bg-steel-950/50 ${
+        className={`fixed inset-y-0 left-0 z-50 flex w-[272px] shrink-0 flex-col gap-3 overflow-y-auto [&>*]:shrink-0 border-r border-slate-800 bg-steel-950/95 p-3 pb-16 transition-transform duration-200 lg:static lg:z-0 lg:w-[264px] lg:translate-x-0 lg:bg-steel-950/50 ${
           mobileOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
@@ -1465,7 +1481,7 @@ function FilterToolbar({
   const selectCls =
     'rounded-lg border border-slate-700 bg-steel-900 py-1.5 pl-2 pr-6 text-xs text-slate-300 outline-none transition hover:border-slate-500 focus:border-amber/60';
   return (
-    <div className="sticky top-0 z-20 flex flex-wrap items-center gap-2.5 border-b border-slate-800 bg-steel-950/90 px-3 py-3 backdrop-blur sm:px-4">
+    <div className="sticky top-0 z-20 flex shrink-0 flex-wrap items-center gap-2.5 border-b border-slate-800 bg-steel-950/90 px-3 py-3 backdrop-blur sm:px-4">
       <label className="relative flex min-w-[220px] flex-1 items-center">
         <Icon.Search className="pointer-events-none absolute left-3 h-4 w-4 text-slate-500" />
         <input
@@ -1514,7 +1530,7 @@ function FilterToolbar({
           const base = 'inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition';
           const cls = active
             ? danger
-              ? 'border-crimson bg-crimson/15 text-crimson shadow-glow-crimson'
+              ? 'border-crimson bg-crimson/15 text-crimson-glow shadow-glow-crimson'
               : 'border-amber bg-amber/15 text-amber shadow-glow-amber'
             : 'border-slate-700 bg-steel-900 text-slate-400 hover:border-slate-500 hover:text-slate-200';
           return (
@@ -1547,7 +1563,7 @@ function FilterToolbar({
           </select>
         )}
         {activeFilterCount > 0 && (
-          <button onClick={clearFilters} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-steel-900 px-2.5 py-1.5 text-xs font-medium text-slate-400 transition hover:border-crimson/60 hover:text-crimson">
+          <button onClick={clearFilters} className="inline-flex items-center gap-1.5 rounded-lg border border-slate-700 bg-steel-900 px-2.5 py-1.5 text-xs font-medium text-slate-400 transition hover:border-crimson/60 hover:text-crimson-glow">
             <Icon.X className="h-3.5 w-3.5" />
             Clear ({activeFilterCount})
           </button>
@@ -1631,14 +1647,14 @@ function PortDetailTable({ host }) {
           {host.mac && (<><span className="text-slate-600">·</span><span>{host.mac}</span></>)}
           {host.os && host.os !== 'Unknown' && (<><span className="text-slate-600">·</span><span className="max-w-[200px] truncate">{host.os}</span></>)}
           {host.ports.length > 0 && (<><span className="text-slate-600">·</span><span className="whitespace-nowrap">{host.ports.length} ports</span></>)}
-          {vulns.length > 0 && (<><span className="text-slate-600">·</span><span className="whitespace-nowrap text-crimson">{vulns.length} vulns</span></>)}
+          {vulns.length > 0 && (<><span className="text-slate-600">·</span><span className="whitespace-nowrap text-crimson-glow">{vulns.length} vulns</span></>)}
         </div>
         <button
           onClick={(e) => { e.stopPropagation(); scanHostVulns(host.ip); }}
           disabled={host.vulnScanning}
           title="Run nmap on just this host with the selected profile (version→CVE lookup included; the Deep toggle adds the NSE vuln scripts)"
           className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-lg border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider transition disabled:cursor-not-allowed ${
-            host.vulnScanning ? 'border-amber/50 bg-amber/10 text-amber' : 'border-crimson/50 bg-crimson/10 text-crimson hover:bg-crimson hover:text-white'
+            host.vulnScanning ? 'border-amber/50 bg-amber/10 text-amber' : 'border-crimson/50 bg-crimson/10 text-crimson-glow hover:bg-crimson hover:text-white'
           }`}
         >
           {host.vulnScanning ? (<><Spinner className="h-3 w-3" />Nmap scanning…</>) : (<><Icon.Search className="h-3.5 w-3.5" />{host.scanned ? 'Re-scan (nmap)' : 'Nmap Scan'}</>)}
@@ -1646,7 +1662,7 @@ function PortDetailTable({ host }) {
       </div>
 
       {host.scan_warning && (
-        <div role="status" className="flex items-start gap-2 rounded-lg border border-crimson/40 bg-crimson/[0.07] px-3 py-1.5 text-[11px] text-crimson">
+        <div role="status" className="flex items-start gap-2 rounded-lg border border-crimson/40 bg-crimson/[0.07] px-3 py-1.5 text-[11px] text-crimson-glow">
           <Icon.Alert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <span>
             <b>Partial result:</b> {host.scan_warning}.
@@ -1658,7 +1674,7 @@ function PortDetailTable({ host }) {
         <div className="flex items-start gap-2 rounded-lg border border-amber/30 bg-amber/[0.07] px-3 py-1.5 text-[11px] text-amber/90">
           <Icon.Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
           <span>
-            Ran unprivileged — auto-adapted: {host.scan_note}.{' '}
+            Ran unprivileged, auto-adapted: {host.scan_note}.{' '}
             <span className="text-amber/70">Use the <b>Elevate</b> control (top bar) or run <code>./start.sh --accurate-os</code> for full-fidelity SYN/UDP/OS scans.</span>
           </span>
         </div>
@@ -1674,7 +1690,7 @@ function PortDetailTable({ host }) {
       {host.vulnScanning ? (
         <div className="flex items-start gap-2 overflow-x-auto px-3 py-4 font-mono text-xs text-amber">
           <Spinner className="mt-0.5 h-4 w-4 shrink-0" />
-          <span className="whitespace-nowrap"><span className="text-slate-500">$</span> {liveCmd} <span className="text-amber/70">— scanning this host…</span></span>
+          <span className="whitespace-nowrap"><span className="text-slate-500">$</span> {liveCmd} <span className="text-amber/70">· scanning this host…</span></span>
         </div>
       ) : host.ports.length ? (
         <>
@@ -1702,8 +1718,8 @@ function PortDetailTable({ host }) {
             <div className="overflow-hidden rounded-lg border border-crimson/30 bg-crimson/[0.04]">
               <div className="flex items-center gap-2 border-b border-crimson/20 bg-crimson/10 px-3 py-1.5">
                 <Icon.Bug className="h-3.5 w-3.5 text-crimson" />
-                <span className="text-[10px] font-semibold uppercase tracking-wider text-crimson">Vulnerability Findings</span>
-                <span className="font-mono text-[10px] font-bold text-crimson">{vulns.length}</span>
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-crimson-glow">Vulnerability Findings</span>
+                <span className="font-mono text-[10px] font-bold text-crimson-glow">{vulns.length}</span>
                 <span className="ml-auto font-mono text-[9px] uppercase tracking-wider text-slate-500">nmap --script vuln</span>
               </div>
               <ul className="divide-y divide-slate-800/70">
@@ -1719,11 +1735,11 @@ function PortDetailTable({ host }) {
                         ) : (<span className="font-mono text-xs font-semibold text-slate-100">{v.id}</span>)}
                         {v.port != null && <span className="font-mono text-[10px] text-slate-500">:{v.port}</span>}
                         {v.cvss != null && <span className="shrink-0 rounded border border-slate-600/50 bg-slate-800/60 px-1 font-mono text-[9px] font-semibold text-slate-300">CVSS {v.cvss.toFixed(1)}</span>}
-                        {v.kev && <span title="In CISA's KEV catalog — exploited in the wild. Patch first." className="shrink-0 animate-pulse rounded border border-crimson bg-crimson/20 px-1 font-mono text-[9px] font-bold uppercase tracking-wider text-crimson">⚠ KEV · exploited</span>}
+                        {v.kev && <span title="In CISA's KEV catalog: exploited in the wild. Patch first." className="shrink-0 animate-pulse rounded border border-crimson bg-crimson/20 px-1 font-mono text-[9px] font-bold uppercase tracking-wider text-crimson-glow">⚠ KEV · exploited</span>}
                         {v.epss != null && v.epss >= 0.01 && (
-                          <span title="FIRST EPSS — probability this CVE is exploited in the next 30 days." className={`shrink-0 rounded border px-1 font-mono text-[9px] font-semibold ${v.epss >= 0.5 ? 'border-amber/60 bg-amber/10 text-amber' : 'border-slate-600/50 bg-slate-800/40 text-slate-400'}`}>EPSS {(v.epss * 100).toFixed(v.epss >= 0.1 ? 0 : 1)}%</span>
+                          <span title="FIRST EPSS: probability this CVE is exploited in the next 30 days." className={`shrink-0 rounded border px-1 font-mono text-[9px] font-semibold ${v.epss >= 0.5 ? 'border-amber/60 bg-amber/10 text-amber' : 'border-slate-600/50 bg-slate-800/40 text-slate-400'}`}>EPSS {(v.epss * 100).toFixed(v.epss >= 0.1 ? 0 : 1)}%</span>
                         )}
-                        {v.confidence === 'confirmed' && <span title="An NSE script actively confirmed this host vulnerable." className="shrink-0 rounded border border-crimson/50 bg-crimson/10 px-1 font-mono text-[9px] font-semibold uppercase text-crimson">confirmed</span>}
+                        {v.confidence === 'confirmed' && <span title="An NSE script actively confirmed this host vulnerable." className="shrink-0 rounded border border-crimson/50 bg-crimson/10 px-1 font-mono text-[9px] font-semibold uppercase text-crimson-glow">confirmed</span>}
                         {v.confidence === 'version' && <span title="Matched by detected version/CPE. Verify against vendor advisories." className="shrink-0 rounded border border-slate-600/50 bg-slate-800/40 px-1 font-mono text-[9px] font-semibold uppercase text-slate-400">version · verify</span>}
                         {v.title && <span className="truncate text-xs text-slate-400">{v.title}</span>}
                       </div>
@@ -1740,12 +1756,12 @@ function PortDetailTable({ host }) {
           {host.status !== HostStatus.UP
             ? '// host unreachable'
             : host.scanError
-              ? '// last scan failed — check the backend is running, then click "Re-scan (nmap)"'
+              ? '// last scan failed. Check the backend is running, then click "Re-scan (nmap)"'
               : host.scanned
                 ? host.scan_warning
-                  ? '// scan incomplete — nmap could not finish this host, so its ports are unknown (see the warning above)'
-                  : '// scan complete — no open ports found in the scanned range'
-                : '// no service scan yet — click "Nmap Scan" to enumerate ports & services'}
+                  ? '// scan incomplete. nmap could not finish this host, so its ports are unknown (see the warning above)'
+                  : '// scan complete. No open ports found in the scanned range'
+                : '// no service scan yet. Click "Nmap Scan" to enumerate ports & services'}
         </div>
       )}
     </div>
@@ -1754,7 +1770,7 @@ function PortDetailTable({ host }) {
 
 function ScanStateBadge({ host }) {
   const cls = 'inline-flex items-center gap-1.5 rounded-lg border px-2 py-1 font-mono text-[10px] uppercase tracking-wider';
-  // `vulnScanning` means "a per-host nmap scan is in flight" — it is set for every
+  // `vulnScanning` means "a per-host nmap scan is in flight"; it is set for every
   // row scan, not just the Deep (NSE vuln) one. Labelling it "Vuln Scan" in
   // crimson told the operator a vulnerability scan was running during a plain
   // -sV pass; "Nmap" in amber matches the row button ("Nmap scanning…") and is
@@ -1763,7 +1779,7 @@ function ScanStateBadge({ host }) {
   if (host.scanning) return <span className={`${cls} border-amber/40 bg-amber/10 text-amber`}><Spinner className="h-3 w-3" /> Scanning</span>;
   if (host.status === HostStatus.DOWN) return <span className={`${cls} border-slate-700 bg-steel-900 text-slate-500`}>Skipped</span>;
   if (host.queued) return <span className={`${cls} border-amber/30 bg-amber/5 text-amber/80`}><Spinner className="h-3 w-3" /> Queued</span>;
-  if (host.scanError) return <span title="The last nmap scan for this host failed — click its row, then Re-scan." className={`${cls} border-crimson/40 bg-crimson/10 text-crimson`}><Icon.Alert className="h-3 w-3" /> Failed</span>;
+  if (host.scanError) return <span title="The last nmap scan for this host failed. Click its row, then Re-scan." className={`${cls} border-crimson/40 bg-crimson/10 text-crimson-glow`}><Icon.Alert className="h-3 w-3" /> Failed</span>;
   if (host.scanned && host.scan_warning) return <span title={host.scan_warning} className={`${cls} border-amber/40 bg-amber/10 text-amber`}><Icon.Alert className="h-3 w-3" /> Partial</span>;
   if (host.scanned) return <span className={`${cls} border-matrix/40 bg-matrix/10 text-matrix`}><Icon.Check className="h-3 w-3" />{host.ports.length ? 'Done' : 'No ports'}</span>;
   return <span className={`${cls} border-slate-700 bg-steel-900 text-slate-500`}>{host.ports.length ? 'Ports' : 'Ready'}</span>;
@@ -1772,7 +1788,7 @@ function ScanStateBadge({ host }) {
 // Memoised so a large matrix (a /22 can be ~1000 hosts) doesn't re-render every
 // row when only the search box, a filter, the sort, or one row's expand state
 // changes. Effective only if `onToggle` and `template` are stable references (see
-// the memoised `toggleRow` and `template` in AssetMatrix) — otherwise the shallow
+// the memoised `toggleRow` and `template` in AssetMatrix). Otherwise the shallow
 // prop compare always misses. During an active scan the `host` objects genuinely
 // change each frame, so those rows still update; the win is post-scan interaction.
 const AssetRow = memo(function AssetRow({ host, expanded, onToggle, template }) {
@@ -1786,7 +1802,7 @@ const AssetRow = memo(function AssetRow({ host, expanded, onToggle, template }) 
         tabIndex={0}
         data-host-row
         aria-expanded={expanded}
-        aria-label={`Host ${host.ip}${host.hostname ? ` (${host.hostname})` : ''} — Enter to ${expanded ? 'collapse' : 'expand'}`}
+        aria-label={`Host ${host.ip}${host.hostname ? ` (${host.hostname})` : ''}. Enter to ${expanded ? 'collapse' : 'expand'}`}
         onClick={() => onToggle(host.ip)}
         onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), onToggle(host.ip))}
         style={{ gridTemplateColumns: template }}
@@ -1795,7 +1811,7 @@ const AssetRow = memo(function AssetRow({ host, expanded, onToggle, template }) 
         <span className="flex justify-center text-slate-500"><Icon.Chevron className={`h-4 w-4 transition-transform ${expanded ? 'rotate-90 text-amber' : ''}`} /></span>
         <span className="flex justify-center"><StatusDot status={host.status} /></span>
         <span className="font-mono font-semibold text-slate-100">{host.ip}</span>
-        <span className="min-w-0 truncate font-mono text-xs text-slate-400">{host.hostname || <span className="text-slate-600">— no PTR —</span>}</span>
+        <span className="min-w-0 truncate font-mono text-xs text-slate-400">{host.hostname || <span className="text-slate-600">no PTR</span>}</span>
         <span className="flex min-w-0 items-center gap-1.5 truncate text-xs">
           {host.vendor === '(private/random)' ? <span className="font-mono italic text-slate-500">private</span> : host.vendor ? (<><Icon.Cpu className="h-3.5 w-3.5 shrink-0 text-slate-500" /><span className="truncate text-slate-200">{host.vendor}</span></>) : <span className="text-slate-600">—</span>}
         </span>
@@ -1882,7 +1898,7 @@ function EmptyState() {
 }
 
 /* ========================================================================== *
- * Topology view — a Zenmap-style radial network map.
+ * Topology view: a Zenmap-style radial network map.
  * ========================================================================== */
 
 // Read the accents from the theme tokens rather than hardcoding the dark-cockpit
@@ -2067,7 +2083,7 @@ function AssetMatrix({ hosts, view, setView }) {
             <div className="flex items-start gap-2 border-b border-amber/25 bg-amber/[0.06] px-3 py-1.5 text-[11px] text-amber/90 sm:px-4">
               <Icon.Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
               <span>
-                <b>{closedUp.length} of {scannedUp.length} scanned hosts show no open ports.</b> This is normal and <b>real</b>, not a tool error — endpoints commonly run a host firewall, and many corporate/guest Wi-Fi networks use <b>client isolation</b> (visible via ARP at layer&nbsp;2 but unreachable over TCP at layer&nbsp;3). Any ports shown are genuinely open; nothing is simulated.
+                <b>{closedUp.length} of {scannedUp.length} scanned hosts show no open ports.</b> This is normal and <b>real</b>, not a tool error. Endpoints commonly run a host firewall, and many corporate/guest Wi-Fi networks use <b>client isolation</b> (visible via ARP at layer&nbsp;2 but unreachable over TCP at layer&nbsp;3). Any ports shown are genuinely open; nothing is simulated.
               </span>
             </div>
           )}
@@ -2081,7 +2097,7 @@ function AssetMatrix({ hosts, view, setView }) {
             // horizontal scroll here (min-w-max child) so it never pushes the page
             // sideways. On lg this pane owns both axes (fixed-shell layout).
             // eslint-disable-next-line jsx-a11y/no-static-element-interactions
-            <div className="flex-1 overflow-x-auto lg:min-h-0 lg:overflow-auto" onKeyDown={onGridKey}>
+            <div className="flex-1 overflow-x-auto lg:min-h-[8rem] lg:overflow-auto" onKeyDown={onGridKey}>
               <div className="min-w-max lg:min-w-0">
                 <MatrixHeader sort={sort} onSort={onSort} allExpanded={allExpanded} onToggleAll={toggleAll} template={template} onResize={setColWidth} onResetCol={(col) => setColWidth(col, COL_DEFAULTS[col])} />
                 {visible.length === 0 ? (
@@ -2136,7 +2152,7 @@ function ScanErrorBanner() {
     <div className="flex items-start gap-3 border-b border-crimson/40 bg-crimson/10 px-4 py-2">
       <Icon.Alert className="mt-0.5 h-4 w-4 shrink-0 text-crimson" />
       <div className="min-w-0 flex-1">
-        <span className="text-sm font-semibold text-crimson">Scan error</span>
+        <span className="text-sm font-semibold text-crimson-glow">Scan error</span>
         <span className="ml-2 text-xs text-slate-300">{statusMessage}</span>
       </div>
     </div>
@@ -2144,7 +2160,7 @@ function ScanErrorBanner() {
 }
 
 // A non-fatal note the backend attached to a finished scan (e.g. the OS would not
-// reveal MAC addresses) — explains blanks in the grid instead of leaving them.
+// reveal MAC addresses). Explains blanks in the grid instead of leaving them.
 function ScanNoticeBanner() {
   const { phase, scanNotice } = useScan();
   if (phase !== ScanPhase.COMPLETE || !scanNotice) return null;
@@ -2160,7 +2176,7 @@ function ScanNoticeBanner() {
 }
 
 /* ========================================================================== *
- * API token (RBAC) + NVD key settings — rendered inside the settings menu.
+ * API token (RBAC) + NVD key settings, rendered inside the settings menu.
  * ========================================================================== */
 
 function ApiTokenButton() {
@@ -2171,16 +2187,16 @@ function ApiTokenButton() {
   const [testing, setTesting] = useState(false);
   useEscapeToClose(open, useCallback(() => setOpen(false), []));
 
-  const apply = () => { setToken(input); setMsg(input.trim() ? '✓ Token saved — attached to all requests.' : 'Token cleared.'); };
+  const apply = () => { setToken(input); setMsg(input.trim() ? '✓ Token saved: attached to all requests.' : 'Token cleared.'); };
   const test = () => {
     setToken(input); setTesting(true); setMsg('');
     authFetch('/api/audit?limit=1')
       .then((r) => {
         if (r.status === 401) setMsg('✗ Token rejected (401). Check ENUMGRID_ADMIN_TOKEN.');
-        else if (r.ok) setMsg(input.trim() ? '✓ Token accepted.' : '✓ Reachable — auth is not enabled (open mode).');
+        else if (r.ok) setMsg(input.trim() ? '✓ Token accepted.' : '✓ Reachable: auth is not enabled (open mode).');
         else setMsg(`Backend returned HTTP ${r.status}.`);
       })
-      .catch(() => setMsg('✗ Backend unreachable — is it running?'))
+      .catch(() => setMsg('✗ Backend unreachable. Is it running?'))
       .finally(() => setTesting(false));
   };
 
@@ -2188,7 +2204,7 @@ function ApiTokenButton() {
     <div className="relative">
       <button
         onClick={() => { setOpen((o) => !o); setInput(token); setMsg(''); }}
-        title="API token — only needed if the backend has RBAC enabled (ENUMGRID_ADMIN_TOKEN)."
+        title="API token, only needed if the backend has RBAC enabled (ENUMGRID_ADMIN_TOKEN)."
         aria-haspopup="dialog"
         aria-expanded={open}
         className={`flex w-full items-center justify-between gap-2 rounded-md border px-2 py-1.5 text-[11px] font-semibold transition ${
@@ -2237,11 +2253,11 @@ function NvdKeyButton() {
       .then(async (r) => {
         if (r.ok) return r.json();
         // The server rejects a malformed key with a specific reason (e.g. "that
-        // does not look like an NVD API key") — show it rather than "HTTP 400".
+        // does not look like an NVD API key"). Show it rather than "HTTP 400".
         const body = await r.json().catch(() => ({}));
         throw new Error(body.error || (r.status === 401 ? 'admin token required' : `HTTP ${r.status}`));
       })
-      .then((d) => { setMsg(d.key_active ? '✓ Key applied — higher rate limit active.' : 'Key cleared.'); setKeyInput(''); refresh(); })
+      .then((d) => { setMsg(d.key_active ? '✓ Key applied: higher rate limit active.' : 'Key cleared.'); setKeyInput(''); refresh(); })
       .catch((e) => setMsg(`✗ ${e.message}`))
       .finally(() => setSaving(false));
   };
@@ -2251,7 +2267,7 @@ function NvdKeyButton() {
     <div className="relative">
       <button
         onClick={() => { setOpen((o) => !o); refresh(); }}
-        title="CVE intelligence — set your free NVD API key for faster vulnerability lookups"
+        title="CVE intelligence: set your free NVD API key for faster vulnerability lookups"
         aria-haspopup="dialog"
         aria-expanded={open}
         className={`flex w-full items-center justify-between gap-2 rounded-md border px-2 py-1.5 text-[11px] font-semibold transition ${
@@ -2286,7 +2302,7 @@ function NvdKeyButton() {
 }
 
 /* ========================================================================== *
- * Scan configuration — collapsible advanced nmap options (profile, command,
+ * Scan configuration: collapsible advanced nmap options (profile, command,
  * NSE picker, ports). Hidden by default so the cockpit stays uncluttered.
  * ========================================================================== */
 
@@ -2309,7 +2325,7 @@ function ScanConfigPanel() {
   };
 
   return (
-    <div className="border-b border-slate-800 px-3 pt-2.5 sm:px-4">
+    <div className="shrink-0 border-b border-slate-800 px-3 pt-2.5 sm:px-4">
       <button
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
@@ -2330,7 +2346,7 @@ function ScanConfigPanel() {
 
       {open && entries.length === 0 && (
         <div className="eg-drawer mt-2 rounded-lg border border-slate-700/70 bg-steel-900/60 px-3 py-2 font-mono text-[11px] text-slate-500">
-          {'// scan profiles unavailable — backend offline'}
+          {'// scan profiles unavailable. Backend offline'}
         </div>
       )}
 
@@ -2338,7 +2354,7 @@ function ScanConfigPanel() {
         <div className="eg-drawer mt-2 space-y-2.5 rounded-lg border border-slate-700/70 bg-steel-900/60 p-3 text-xs">
           <div className="flex flex-wrap items-center gap-2">
             <span className="flex items-center gap-1.5 font-semibold uppercase tracking-widest text-amber"><Icon.Cpu className="h-3.5 w-3.5" /> Profile</span>
-            <select value={scanProfile} onChange={(e) => setScanProfile(e.target.value)} aria-label="Nmap scan profile" title="Scan profile — changes the actual nmap command" className={field}>
+            <select value={scanProfile} onChange={(e) => setScanProfile(e.target.value)} aria-label="Nmap scan profile" title="Scan profile, which changes the actual nmap command" className={field}>
               {entries.map(([key, p]) => <option key={key} value={key}>{p.label}</option>)}
             </select>
             <button
@@ -2355,7 +2371,7 @@ function ScanConfigPanel() {
           {sel.args && (
             <div className="space-y-1">
               {/* `effective_args` is what nmap is really invoked with on this
-                  backend — it differs from the declared `args` whenever a
+                  backend. It differs from the declared `args` whenever a
                   root-only profile is auto-adapted. Printing `args` here would
                   show a -sS/-sU/-A command that never runs. */}
               <div className="overflow-x-auto whitespace-nowrap rounded-lg border border-slate-800 bg-steel-950/70 px-2.5 py-1.5 font-mono text-[10px] text-slate-500">
@@ -2368,22 +2384,22 @@ function ScanConfigPanel() {
               {sel.adapt_note && (
                 <div className="flex items-start gap-1.5 px-0.5 text-[10px] leading-relaxed text-amber/90">
                   <Icon.Info className="mt-px h-3 w-3 shrink-0" />
-                  <span>Running unprivileged — auto-adapted from <code className="font-mono text-slate-400">{sel.args}</code>: {sel.adapt_note}.</span>
+                  <span>Running unprivileged, auto-adapted from <code className="font-mono text-slate-400">{sel.args}</code>: {sel.adapt_note}.</span>
                 </div>
               )}
             </div>
           )}
 
           <div className="flex flex-wrap items-center gap-2">
-            <input value={scanScripts} onChange={(e) => setScanScripts(e.target.value)} placeholder="extra NSE scripts — e.g. http-title,ssl-cert" spellCheck={false} aria-label="Extra NSE scripts (comma-separated)" title="Comma-separated NSE script names/categories (intrusive ones blocked server-side)" className={`${field} w-full sm:min-w-[170px] sm:flex-1`} />
-            <input value={scanPorts} onChange={(e) => setScanPorts(e.target.value)} placeholder="ports — e.g. 1-1024,3389" spellCheck={false} aria-label="Port spec" title="Explicit port spec" className={`${field} w-full sm:w-40`} />
+            <input value={scanScripts} onChange={(e) => setScanScripts(e.target.value)} placeholder="extra NSE scripts, e.g. http-title,ssl-cert" spellCheck={false} aria-label="Extra NSE scripts (comma-separated)" title="Comma-separated NSE script names/categories (intrusive ones blocked server-side)" className={`${field} w-full sm:min-w-[170px] sm:flex-1`} />
+            <input value={scanPorts} onChange={(e) => setScanPorts(e.target.value)} placeholder="ports, e.g. 1-1024,3389" spellCheck={false} aria-label="Port spec" title="Explicit port spec" className={`${field} w-full sm:w-40`} />
           </div>
 
           <div className="space-y-1">
             <div className="flex items-center gap-2">
               <span className="text-[10px] font-semibold uppercase tracking-widest text-slate-500">add NSE</span>
               {scriptSet.size > 0 && (
-                <button onClick={() => [...scriptSet].forEach((s) => toggleScript(s))} className="rounded border border-slate-700 px-1.5 py-0.5 font-mono text-[10px] text-slate-400 transition hover:border-crimson/60 hover:text-crimson">clear {scriptSet.size}</button>
+                <button onClick={() => [...scriptSet].forEach((s) => toggleScript(s))} className="rounded border border-slate-700 px-1.5 py-0.5 font-mono text-[10px] text-slate-400 transition hover:border-crimson/60 hover:text-crimson-glow">clear {scriptSet.size}</button>
               )}
             </div>
             {SCRIPT_GROUPS.map((group) => (
@@ -2407,7 +2423,7 @@ function ScanConfigPanel() {
 }
 
 /* ========================================================================== *
- * Boot splash — a short startup animation the first time the cockpit loads.
+ * Boot splash: a short startup animation the first time the cockpit loads.
  * ========================================================================== */
 
 const BOOT_LINES = [
@@ -2468,7 +2484,7 @@ function BootSplash({ onDone }) {
  * ========================================================================== */
 
 /**
- * ⌘K / Ctrl-K command palette — a searchable launcher for every top action.
+ * ⌘K / Ctrl-K command palette: a searchable launcher for every top action.
  * Owns its own open state, binds the shortcut + an `eg:open-command-palette`
  * event, and is fully keyboard-driven (type to filter, ↑/↓ to move, ↵ to run).
  */
@@ -2482,6 +2498,14 @@ function CommandPalette() {
   const inputRef = useRef(null);
   const listRef = useRef(null);
   const dialogRef = useFocusTrap({ active: open, initialFocus: inputRef });
+
+  // Escape is also handled on the search input, but only reaches it while focus
+  // is still in there. Opening the palette from the `eg:open-command-palette`
+  // event (the copilot/command route) can leave focus on <body>, and clicking a
+  // non-focusable part of the card moves it off the input. In both cases the
+  // palette stopped closing on Escape and only the backdrop click was left.
+  // Every other overlay closes from the document, so this one does too.
+  useEscapeToClose(open, useCallback(() => setOpen(false), []));
 
   useEffect(() => {
     const onKey = (e) => {
@@ -2511,7 +2535,7 @@ function CommandPalette() {
     try {
       const r = fn();
       if (r && typeof r.then === 'function') {
-        r.then(() => toast(okMsg, { type: 'success' })).catch(() => toast('Export failed — is the backend running?', { type: 'error' }));
+        r.then(() => toast(okMsg, { type: 'success' })).catch(() => toast('Export failed. Is the backend running?', { type: 'error' }));
       } else {
         toast(okMsg, { type: 'success' });
       }
@@ -2535,7 +2559,7 @@ function CommandPalette() {
     if (unscanned) list.push({ id: 'scanall', label: `Scan all live hosts (${unscanned})`, Icon: Icon.Cpu, keywords: ['enumerate', 'services', 'ports'], run: () => scanAll(false) });
     list.push({ id: 'deep', label: `${deepScan ? 'Disable' : 'Enable'} deep scan (NSE vuln)`, Icon: Icon.Shield, keywords: ['cve', 'vulnerability'], run: toggleDeep });
     list.push({ id: 'monitor', label: `${monitor ? 'Stop' : 'Start'} monitor mode`, Icon: Icon.Activity, keywords: ['watch', 'drift', 'interval'], run: toggleMonitor });
-    list.push({ id: 'ops', label: 'Operations — passive · schedules · campaign…', Icon: Icon.Radar, keywords: ['passive', 'sniff', 'stealth', 'schedule', 'cron', 'campaign', 'subnet', 'aggregate'], run: () => window.dispatchEvent(new Event('eg:open-operations')) });
+    list.push({ id: 'ops', label: 'Operations: passive · schedules · campaign…', Icon: Icon.Radar, keywords: ['passive', 'sniff', 'stealth', 'schedule', 'cron', 'campaign', 'subnet', 'aggregate'], run: () => window.dispatchEvent(new Event('eg:open-operations')) });
     list.push({ id: 'copilot', label: 'Ask the AI Copilot…', Icon: Icon.Activity, keywords: ['ai', 'copilot', 'assistant', 'chat', 'claude', 'openai', 'gpt', 'explain', 'advise'], run: () => window.dispatchEvent(new Event('eg:open-copilot')) });
     list.push({ id: 'priv', label: 'Scan privilege / elevate…', Icon: Icon.Bolt, keywords: ['sudo', 'root', 'raw socket'], run: () => window.dispatchEvent(new Event('eg:open-privilege')) });
     if (hasHosts) {
@@ -2628,25 +2652,27 @@ function HelpOverlay({ onClose }) {
   useEscapeToClose(true, onClose);
   const ref = useFocusTrap();
   return (
-    <div className="fixed inset-0 z-[75] flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts">
-      <Backdrop onClose={onClose} className="absolute inset-0 bg-black/60 backdrop-blur-sm" />
-      <div ref={ref} tabIndex={-1} className="eg-card relative z-10 w-full max-w-sm p-5 outline-none">
-        <div className="mb-3 flex items-center justify-between">
-          <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-100">
-            <Icon.Terminal className="h-4 w-4 text-amber" /> Keyboard shortcuts
-          </h2>
-          <button onClick={onClose} aria-label="Close" className="rounded p-1 text-slate-500 outline-none transition hover:bg-steel-800 hover:text-slate-200 focus-visible:ring-2 focus-visible:ring-sky-400">
-            <Icon.X className="h-4 w-4" />
-          </button>
+    <div className="fixed inset-0 z-[75] overflow-y-auto overscroll-contain p-4" role="dialog" aria-modal="true" aria-label="Keyboard shortcuts">
+      <Backdrop onClose={onClose} className="fixed inset-0 bg-black/60 backdrop-blur-sm" />
+      <div className="relative z-10 flex min-h-full items-center justify-center">
+        <div ref={ref} tabIndex={-1} className="eg-card w-full max-w-sm p-5 outline-none">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-100">
+              <Icon.Terminal className="h-4 w-4 text-amber" /> Keyboard shortcuts
+            </h2>
+            <button onClick={onClose} aria-label="Close" className="rounded p-1 text-slate-500 outline-none transition hover:bg-steel-800 hover:text-slate-200 focus-visible:ring-2 focus-visible:ring-sky-400">
+              <Icon.X className="h-4 w-4" />
+            </button>
+          </div>
+          <ul className="divide-y divide-slate-800/70">
+            {SHORTCUTS.map((s) => (
+              <li key={s.keys} className="flex items-center justify-between gap-4 py-2 text-xs">
+                <span className="text-slate-300">{s.label}</span>
+                <kbd className="shrink-0 rounded border border-slate-600 bg-steel-900 px-2 py-0.5 font-mono text-[11px] text-slate-200">{s.keys}</kbd>
+              </li>
+            ))}
+          </ul>
         </div>
-        <ul className="divide-y divide-slate-800/70">
-          {SHORTCUTS.map((s) => (
-            <li key={s.keys} className="flex items-center justify-between gap-4 py-2 text-xs">
-              <span className="text-slate-300">{s.label}</span>
-              <kbd className="shrink-0 rounded border border-slate-600 bg-steel-900 px-2 py-0.5 font-mono text-[11px] text-slate-200">{s.keys}</kbd>
-            </li>
-          ))}
-        </ul>
       </div>
     </div>
   );
@@ -2683,7 +2709,7 @@ function ShortcutsLayer() {
 }
 
 /* ========================================================================== *
- * Operations panel — passive discovery · scheduled scans · multi-subnet campaign
+ * Operations panel: passive discovery · scheduled scans · multi-subnet campaign
  * One modal that surfaces the three headless / aggregate backend capabilities.
  * Opened from the command palette or Settings menu via `eg:open-operations`.
  * ========================================================================== */
@@ -2699,7 +2725,7 @@ const opsField =
 const opsBtn =
   'inline-flex items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold outline-none transition focus-visible:ring-2 focus-visible:ring-sky-400 disabled:opacity-50';
 
-/** Passive (zero-packet) discovery — listen for ARP/DHCP/mDNS/LLMNR/NBNS chatter. */
+/** Passive (zero-packet) discovery: listen for ARP/DHCP/mDNS/LLMNR/NBNS chatter. */
 function PassiveTab() {
   const { toast } = useToast();
   const [seconds, setSeconds] = useState(15);
@@ -2727,8 +2753,8 @@ function PassiveTab() {
     <div className="space-y-3">
       <p className="text-[11px] leading-relaxed text-slate-400">
         Listens for the broadcast/multicast traffic hosts emit on their own (ARP, DHCP, mDNS, LLMNR,
-        NetBIOS) and reports who is talking. <span className="text-matrix">Sends nothing on the wire</span> —
-        stealthy, and a clean contrast to active discovery. Needs <code className="text-slate-300">scapy</code> +
+        NetBIOS) and reports who is talking. <span className="text-matrix">Sends nothing on the wire</span>, so it is
+        stealthy and a clean contrast to active discovery. Needs <code className="text-slate-300">scapy</code> +
         raw-socket privilege.
       </p>
       <div className="flex items-end gap-2">
@@ -2755,7 +2781,7 @@ function PassiveTab() {
             {result.count} host{result.count === 1 ? '' : 's'} heard
           </div>
           {result.count === 0 ? (
-            <p className="px-3 py-4 text-center text-xs text-slate-500">No chatter observed in the window — try a longer listen.</p>
+            <p className="px-3 py-4 text-center text-xs text-slate-500">No chatter observed in the window. Try a longer listen.</p>
           ) : (
             <div className="max-h-56 overflow-auto">
               <table className="w-full text-left text-xs">
@@ -2781,7 +2807,7 @@ function PassiveTab() {
   );
 }
 
-/** Cron-style scheduled scans — create/list/toggle/delete recurring rules. */
+/** Cron-style scheduled scans: create/list/toggle/delete recurring rules. */
 function SchedulesTab() {
   const { toast } = useToast();
   const { target: currentTarget } = useScan();
@@ -2888,7 +2914,7 @@ function SchedulesTab() {
         {rules === null ? (
           <p className="px-3 py-4 text-center text-xs text-slate-500">Loading…</p>
         ) : rules.length === 0 ? (
-          <p className="px-3 py-4 text-center text-xs text-slate-500">No schedules yet — add one above.</p>
+          <p className="px-3 py-4 text-center text-xs text-slate-500">No schedules yet. Add one above.</p>
         ) : (
           <ul className="divide-y divide-slate-800/70">
             {rules.map((r) => (
@@ -2916,7 +2942,7 @@ function SchedulesTab() {
   );
 }
 
-/** Multi-subnet campaign — roll up the latest scan of several subnets into one view. */
+/** Multi-subnet campaign: roll up the latest scan of several subnets into one view. */
 function CampaignTab() {
   const { toast } = useToast();
   const { target: currentTarget } = useScan();
@@ -3003,7 +3029,7 @@ function CampaignTab() {
   );
 }
 
-/** The Operations modal — tabbed shell around the three capability panels. */
+/** The Operations modal: a tabbed shell around the three capability panels. */
 function OperationsPanel({ onClose }) {
   const [tab, setTab] = useState('passive');
   useEscapeToClose(true, onClose);
@@ -3056,7 +3082,7 @@ function OperationsLayer() {
 
 /**
  * Fires action-feedback toasts on meaningful scan-state transitions. Renders
- * nothing — a pure watcher, so scan state stays a plain data concern.
+ * nothing, a pure watcher, so scan state stays a plain data concern.
  */
 function ScanToasts() {
   const { phase, scanId, target, hosts, statusMessage } = useScan();
@@ -3083,7 +3109,7 @@ function ScanToasts() {
       } else if (phase === ScanPhase.HALTED) {
         toast('Scan stopped.', { type: 'warn', id: 'eg-scan-status' });
       } else if (phase === ScanPhase.ERROR) {
-        toast(statusMessage || 'The scan failed — check the backend and target.', {
+        toast(statusMessage || 'The scan failed. Check the backend and target.', {
           type: 'error', title: 'Scan error', id: 'eg-scan-status',
         });
       }
@@ -3111,7 +3137,7 @@ export default function IndustrialDashboard() {
   }, [phase]);
 
   // First-ever visit: point the operator at the command palette + shortcuts, once.
-  // localStorage (set when it fires) is the idempotency guard — no ref guard, so
+  // localStorage (set when it fires) is the idempotency guard, with no ref guard, so
   // React StrictMode's mount→unmount→remount still leaves exactly one live timer.
   useEffect(() => {
     if (typeof localStorage === 'undefined' || localStorage.getItem('eg_welcomed')) return undefined;
@@ -3139,7 +3165,7 @@ export default function IndustrialDashboard() {
         <DriftAlertBanner />
         <ScanErrorBanner />
         <ScanNoticeBanner />
-        <main className="flex min-w-0 flex-1 flex-col lg:min-h-0 lg:overflow-hidden">
+        <main className="flex min-w-0 flex-1 flex-col lg:min-h-0 lg:overflow-y-auto">
           <KpiStrip />
           <ScanConfigPanel />
           <AssetMatrix hosts={hosts} view={view} setView={setView} />

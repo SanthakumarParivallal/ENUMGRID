@@ -1,10 +1,10 @@
 /**
- * mockScanEngine.test.js — the offline stand-in that streams ScanState
+ * mockScanEngine.test.js: the offline stand-in that streams ScanState
  * snapshots to the cockpit until the live backend is wired in.
  *
  * The generator is intentionally random, so the tests drive it through a
  * **fixed-seed** PRNG: real generation code runs, but the "random" stream is
- * fully reproducible (a deterministic battery of scenarios, not fuzzing — so
+ * fully reproducible (a deterministic battery of scenarios, not fuzzing, so
  * coverage never flakes). A handful of targeted cases pin the control-flow
  * branches (target parsing, mid-run stop, no onDone) that the battery doesn't
  * deterministically force.
@@ -13,7 +13,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { createScanEngine, deepScanHost } from './mockScanEngine.js';
 import { PortState, HostStatus, ScanPhase, Protocol } from './schema.js';
 
-// mulberry32 — a tiny, deterministic PRNG. Same seed → same stream, every run.
+// mulberry32: a tiny, deterministic PRNG. Same seed → same stream, every run.
 function seeded(seed) {
   let a = seed >>> 0;
   return () => {
@@ -74,7 +74,7 @@ describe('deepScanHost', () => {
   });
 });
 
-describe('createScanEngine — deterministic seed battery', () => {
+describe('createScanEngine: deterministic seed battery', () => {
   // A fixed set of seeds × depths. Between them they exercise every host
   // archetype, the reachability coin-flip, filtered ports, UDP services, the
   // legacy-telnet finding, null hostnames, and octet de-duplication. Fixed →
@@ -141,7 +141,7 @@ describe('createScanEngine — deterministic seed battery', () => {
   });
 });
 
-describe('createScanEngine — targeted control flow', () => {
+describe('createScanEngine: targeted control flow', () => {
   it('parses common target syntaxes and falls back to 10.0.0. on gibberish', () => {
     vi.spyOn(Math, 'random').mockImplementation(seeded(4));
     const cidr = runToCompletion({ target: '172.16.2.0/24', scanId: 'c' });
@@ -161,7 +161,7 @@ describe('createScanEngine — targeted control flow', () => {
     const engine = createScanEngine({
       onSnapshot: (s) => {
         snapshots.push(s);
-        // Cancel from inside a callback once a few hosts have appeared — this
+        // Cancel from inside a callback once a few hosts have appeared. This
         // is the path that reschedules once and then trips step()'s guard.
         if (!stopped && s.hosts.length >= 3) {
           stopped = true;

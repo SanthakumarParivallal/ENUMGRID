@@ -1,12 +1,12 @@
 /**
- * ScanContext.jsx — the single owner of scan state for the whole cockpit.
+ * ScanContext.jsx: the single owner of scan state for the whole cockpit.
  * ---------------------------------------------------------------------------
  * Everything the dashboard renders flows out of this reducer. Snapshots are
  * validated through the Pydantic-style `ScanStateModel` before they touch the
  * tree, so a malformed frame from the network can never corrupt the UI.
  *
  * Today the frames come from `mockScanEngine`. To go live, swap the body of
- * `startScan` for an EventSource (see the commented `connectSSE` below) — the
+ * `startScan` for an EventSource (see the commented `connectSSE` below). The
  * reducer and every consumer stay exactly the same.
  */
 
@@ -49,7 +49,7 @@ function notifyDrift(alert) {
       if (alert.appeared.length) parts.push(`+${alert.appeared.length} new`);
       if (alert.disappeared.length) parts.push(`-${alert.disappeared.length} gone`);
       if (alert.changed.length) parts.push(`${alert.changed.length} changed`);
-      new Notification('EnumGrid — network changed', {
+      new Notification('EnumGrid: network changed', {
         body: `${alert.target}: ${parts.join(' · ') || 'configuration drift'}`,
       });
     };
@@ -62,7 +62,7 @@ function notifyDrift(alert) {
   }
 }
 
-// No fake/seeded history — the session log only ever shows REAL scans you ran.
+// No fake/seeded history: the session log only ever shows REAL scans you ran.
 const seededSessions = [];
 
 // --- scan-state persistence (survives page reloads) ----------------------- #
@@ -120,7 +120,7 @@ function persist(state) {
       }),
     );
   } catch {
-    /* storage full / unavailable — non-fatal */
+    /* storage full / unavailable, non-fatal */
   }
 }
 
@@ -405,7 +405,7 @@ export function ScanProvider({ children }) {
     persist(stateRef.current);
   }, [state.hosts, state.phase, state.progress, state.scanId, state.sessions, state.target]);
 
-  // Mock engine — used in mock mode and as the offline fallback. Its callbacks
+  // Mock engine: used in mock mode and as the offline fallback. Its callbacks
   // dispatch into the reducer; `dispatch` is stable so this is built once.
   const engineRef = useRef(null);
   if (engineRef.current === null) {
@@ -427,13 +427,13 @@ export function ScanProvider({ children }) {
     engineRef.current.start(target, scanId, deep);
     activeRef.current = { stop: () => engineRef.current.stop() };
     if (asFallback) {
-      console.warn('[scan] live backend unavailable — using offline mock engine');
+      console.warn('[scan] live backend unavailable, using offline mock engine');
     }
   }, []);
 
   // After a live scan completes, ask the backend what changed vs the previous
   // scan of the same target (new/gone devices, opened/closed ports). Best-effort
-  // and live-only — the mock engine has no history backend. While monitoring,
+  // and live-only: the mock engine has no history backend. While monitoring,
   // a real change raises a dismissible alert + a browser notification.
   const fetchDrift = useCallback((target) => {
     if (!target) return;
@@ -465,7 +465,7 @@ export function ScanProvider({ children }) {
         `/api/scan/stream?target=${encodeURIComponent(target)}&id=${scanId}` +
         (deep ? '&deep=1' : '');
       // EventSource can't set headers, so the token (if any) rides as a query
-      // param — same-origin/localhost only.
+      // param, same-origin/localhost only.
       const es = new EventSource(streamUrl(url));
       let gotData = false;
 
@@ -493,7 +493,7 @@ export function ScanProvider({ children }) {
         es.close();
         if (!gotData) {
           // Live backend never answered. For a security tool we must NOT silently
-          // show simulated data — fail honestly so results are never mistaken for
+          // show simulated data. Fail honestly so results are never mistaken for
           // a real scan. (Set VITE_USE_MOCK=true to use the demo engine on purpose.)
           if (USE_MOCK) {
             startMock(target, scanId, deep, true);
@@ -501,7 +501,7 @@ export function ScanProvider({ children }) {
             dispatch({
               type: 'ERROR',
               message:
-                'Backend unreachable or unauthorized — the scan engine didn’t respond. ' +
+                'Backend unreachable or unauthorized: the scan engine didn’t respond. ' +
                 'Check it’s running (./start.sh), and if API auth is enabled, set your ' +
                 'API token (the key button in the toolbar).',
             });
@@ -535,7 +535,7 @@ export function ScanProvider({ children }) {
   );
 
   // Start a scan. With NO target typed, auto-detect the local network and scan
-  // the whole /24 — "just press Start" does a complete network sweep.
+  // the whole /24, so "just press Start" does a complete network sweep.
   const startScan = useCallback(
     (rawTarget, deep = false) => {
       const target = (rawTarget || '').trim();
@@ -582,7 +582,7 @@ export function ScanProvider({ children }) {
 
   // --- runtime privilege elevation ----------------------------------------- #
   // Raise the backend from unprivileged to real raw-socket scans (-sS/-sU/-O)
-  // by validating a sudo password — no restart. The password is sent once over
+  // by validating a sudo password, with no restart. The password is sent once over
   // the local-only/admin-gated endpoint and never stored client-side.
   const applyPrivilege = useCallback((d) => {
     if (!d) return;
@@ -643,7 +643,7 @@ export function ScanProvider({ children }) {
 
   // When monitoring, schedule the next re-scan once the current one completes.
   // Declarative: the timer is (re)created whenever a scan finishes and is torn
-  // down if monitoring is turned off or a new scan starts — so it never stacks.
+  // down if monitoring is turned off or a new scan starts, so it never stacks.
   const monitorTimerRef = useRef(null);
   useEffect(() => {
     clearTimeout(monitorTimerRef.current);
@@ -711,8 +711,8 @@ export function ScanProvider({ children }) {
     if (sp.scanProfile && sp.scanProfile !== 'default') params.set('profile', sp.scanProfile);
     if (sp.scanScripts) params.set('scripts', sp.scanScripts);
     if (sp.scanPorts) params.set('ports', sp.scanPorts);
-    // A 429 is the backend saying "too many concurrent scans, retry shortly" —
-    // it has not scanned this host, so reporting "Failed" would be a lie about a
+    // A 429 is the backend saying "too many concurrent scans, retry shortly".
+    // It has not scanned this host, so reporting "Failed" would be a lie about a
     // scan that never ran. Come back a few times first (see lib/retry.js); only
     // a server that stays busy through all of them is a real failure.
     const attemptScan = (attempt) =>
@@ -734,13 +734,13 @@ export function ScanProvider({ children }) {
       })
       .catch(() => {
         // We only reach here in LIVE mode (mock mode returned above). A real
-        // backend error must surface as an error — never silently swapped for
+        // backend error must surface as an error, never silently swapped for
         // simulated data, so what you see is always a real scan result.
         dispatch({ type: 'HOST_VULN_ERROR', ip });
       });
   }, []);
 
-  // Per-host "Nmap Scan" row action — fast service scan; Deep toggle adds NSE.
+  // Per-host "Nmap Scan" row action: fast service scan; Deep toggle adds NSE.
   const scanHostVulns = useCallback(
     (ip) => {
       if (ip) runHostScan(ip, stateRef.current.deepScan);
@@ -748,7 +748,7 @@ export function ScanProvider({ children }) {
     [runHostScan],
   );
 
-  // "Scan All" — nmap live hosts (a few at a time; the backend also caps
+  // "Scan All": nmap live hosts (a few at a time; the backend also caps
   // concurrency). By default it fills in not-yet-scanned hosts; pass force=true
   // to RE-scan every live host with the currently-selected profile (so changing
   // the scan type actually re-runs against hosts that were already scanned).
@@ -761,7 +761,7 @@ export function ScanProvider({ children }) {
           // re-scan everything when forced; otherwise only hosts that haven't yet
           // completed a full nmap scan, so the run is incremental. NB: a host may
           // already show *discovery-mode* ports (a fast connect-scan preview) yet
-          // still need the real -sV/CVE pass — so we key off `scanned`, not
+          // still need the real -sV/CVE pass, so we key off `scanned`, not
           // `ports.length`.
           (force || !h.scanned) &&
           !h.vulnScanning,
@@ -783,7 +783,7 @@ export function ScanProvider({ children }) {
   }, [runHostScan]);
 
   // Auto port-scan: the moment a live DISCOVERY completes, immediately enumerate
-  // ports/services/OS on every up host — so a single "Start Scan" gives the full
+  // ports/services/OS on every up host, so a single "Start Scan" gives the full
   // picture (devices + open ports) without a second click. Runs once per scan.
   const autoScannedRef = useRef(null);
   useEffect(() => {
@@ -804,12 +804,12 @@ export function ScanProvider({ children }) {
   }, [state.phase, state.source, state.scanId, state.hosts, scanAll]);
 
   // One-click PDF report: POST the exact on-screen snapshot to the backend
-  // renderer and trigger a download. Stateless — report always matches screen.
+  // renderer and trigger a download. Stateless: the report always matches the screen.
   const downloadReport = useCallback((opts) => {
     const s = stateRef.current;
     if (!s.hosts.length) return Promise.reject(new Error('no hosts to report'));
     // `opts.aiSummary` asks the backend to prepend a grounded, copilot-written
-    // executive summary (best-effort — the report renders regardless).
+    // executive summary (best-effort; the report renders regardless).
     const body = { target: s.target, hosts: s.hosts, profile: s.scanProfile };
     if (opts && opts.aiSummary) body.include_ai_summary = true;
     // Returns the promise so callers can surface success/failure (e.g. a toast).
@@ -835,7 +835,7 @@ export function ScanProvider({ children }) {
       });
   }, []);
 
-  // Client-side CSV / JSON export of the current results (no backend needed —
+  // Client-side CSV / JSON export of the current results (no backend needed:
   // the data is already in state, matching the CLI's export formats).
   const exportCsv = useCallback(() => {
     const s = stateRef.current;

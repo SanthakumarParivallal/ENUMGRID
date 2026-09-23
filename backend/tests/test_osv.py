@@ -1,4 +1,4 @@
-"""test_osv.py — backport-aware OSV matching (network mocked, cache isolated)."""
+"""test_osv.py: backport-aware OSV matching (network mocked, cache isolated)."""
 
 from __future__ import annotations
 

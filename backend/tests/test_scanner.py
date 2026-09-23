@@ -1,9 +1,9 @@
 """
-test_scanner.py — deterministic unit tests for the NSE / OS parsing layer.
+test_scanner.py: deterministic unit tests for the NSE / OS parsing layer.
 
 None of these touch the network or the nmap binary: they exercise the pure
 functions that turn raw nmap script output into normalized, CVSS-scored
-findings — the part most likely to regress when the parsing is tweaked.
+findings, the part most likely to regress when the parsing is tweaked.
 """
 
 from __future__ import annotations
@@ -279,7 +279,7 @@ def test_profile_comprehensive_full_range():
 
 def test_every_profile_builds_without_error():
     # Every advertised profile must produce a valid arg string (no KeyError, and
-    # always a real scan type) — guards against a profile/meta drift.
+    # always a real scan type), which guards against a profile/meta drift.
     for name in scanner.SCAN_PROFILES:
         args = scanner.build_host_scan_args(name, None, None, False, False)
         assert args and "--host-timeout" in args
@@ -468,11 +468,11 @@ def test_run_scan_sudo_falls_back_when_sudo_fails(monkeypatch):
     scanner._reset_capability_cache()
 
 
-# --- runtime privilege elevation (dashboard "Elevate" — sudo password) ------ #
+# --- runtime privilege elevation (dashboard "Elevate", sudo password) ------ #
 # The backend can be raised from unprivileged to real raw-socket scans at
 # runtime by validating a sudo password, without a restart. These pin that the
 # password is validated, held only in memory, lifts capability to "sudo", and is
-# dropped cleanly — and is never required to run.
+# dropped cleanly, and is never required to run.
 
 
 class _Proc:
@@ -612,7 +612,7 @@ def test_privilege_status_shape(monkeypatch):
     _reset_priv()
 
 
-# --- async pipeline (nmap boundary stubbed at _run_scan — no binary/network) - #
+# --- async pipeline (nmap boundary stubbed at _run_scan, no binary/network) - #
 import asyncio  # noqa: E402
 
 
@@ -1072,7 +1072,7 @@ def test_host_timed_out_detects_xml_flag():
 
 
 def test_service_scan_flags_timed_out_host(monkeypatch):
-    # nmap lists a timed-out host as up with zero ports — must not look like "nothing open".
+    # nmap lists a timed-out host as up with zero ports, so it must not look like "nothing open".
     node = _FakeFullNode(state="up")
     monkeypatch.setattr(
         scanner, "_run_scan", lambda h, a: (_XmlScanner({"10.0.0.5": node}, _TIMEDOUT_XML), "")
@@ -1228,7 +1228,7 @@ def test_sudo_output_noninteractive_and_failures(monkeypatch):
 # --- effective_args: what the UI is allowed to print --------------------------
 # The dashboard prints the command it is about to run. If it printed the profile
 # as declared, a root-only profile on an unprivileged backend would show a -sS /
-# -sU / -A command that never executes — the displayed-vs-actual gap this tool
+# -sU / -A command that never executes, the displayed-vs-actual gap this tool
 # exists to close. `effective_args` is the single source of truth for that.
 def test_effective_args_adapts_when_unprivileged(monkeypatch):
     monkeypatch.setattr(scanner, "can_raw_scan", lambda: False)

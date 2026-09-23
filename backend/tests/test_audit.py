@@ -1,4 +1,4 @@
-"""test_audit.py — the append-only audit trail."""
+"""test_audit.py: the append-only audit trail."""
 
 from __future__ import annotations
 

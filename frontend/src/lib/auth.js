@@ -1,5 +1,5 @@
 /**
- * auth.js — optional API-token support for the dashboard.
+ * auth.js: optional API-token support for the dashboard.
  * ---------------------------------------------------------------------------
  * The backend is unauthenticated by default (zero-config localhost dev). When an
  * operator enables RBAC (`ENUMGRID_ADMIN_TOKEN` / `ENUMGRID_VIEWER_TOKEN`), every
@@ -7,7 +7,7 @@
  * token and attaches it:
  *
  *   • normal `fetch` calls send `Authorization: Bearer <token>` (the recommended
- *     channel — keeps the secret out of URLs/logs);
+ *     channel, which keeps the secret out of URLs/logs);
  *   • the SSE stream (`EventSource`) cannot set headers, so its URL carries the
  *     token as a `?token=` query parameter (localhost only).
  *
@@ -42,7 +42,7 @@ export function setToken(value) {
     if (_token) localStorage.setItem(KEY, _token);
     else localStorage.removeItem(KEY);
   } catch {
-    /* storage unavailable — token still works for this session */
+    /* storage unavailable; token still works for this session */
   }
 }
 

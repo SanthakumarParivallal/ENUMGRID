@@ -1,5 +1,5 @@
 /**
- * toast.provider.test.jsx — the <ToastProvider> queue + rendering (the pure
+ * toast.provider.test.jsx: the <ToastProvider> queue + rendering (the pure
  * toastTone mapping is covered in toast.test.js). Exercises queueing, the two
  * a11y live-regions (polite status vs assertive alert), auto-dismiss timing,
  * keyed replacement, manual dismissal, and unmount cleanup.

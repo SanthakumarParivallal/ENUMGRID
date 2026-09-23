@@ -1,8 +1,8 @@
 """
-notify.py — outbound alerting (webhook / Slack / syslog).
+notify.py: outbound alerting (webhook / Slack / syslog).
 
 Monitoring is only useful if it can reach you. When a scan completes with
-findings — or the network drifts — EnumGrid can push an alert to the channels you
+findings, or the network drifts, EnumGrid can push an alert to the channels you
 already watch:
 
   * a generic JSON **webhook** (`ENUMGRID_WEBHOOK_URL`) for SIEM/automation;
@@ -65,7 +65,7 @@ def _slack_text(summary: dict) -> str:
     up = summary.get("hosts_up", summary.get("hosts", 0))
     findings = summary.get("findings", 0)
     kev = summary.get("kev", 0)
-    bits = [f":satellite: *EnumGrid scan complete* — `{t}`", f"{up} hosts up"]
+    bits = [f":satellite: *EnumGrid scan complete*: `{t}`", f"{up} hosts up"]
     if findings:
         bits.append(f"*{findings} vuln findings*")
     if kev:

@@ -29,29 +29,29 @@ export default {
         },
         // Signal accents. These are themeable for the same reason the chassis is:
         // the cockpit hues (#FFB300 / #00E676) are tuned for a near-black surface
-        // and collapse to ~1.4:1 on the light theme's white panels — far below
+        // and collapse to ~1.4:1 on the light theme's white panels, far below
         // WCAG AA. The light theme redefines them to darker equivalents in
         // index.css; every `text-amber`, `border-matrix/40`, `bg-crimson/10`
         // utility then follows automatically.
-        // Cyberpunk Amber — primary "energized / in-progress" accent
+        // Cyberpunk Amber: primary "energized / in-progress" accent
         amber: {
           DEFAULT: 'rgb(var(--accent-amber) / <alpha-value>)',
           glow: 'rgb(var(--accent-amber-glow) / <alpha-value>)',
           dim: 'rgb(var(--accent-amber-dim) / <alpha-value>)',
         },
-        // Matrix Green — healthy / up / open / success
+        // Matrix Green: healthy / up / open / success
         matrix: {
           DEFAULT: 'rgb(var(--accent-matrix) / <alpha-value>)',
           dim: 'rgb(var(--accent-matrix-dim) / <alpha-value>)',
         },
-        // Sky — Operations panel + "this device" identity. Only the two shades
+        // Sky: Operations panel + "this device" identity. Only the two shades
         // used for text/dots are re-toned; the rest of Tailwind's sky scale (used
         // for borders and 10%-alpha fills) is fine on either surface.
         sky: {
           300: 'rgb(var(--accent-sky) / <alpha-value>)',
           400: 'rgb(var(--accent-sky-strong) / <alpha-value>)',
         },
-        // Crimson — critical errors, filtered/blocked ports, hosts down
+        // Crimson: critical errors, filtered/blocked ports, hosts down
         crimson: {
           DEFAULT: 'rgb(var(--accent-crimson) / <alpha-value>)',
           // `glow` is error TEXT sitting on an error-tinted surface, where the

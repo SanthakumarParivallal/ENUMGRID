@@ -1,14 +1,14 @@
 """
-adscan.py — Active Directory / LDAP enumeration (real, credential-gated).
+adscan.py: Active Directory / LDAP enumeration (real, credential-gated).
 
 In a Windows environment the domain controller is the map of the whole estate.
 Given domain credentials, this enumerates computers and users from AD over LDAP
-(`ldap3`, optional dependency) — the foundation of internal AD recon: hostnames,
+(`ldap3`, optional dependency), the foundation of internal AD recon: hostnames,
 operating systems, last-logon, and accounts. Read-only searches only.
 
 The DN / base-DN helpers and the entry-shaping are fully unit-tested; the live
 bind/search runs only when ldap3 + credentials are provided. Authorized use
-only — your own domain.
+only: your own domain.
 """
 
 from __future__ import annotations

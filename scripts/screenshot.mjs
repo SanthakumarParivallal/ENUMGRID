@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 /**
- * scripts/screenshot.mjs — capture a REAL dashboard screenshot for the README.
+ * scripts/screenshot.mjs: capture a REAL dashboard screenshot for the README.
  *
- * Drives headless Chrome over the DevTools Protocol (no npm deps — uses Node's
+ * Drives headless Chrome over the DevTools Protocol (no npm deps; uses Node's
  * built-in fetch + WebSocket): opens the cockpit, runs an actual scan against
  * your local network, waits for results, and writes a PNG. The image is a real
- * scan of YOUR network — never simulated data.
+ * scan of YOUR network, never simulated data.
  *
  * Usage:  node scripts/screenshot.mjs [url] [outfile]
  *   defaults: http://127.0.0.1:5173  →  docs/dashboard.png

@@ -1,18 +1,18 @@
 /**
- * retry.js — which failed responses are worth trying again, and how long to wait.
+ * retry.js: which failed responses are worth trying again, and how long to wait.
  * ---------------------------------------------------------------------------
- * `/api/host/scan` answers **429** with *"server busy — too many concurrent
+ * `/api/host/scan` answers **429** with *"server busy: too many concurrent
  * scans, retry shortly"*. That is the backend refusing to start a scan right
  * now, not a report that a scan ran and failed: it happens whenever more than
  * `ENUMGRID_MAX_SCANS` (4) are in flight, which "Scan All" (3 workers) plus a
- * couple of row clicks — or a second open tab — reaches easily.
+ * couple of row clicks, or a second open tab, reaches easily.
  *
  * Collapsing it into the generic error path put a red **Failed** badge on a host
  * nmap had never been pointed at, with a tooltip claiming its scan failed. So
  * this module holds the one decision that fixes it: come back shortly, and only
  * call it a failure once the server has stayed busy across several attempts.
  *
- * A 504 is deliberately *not* retryable — that one means the scan ran and hit
+ * A 504 is deliberately *not* retryable. That one means the scan ran and hit
  * its deadline, so "failed" is the honest word for it and repeating it would
  * just spend another full timeout.
  */

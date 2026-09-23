@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-cve_precision.py — precision / recall of EnumGrid's OFFLINE version->CVE matcher.
+cve_precision.py: precision / recall of EnumGrid's OFFLINE version->CVE matcher.
 
 detection_benchmark.py measures CVE *recall* against a live testbed. This harness
-measures the harder, higher-stakes property — **precision**: does the matcher
+measures the harder, higher-stakes property, **precision**: does the matcher
 attach the *right* CVE to the *right* version, and never a wrong one? That is
 where naive scanners fail (a version number collides with another product's magic
 build, a distro backport looks vulnerable, a product name is a substring of
@@ -21,8 +21,8 @@ Output is micro-averaged precision / recall / F1 with **Wilson score 95 % CIs**
 normal approximation degenerates to a zero-width interval), plus a per-category
 breakdown so the boundary / wrong-product / backport traps are visible.
 
-The matcher is fully offline and deterministic, so — unlike the live detection
-benchmark — this whole harness runs in CI with no Docker and no network, and its
+The matcher is fully offline and deterministic, so (unlike the live detection
+benchmark) this whole harness runs in CI with no Docker and no network, and its
 result is a reproducible dissertation artifact.
 
 Usage:
@@ -44,14 +44,14 @@ _DEFAULT_CORPUS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cve_
 
 
 # --------------------------------------------------------------------------- #
-# Statistics (pure) — Wilson score interval for a binomial proportion
+# Statistics (pure): Wilson score interval for a binomial proportion
 # --------------------------------------------------------------------------- #
 def wilson_ci(k: int, n: int, z: float = 1.96) -> tuple[float | None, float | None]:
     """95 % Wilson score interval for k successes in n Bernoulli trials.
 
     Preferred over the normal approximation because it stays inside [0, 1] and
     gives a *non-degenerate* interval when the observed proportion is exactly 1.0
-    (all correct) or 0.0 — precisely the regime a good matcher lives in. Returns
+    (all correct) or 0.0, precisely the regime a good matcher lives in. Returns
     (None, None) when there are no trials (the proportion is undefined)."""
     if n <= 0:
         return (None, None)
@@ -125,7 +125,7 @@ def aggregate(cases: list[dict]) -> dict:
 
 
 # --------------------------------------------------------------------------- #
-# Corpus + matcher wiring (matcher is offline/deterministic — CI-safe)
+# Corpus + matcher wiring (matcher is offline/deterministic, so CI-safe)
 # --------------------------------------------------------------------------- #
 def load_corpus(path: str) -> dict:
     with open(path, encoding="utf-8") as fh:

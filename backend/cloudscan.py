@@ -1,15 +1,15 @@
 """
-cloudscan.py — AWS cloud asset discovery (real, credential-gated).
+cloudscan.py: AWS cloud asset discovery (real, credential-gated).
 
 The LAN is only half the attack surface; the other half is cloud. This module
 inventories AWS the way EnumGrid inventories a subnet: live EC2 instances (with
 public IPs), security groups open to the world (0.0.0.0/0), and public S3
 buckets. It uses `boto3` (optional dependency) with your standard AWS credential
-chain (env vars / shared config / IAM role) — nothing is hardcoded.
+chain (env vars / shared config / IAM role); nothing is hardcoded.
 
 The pure response parsers are fully unit-tested; the live AWS calls are
 best-effort and only run when boto3 + credentials are present. Read-only:
-Describe/List calls only, never any mutation. Authorized use only — your own
+Describe/List calls only, never any mutation. Authorized use only: your own
 accounts.
 """
 
@@ -56,7 +56,7 @@ def open_sg_findings(security_groups: list[dict]) -> list[dict]:
     for sg in security_groups or []:
         for perm in sg.get("IpPermissions", []) or []:
             v4 = any(r.get("CidrIp") == "0.0.0.0/0" for r in perm.get("IpRanges", []) or [])
-            # IPv6 ::/0 is just as world-open as 0.0.0.0/0 — flag it too.
+            # IPv6 ::/0 is just as world-open as 0.0.0.0/0, so flag it too.
             v6 = any(r.get("CidrIpv6") == "::/0" for r in perm.get("Ipv6Ranges", []) or [])
             if not (v4 or v6):
                 continue

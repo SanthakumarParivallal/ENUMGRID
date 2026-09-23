@@ -1,5 +1,5 @@
 """
-app.py — FastAPI service for the Industrial Network Enumeration Platform.
+app.py: FastAPI service for the Industrial Network Enumeration Platform.
 
 Endpoints
 ---------
@@ -77,8 +77,8 @@ async def _lifespan(_app: FastAPI):
     """Start the job workers + schedule ticker, and stop them cleanly on shutdown.
 
     Replaces the deprecated ``@app.on_event`` hooks (FastAPI emits a
-    DeprecationWarning for those and will drop them). The names it touches —
-    ``_JOB_HANDLERS``, ``_job_stop``, ``_scheduler_loop`` — are module globals
+    DeprecationWarning for those and will drop them). The names it touches,
+    ``_JOB_HANDLERS``, ``_job_stop`` and ``_scheduler_loop``, are module globals
     defined further down; that is fine because they are only looked up when the
     app actually starts, long after import finishes.
 
@@ -156,7 +156,7 @@ async def _local_only_in_open_mode(request, call_next):
 
     When no auth token is configured the API grants admin to every caller, which
     is only acceptable for a *local* operator. This guard therefore restricts open
-    mode to loopback peers whose `Host` header is also local — so binding to
+    mode to loopback peers whose `Host` header is also local, so binding to
     `0.0.0.0` (e.g. Docker `--network host`), a LAN client, or a DNS-rebinding /
     drive-by request from a browser on another origin cannot drive the scanner
     without an explicit `ENUMGRID_ADMIN_TOKEN`. When a token *is* configured the
@@ -212,7 +212,7 @@ async def _request_context(request, call_next):
     The id is taken from an inbound ``X-Request-Id`` (so a proxy/client can
     correlate) or generated, attached to every log line for this request via a
     context var, and returned in the ``X-Request-Id`` response header. Only the
-    method/path/status/timing are logged — never the query string, which can
+    method/path/status/timing are logged, never the query string, which can
     carry ``?token=``.
     """
     rid = obs.set_request_id(request.headers.get("x-request-id"))
@@ -241,12 +241,12 @@ def health() -> dict:
         # How scans get their privilege: "root" (running as root), "sudo"
         # (passwordless sudo, elevated per scan), or "unprivileged" (root-only
         # flags auto-rewritten so scans still run). `can_raw` is true for the
-        # first two — i.e. real -sS/-sU/-O are available.
+        # first two, i.e. real -sS/-sU/-O are available.
         "capability": scan_capability(),
         "can_raw": can_raw_scan(),
         "can_elevate": privilege_status()["can_elevate"],
         "max_concurrent_scans": MAX_CONCURRENT_SCANS,
-        # Total seconds one per-host scan may take (all stages) — the dashboard
+        # Total seconds one per-host scan may take (all stages). The dashboard
         # waits at least this long before calling a host scan failed.
         "host_scan_deadline": HOST_SCAN_DEADLINE,
         "allow_public": ALLOW_PUBLIC,
@@ -256,7 +256,7 @@ def health() -> dict:
             "nvd_api_key": bool(cve.API_KEY),
             "cached_services": cve.cache_count(),
         },
-        # Reproducibility: tool/git/nmap/runtime build info (cached — no per-call
+        # Reproducibility: tool/git/nmap/runtime build info (cached, no per-call
         # subprocess). Same manifest is embedded in exported PDF reports.
         "provenance": provenance.build_info(),
     }
@@ -283,12 +283,12 @@ def _sse_error(scan_id: str | None, target: str, reason: str) -> StreamingRespon
 
 @app.get("/api/network")
 def network() -> dict:
-    """Best-effort detection of THIS device's own network identity — the
+    """Best-effort detection of THIS device's own network identity: the
     operator's IP on the LAN, hostname, every detected local IPv4 address and a
-    suggested /24 target — so the dashboard can show "you are here" and pre-fill
+    suggested /24 target, so the dashboard can show "you are here" and pre-fill
     the network you're actually on.
 
-    Everything returned is read locally from the OS (no packets are sent — the
+    Everything returned is read locally from the OS (no packets are sent; the
     UDP "connect" only asks the kernel which source address it would route
     from). Nothing is fabricated: fields the OS won't reveal come back null/[]."""
     import socket
@@ -311,7 +311,7 @@ def network() -> dict:
         pass
 
     # Every local IPv4 the resolver knows about (loopback filtered out). This is
-    # best-effort — on some hosts the resolver only returns one — so the UI
+    # best-effort (on some hosts the resolver only returns one), so the UI
     # treats the route-based `primary_ip` as authoritative and this as extra.
     addresses: list[str] = []
     seen: set[str] = set()
@@ -355,13 +355,13 @@ async def scan_stream(
 ):
     """Stream a scan as Server-Sent Events.
 
-    * mode=discover (default): fast device discovery — live hosts with MAC +
+    * mode=discover (default): fast device discovery: live hosts with MAC +
       vendor + hostname, no nmap. The deep service/vuln scan is on-demand per
       device via /api/host/scan.
     * mode=full: the original two-tiered nmap pipeline (sweep -> -sV).
 
     Every request is authorized (optional token) and its target is vetted
-    through the *same* `ScopeValidator` the CLI uses — loopback, multicast,
+    through the *same* `ScopeValidator` the CLI uses. Loopback, multicast,
     broadcast, reserved space, oversized scopes and (by default) public targets
     are refused. Each `data:` frame is a JSON-serialized `ScanState`.
     """
@@ -385,7 +385,7 @@ async def scan_stream(
             if not ok:
                 err = ScanState(
                     scan_id=id, target=target, phase=ScanPhase.ERROR, progress=0,
-                    message="server busy — too many concurrent scans, retry shortly",
+                    message="server busy: too many concurrent scans, retry shortly",
                 )
                 yield f"data: {err.model_dump_json()}\n\n"
                 return
@@ -423,7 +423,7 @@ def profiles() -> dict:
     """The available nmap scan profiles (Zenmap-style) + whether we have root.
 
     Each profile includes the *real* nmap arguments it runs, so the UI can show
-    the exact command — proof the scan genuinely differs per profile (not faked).
+    the exact command, proof the scan genuinely differs per profile (not faked).
     """
     merged = {}
     for key, meta in PROFILE_META.items():
@@ -436,7 +436,7 @@ def profiles() -> dict:
         # `args` is the profile as declared; `effective_args` is what nmap is
         # actually invoked with on THIS backend. They differ whenever a root-only
         # profile (-sS/-sU/-A) runs unprivileged, and the UI must print the
-        # second one — otherwise the "exact command" it shows is not the command
+        # second one. Otherwise the "exact command" it shows is not the command
         # that runs. `adapt_note` explains the difference in one line.
         real, note = effective_args(args)
         merged[key] = {**meta, "args": args, "effective_args": real, "adapt_note": note}
@@ -460,7 +460,7 @@ def privilege() -> dict:
 
     Lets the UI show whether real raw-socket scans (-sS/-sU/-O) are available and
     whether the operator could elevate to them by entering a sudo password (see
-    POST /api/privilege/elevate) — no restart required.
+    POST /api/privilege/elevate). No restart required.
     """
     return privilege_status()
 
@@ -502,7 +502,7 @@ def privilege_drop(
     drop_privileges()
     audit.record("privilege_drop")
     status = privilege_status()
-    status.update({"ok": True, "message": "dropped — scans run unprivileged again"})
+    status.update({"ok": True, "message": "dropped: scans run unprivileged again"})
     return status
 
 
@@ -526,7 +526,7 @@ def set_nvd_key(
     token: str | None = Query(None),
     authorization: str | None = Header(None),
 ) -> JSONResponse:
-    """Set (or clear) the NVD API key at runtime — never logged, never echoed back.
+    """Set (or clear) the NVD API key at runtime. Never logged, never echoed back.
 
     This is the user-friendly alternative to editing the environment: paste the
     free key from nvd.nist.gov in the dashboard and live CVE lookups immediately
@@ -571,7 +571,7 @@ def copilot_set_key(
     token: str | None = Query(None),
     authorization: str | None = Header(None),
 ) -> JSONResponse:
-    """Save (or clear) a provider API key from the dashboard — persisted 0600,
+    """Save (or clear) a provider API key from the dashboard. Persisted 0600,
     gitignored, never logged. Admin-gated; the key value is never echoed back."""
     if not admin_ok(token, authorization):
         raise HTTPException(status_code=401, detail="admin token required")
@@ -631,7 +631,7 @@ def copilot_ollama_pull(
 ):
     """Download an Ollama model from the dashboard, streaming real progress as SSE
     so the operator never needs a terminal. Admin-gated (it's a local action that
-    consumes disk/CPU). Progress is genuine — a down server fails honestly."""
+    consumes disk/CPU). Progress is genuine; a down server fails honestly."""
     if not admin_ok(token, authorization):
         raise HTTPException(status_code=401, detail="admin token required")
     model = str(payload.get("model") or "")
@@ -674,7 +674,7 @@ def copilot_summary(
 ) -> JSONResponse:
     """A one-shot, grounded executive summary of the posted scan (for the PDF
     report). Read-gated. Honest: ``available:false`` + reason when no provider is
-    ready — never a fabricated summary."""
+    ready, never a fabricated summary."""
     if not token_ok(token, authorization):
         raise HTTPException(status_code=401, detail="unauthorized")
     context = payload.get("context") if isinstance(payload.get("context"), dict) else None
@@ -695,7 +695,7 @@ async def host_scan(
 ):
     """Scan a single host with the chosen nmap profile and return its Host record.
 
-    Powers the per-row "Nmap Scan" button + "Scan All" — the client merges the
+    Powers the per-row "Nmap Scan" button + "Scan All". The client merges the
     result back into the grid without disturbing the other hosts. `profile`,
     `scripts` and `ports` are validated server-side (no nmap-arg injection).
     Subject to the same auth, scope and concurrency policy as the stream.
@@ -710,14 +710,14 @@ async def host_scan(
     async with scan_slot() as ok:
         if not ok:
             return JSONResponse(
-                {"error": "server busy — too many concurrent scans, retry shortly"},
+                {"error": "server busy: too many concurrent scans, retry shortly"},
                 status_code=429,
             )
         try:
             host = await scan_single_host(ip, deep, profile, scripts, ports, adaptive=adaptive)
         except (TimeoutError, asyncio.TimeoutError):
             return JSONResponse(
-                {"error": "scan timed out — try a faster profile or a narrower port range"},
+                {"error": "scan timed out. Try a faster profile or a narrower port range"},
                 status_code=504,
             )
         except Exception as exc:  # noqa: BLE001 - surface a clean error, never hang
@@ -737,7 +737,7 @@ def host_credscan(
 
     Credentialed scanning reads the *truth* from the host instead of inferring it
     from banners (kills version-match false positives). Credentials are used in
-    memory only — never logged or stored. Authorized use only: scan hosts you
+    memory only, never logged or stored. Authorized use only: scan hosts you
     administer. Body: ``{ip, username, password?, key_filename?, port?}``.
     """
     if not admin_ok(token, authorization):
@@ -751,7 +751,7 @@ def host_credscan(
     except ScopeRejected as exc:
         return JSONResponse({"ok": False, "error": exc.reason}, status_code=400)
     # `port` arrives as free-form JSON, so a non-numeric or out-of-range value has
-    # to be refused here — bare int() would raise and surface as a 500. Only an
+    # to be refused here; bare int() would raise and surface as a 500. Only an
     # absent/blank port falls back to 22; an explicit 0 is a bad value, not a
     # request for the default, and is rejected below rather than silently rewritten.
     raw_port = payload.get("port")
@@ -770,7 +770,7 @@ def host_credscan(
         port=port,
     )
     # Backport-aware CVEs from the *exact* installed packages (OSV.dev): this is
-    # authoritative assessment — a fix backported by the distro is not flagged.
+    # authoritative assessment: a fix backported by the distro is not flagged.
     if facts.get("ok") and facts.get("package_list"):
         ecosystem = osv.ecosystem_from_os(facts.get("os", ""))
         findings = osv.scan_packages(facts["package_list"], ecosystem) if ecosystem else []
@@ -820,9 +820,9 @@ def report_pdf(
     The dashboard POSTs exactly what it's showing, so the report can never drift
     from the screen. Stateless: the server holds no scan, it just formats. Pass
     ``include_ai_summary: true`` to prepend a grounded, copilot-written executive
-    summary (best-effort — a copilot failure never blocks the report).
+    summary (best-effort; a copilot failure never blocks the report).
 
-    Read-gated (viewer or admin), matching ``/api/copilot/summary`` — both can
+    Read-gated (viewer or admin), matching ``/api/copilot/summary``. Both can
     spend the operator's own LLM key (via ``include_ai_summary``), so neither may
     be driven by an unauthenticated caller when RBAC is configured. Open when no
     tokens are set (the local-only guard still fences off the zero-config mode).
@@ -856,7 +856,7 @@ def history_list(
     token: str | None = Query(None),
     authorization: str | None = Header(None),
 ) -> dict:
-    """Recent scan summaries — powers the dashboard's history timeline.
+    """Recent scan summaries. Powers the dashboard's history timeline.
 
     Read access (viewer or admin); open when no tokens are configured. The scan
     history is operator data (device inventory + open ports), so it is gated by
@@ -922,7 +922,7 @@ def audit_log(
     token: str | None = Query(None),
     authorization: str | None = Header(None),
 ) -> dict:
-    """Recent audit entries — every scan, refusal and completion is recorded.
+    """Recent audit entries: every scan, refusal and completion is recorded.
 
     Read access (viewer or admin); open when no tokens are configured.
     """
@@ -932,7 +932,7 @@ def audit_log(
 
 
 # --------------------------------------------------------------------------- #
-# Cloud (AWS) + Active Directory (LDAP) discovery — credential-gated.
+# Cloud (AWS) + Active Directory (LDAP) discovery, credential-gated.
 # --------------------------------------------------------------------------- #
 @app.get("/api/cloud/aws")
 def cloud_aws(
@@ -960,7 +960,7 @@ def ad_enum(
     """Active Directory enumeration over LDAP (computers + users), read-only.
 
     Body: ``{dc_host, domain, username, password, use_ssl?}``. Credentials are
-    used in memory only — never logged. Authorized use only (your own domain)."""
+    used in memory only, never logged. Authorized use only (your own domain)."""
     if not admin_ok(token, authorization):
         raise HTTPException(status_code=401, detail="admin token required")
     required = ("dc_host", "domain", "username", "password")
@@ -984,7 +984,7 @@ def passive_discover(
     token: str | None = Query(None),
     authorization: str | None = Header(None),
 ) -> dict:
-    """Passive, zero-packet host discovery — listens for ARP / DHCP / mDNS / LLMNR
+    """Passive, zero-packet host discovery. Listens for ARP / DHCP / mDNS / LLMNR
     / NBNS chatter and reports who announced themselves. Sends **nothing** on the
     wire (stealth). Needs scapy + raw-socket privilege; returns ``available:false``
     with a reason when either is missing (never fabricates hosts)."""
@@ -997,7 +997,7 @@ def passive_discover(
 
 
 # --------------------------------------------------------------------------- #
-# Job queue — submit scans as background jobs, poll for results (scale).
+# Job queue: submit scans as background jobs, poll for results (scale).
 # --------------------------------------------------------------------------- #
 def _job_host_scan(params: dict) -> dict:
     """Worker handler: run one nmap host scan and return the Host record."""
@@ -1082,7 +1082,7 @@ def jobs_submit(
     params = {k: v for k, v in payload.items() if k != "kind"}
     # Vet the scope *before* queueing. The worker vets again (defence in depth),
     # but only checking there would have this endpoint answer "queued" for a job
-    # that can never run — and record a job_submit with no matching refusal.
+    # that can never run, and record a job_submit with no matching refusal.
     # `ip` is the host_scan param, `target` the network_scan one.
     for field in ("ip", "target"):
         if params.get(field):
@@ -1124,14 +1124,14 @@ def jobs_get(
 
 
 # --------------------------------------------------------------------------- #
-# Scheduled scans — cron-style recurring rules (fire even with no browser open).
+# Scheduled scans: cron-style recurring rules (fire even with no browser open).
 # --------------------------------------------------------------------------- #
 @app.get("/api/schedules")
 def schedules_list(
     token: str | None = Query(None),
     authorization: str | None = Header(None),
 ) -> dict:
-    """All schedule rules (read-gated like history — it exposes target scopes)."""
+    """All schedule rules (read-gated like history, since it exposes target scopes)."""
     if not token_ok(token, authorization):
         raise HTTPException(status_code=401, detail="unauthorized")
     return {"schedules": [s.to_dict() for s in _schedules.list()]}

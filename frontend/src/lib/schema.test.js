@@ -1,5 +1,5 @@
 /**
- * schema.test.js — the client-side Pydantic-style coercion layer.
+ * schema.test.js: the client-side Pydantic-style coercion layer.
  *
  * The reducer ingests raw SSE frames *only* after they pass through these
  * factories, so this is the firewall that stops a malformed frame from
@@ -214,7 +214,7 @@ describe('derived helpers', () => {
 
   it('collectVulns falls through to raw CVSS when KEV + EPSS tie', () => {
     // Two findings that tie on KEV (neither) and EPSS (both absent) so the sort
-    // decides on CVSS — exercising the CVSS tie-breaker rung of the comparator.
+    // decides on CVSS, exercising the CVSS tie-breaker rung of the comparator.
     const host = HostModel({
       ip: '10.0.0.13',
       ports: [{ port: 443, vulns: [
@@ -244,7 +244,7 @@ describe('derived helpers', () => {
     expect(s.up).toBe(1);
     expect(s.down).toBe(1);
     expect(s.openPorts).toBe(2); // 80 + 8080 (22 is closed)
-    expect(s.services).toBe(1); // only 'http' — 'unknown' is filtered out
+    expect(s.services).toBe(1); // only 'http'; 'unknown' is filtered out
     expect(s.critical).toBe(1); // the flagged port 80
     expect(s.vulns).toBe(2); // 1 host-level + 1 port-level
   });

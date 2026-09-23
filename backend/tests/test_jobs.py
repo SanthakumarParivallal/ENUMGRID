@@ -1,4 +1,4 @@
-"""test_jobs.py — persistent job queue + atomic claim + worker core."""
+"""test_jobs.py: persistent job queue + atomic claim + worker core."""
 
 from __future__ import annotations
 
@@ -105,7 +105,7 @@ def test_run_workers_drains_the_queue_until_stopped():
 
 
 def test_get_refuses_an_id_sqlite_cannot_hold_instead_of_raising():
-    """An id outside SQLite's 64-bit range names no row — it must read as a miss.
+    """An id outside SQLite's 64-bit range names no row, so it must read as a miss.
 
     `GET /api/jobs/<21-digit number>` used to answer 500: the driver raises
     OverflowError rather than simply matching nothing, and the exception escaped the

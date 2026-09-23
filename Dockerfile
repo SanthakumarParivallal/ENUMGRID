@@ -1,7 +1,7 @@
-# EnumGrid — reproducible backend + CLI image, with nmap baked in.
+# EnumGrid: reproducible backend + CLI image, with nmap baked in.
 #
 # Build:  docker build -t enumgrid .
-# Run the API (LAN scanning needs the host network — see docker-compose.yml):
+# Run the API (LAN scanning needs the host network; see docker-compose.yml):
 #         docker run --rm --network host -e ENUMGRID_API_TOKEN=changeme enumgrid
 # Run the CLI:
 #         docker run --rm --network host enumgrid \
@@ -39,7 +39,7 @@ ENV ENUMGRID_DB=/data/enumgrid_history.db
 RUN mkdir -p /data
 
 # Run the web service as a NON-ROOT user (CWE-250: least privilege). The scanner
-# is architected to run unprivileged — nmap's raw-socket scan types (-sS/-sU/-O)
+# is architected to run unprivileged: nmap's raw-socket scan types (-sS/-sU/-O)
 # auto-downgrade to unprivileged connect scans (see scanner._adapt_args), so the
 # service never needs root, and a compromise of the web tier can't trivially own
 # the host. The app writes its audit log / copilot state next to the code and its

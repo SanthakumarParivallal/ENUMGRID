@@ -1,13 +1,13 @@
 /**
- * preferences.js — small, persisted UI preferences for the cockpit.
+ * preferences.js: small, persisted UI preferences for the cockpit.
  * ---------------------------------------------------------------------------
  * Two user-tunable view settings, stored in localStorage so they survive a
  * reload and applied to <html data-theme> so plain CSS (variables + attribute
- * selectors) does the styling — no React re-render needed for the visual
+ * selectors) does the styling, with no React re-render needed for the visual
  * effect:
  *
- *   • theme     — 'dark' (default cockpit) | 'light' (paper)
- *   • colWidths — per-column pixel widths for the resizable matrix columns
+ *   • theme:      'dark' (default cockpit) | 'light' (paper)
+ *   • colWidths:  per-column pixel widths for the resizable matrix columns
  *
  * Spacing/density is no longer a toggle: the layout is responsive by default
  * (it tightens automatically on smaller viewports), so there's nothing for the
@@ -52,7 +52,7 @@ function write(prefs) {
   try {
     if (typeof localStorage !== 'undefined') localStorage.setItem(KEY, JSON.stringify(prefs));
   } catch {
-    /* storage full / unavailable — non-fatal */
+    /* storage full / unavailable, non-fatal */
   }
 }
 

@@ -1,16 +1,30 @@
-# ENUMGRID — publication package (index)
+# ENUMGRID publication package (index)
 
 One entry point to everything needed to submit, defend, or reproduce this work. It
-is deliberately honest about what is finished and what still needs real-world
-inputs that cannot be fabricated.
+states plainly what is finished and what still needs real-world inputs that cannot be
+fabricated.
 
 ## Deliverables
 
 | Artifact | Files | Notes |
 | --- | --- | --- |
-| **Paper** | [`PAPER.md`](PAPER.md) · [`ENUMGRID_Paper.docx`](ENUMGRID_Paper.docx) · [`ENUMGRID_Paper.pdf`](ENUMGRID_Paper.pdf) | Engineering + measurement paper; Word has title page, auto-TOC, embedded **redacted** figures + eval plots |
-| **Defense deck** | *not currently checked in* | 16 slides, speaker notes, visually QA'd — the `.pptx`/`.pdf` were removed from `docs/`, so this index no longer links them |
-| **Reproducibility map** | [`REPRODUCE.md`](REPRODUCE.md) | Every headline number → its command → its artifact |
+| Paper (source of truth) | [`PAPER.md`](PAPER.md) | Engineering and measurement paper; every quantitative claim cites an `evaluation/results/*.json` |
+| Paper (Word / PDF) | generated on demand, not checked in | The `.docx` and `.pdf` renderings were last built 2026-07-11 and had drifted from `PAPER.md`; they still quoted the 1,307-test figure against today's 1,365, so a stale binary could be submitted by mistake. Regenerate from the Markdown when you submit, as below |
+| Defense deck | not currently checked in | 16 slides, speaker notes, visually QA'd. The `.pptx` and `.pdf` were removed from `docs/`, so this index no longer links them |
+| Reproducibility map | [`REPRODUCE.md`](REPRODUCE.md) | Every headline number → its command → its artifact |
+
+> **Regenerating the submission binaries.** `PAPER.md` is the only version-controlled
+> copy, so the rendering is always current by construction:
+>
+> ```bash
+> pandoc docs/PAPER.md -o ENUMGRID_Paper.docx --toc --resource-path=docs
+> soffice --headless --convert-to pdf ENUMGRID_Paper.docx
+> ```
+>
+> Build them outside `docs/`, or add them to `.gitignore`, so a rendering can never again
+> drift from its source inside the repository. The previously checked-in copies stay reachable in the
+> history preceding the commit that removed them, and the recipe above rebuilds them
+> from the current `PAPER.md`.
 
 ## Supporting documents
 
@@ -21,11 +35,11 @@ inputs that cannot be fabricated.
 | Architecture | [`ARCHITECTURE.md`](ARCHITECTURE.md) |
 | LLM copilot grounding methodology | [`COPILOT.md`](COPILOT.md) |
 | STRIDE threat model | [`THREAT_MODEL.md`](THREAT_MODEL.md) |
-| Figure manifest + redaction | [`screenshots/README.md`](screenshots/README.md) |
+| Figure manifest and redaction | [`screenshots/README.md`](screenshots/README.md) |
 
 ## The measured results (all from real runs)
 
-Full table + methodology in [`ACCURACY.md`](ACCURACY.md); raw artifacts in
+Full table and methodology in [`ACCURACY.md`](ACCURACY.md); raw artifacts in
 [`../evaluation/results/`](../evaluation/results/README.md).
 
 | Claim | Result | Artifact |
@@ -40,17 +54,17 @@ Full table + methodology in [`ACCURACY.md`](ACCURACY.md); raw artifacts in
 
 ## Quality status
 
-- **1,365 automated tests** — Python 1,151 (CLI 197 + backend 776 + evaluation 178) +
+- 1,365 automated tests: Python 1,151 (CLI 197, backend 776, evaluation 178) plus
   frontend 214. All green.
-- ruff clean; SAST (bandit) + dependency audit (pip-audit) clean; SBOM; digest-pinned
+- ruff clean; SAST (bandit) and dependency audit (pip-audit) clean; SBOM; digest-pinned
   non-root Docker image.
-- All scoring math is pure + unit-tested → the published numbers re-run in CI with no
-  Docker/network (`python -m pytest evaluation/`).
+- All scoring math is pure and unit-tested, so the published numbers re-run in CI with no
+  Docker and no network (`python -m pytest evaluation/`).
 
 ## What still needs the operator (cannot be fabricated)
 
-Each is *scaffolded* so it is one input away — but the input is real-world and must not
-be invented. See [`CONTRIBUTIONS.md`](CONTRIBUTIONS.md) §8.
+Each one is scaffolded so that it is a single input away, and that input is real-world
+and must not be invented. See [`CONTRIBUTIONS.md`](CONTRIBUTIONS.md) §8.
 
 | Gap | Turnkey entry point | What you must supply |
 | --- | --- | --- |
@@ -62,7 +76,7 @@ be invented. See [`CONTRIBUTIONS.md`](CONTRIBUTIONS.md) §8.
 ## Honesty statement
 
 Every figure and number in this package is produced by a checked-in, reproducible
-harness or captured from a real, authorised scan — never simulated or hand-tuned.
-Where the tool or the evaluation has a limit or a failure mode (small n, author-curated
+harness or captured from a real, authorised scan, never simulated or hand-tuned. Where
+the tool or the evaluation has a limit or a failure mode (small n, author-curated
 corpora, the CPE-dictionary drift on the live-NVD path), it is named in the paper rather
-than hidden. That discipline is itself the contribution.
+than hidden.

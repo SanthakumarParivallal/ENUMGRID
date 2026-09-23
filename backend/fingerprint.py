@@ -1,15 +1,15 @@
 """
-fingerprint.py — best-effort device-type classification (no hallucination).
+fingerprint.py: best-effort device-type classification (no hallucination).
 
-Combines three *real* signals — the OUI vendor, open ports/services (from nmap),
-and the hostname — into a coarse device type (Router / Phone / Printer / Camera
+Combines three *real* signals (the OUI vendor, open ports/services from nmap,
+and the hostname) into a coarse device type (Router / Phone / Printer / Camera
 / Media-TV / NAS / Computer / IoT / Smart-home). This is explicitly a heuristic
 *triage label* to give the operator the "Angry IP / Fing" experience; it is
 never presented as nmap's authoritative `-O` OS fingerprint. When no signal is
 strong enough it returns "" (the UI shows nothing rather than a guess).
 
 Every rule is driven by observed data, so the label is reproducible and
-explainable — important for a security write-up.
+explainable, which matters for a security write-up.
 """
 
 from __future__ import annotations
@@ -121,16 +121,16 @@ def guess_device_type(
 
     Priority: open-port signatures > service names > **hostname** > OUI vendor >
     randomized-MAC hint. Observed evidence (ports/services) comes first; then the
-    device's *self-assigned hostname* — which is a stronger identity signal than
+    device's *self-assigned hostname*, which is a stronger identity signal than
     the OUI vendor, because the OUI often names a sub-component (e.g. the Wi-Fi
     module: AzureWave/Intel/InProComm) rather than the product. That ordering is
     what stops a Windows "DESKTOP-…" laptop being mislabelled "IoT" just because
     its wireless card is made by an IoT-adjacent vendor. Returns "" when nothing
-    is strong enough — we never guess.
+    is strong enough. We never guess.
     """
     open_ports = set(ports or [])
 
-    # 1) open-port signatures (strongest — requires a completed nmap scan)
+    # 1) open-port signatures (strongest, but requires a completed nmap scan)
     for sig, label in _PORT_SIGNATURES:
         if sig <= open_ports:
             return label
@@ -141,7 +141,7 @@ def guess_device_type(
         if hit:
             return hit
 
-    # 3) hostname (device's own name — beats the OUI of a sub-component vendor)
+    # 3) hostname (the device's own name, which beats the OUI of a sub-component vendor)
     hit = _match_keywords(hostname, _HOSTNAME_HINTS)
     if hit:
         return hit
@@ -153,7 +153,7 @@ def guess_device_type(
             return hit
 
     # 5) a randomized MAC with no other signal is almost always a modern
-    #    phone/laptop using a private Wi-Fi address — a useful, honest hint.
+    #    phone/laptop using a private Wi-Fi address, which is a useful, honest hint.
     if vendor == RANDOM_MAC_LABEL:
         return "Phone / Laptop"
 

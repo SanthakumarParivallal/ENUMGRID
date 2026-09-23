@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """
-aggregate_runs.py — pool `benchmark.py` results across MULTIPLE networks.
+aggregate_runs.py: pool `benchmark.py` results across MULTIPLE networks.
 
 `benchmark.py --runs N` gives mean ± 95 % CI for one target. The single biggest
 external-validity gap in the evaluation is that those numbers come from *one*
-environment. This tool pools several benchmark result files — one per network you
-are authorised to scan (home `/24`, office VLAN, IoT segment, cloud VPC…) — into a
+environment. This tool pools several benchmark result files, one per network you
+are authorised to scan (home `/24`, office VLAN, IoT segment, cloud VPC…), into a
 **cross-environment** figure: for each tool, the mean recall/precision/time over
 environments with a 95 % CI computed *across environments* (each environment is one
-sample, so a big network can't dominate — a macro-average).
+sample, so a big network can't dominate, i.e. a macro-average).
 
 That turns "EnumGrid beat nmap on my `/24`" into "across N independent networks,
-EnumGrid's mean recall is X ± Y" — the generalisation claim a reviewer asks for.
+EnumGrid's mean recall is X ± Y", the generalisation claim a reviewer asks for.
 
     # produce per-network results first (authorised targets only):
     python benchmark.py 192.168.0.0/24 --runs 5 --json home.json
@@ -21,7 +21,7 @@ EnumGrid's mean recall is X ± Y" — the generalisation claim a reviewer asks f
     python aggregate_runs.py home.json office.json iot.json --md pooled.md --plot pooled.png
 
 Both the single-run and multi-run `benchmark.py` JSON shapes are accepted. The math
-is pure and unit-tested (see `test_aggregate_runs.py`); nothing is fabricated — a
+is pure and unit-tested (see `test_aggregate_runs.py`); nothing is fabricated: a
 tool absent from an environment simply isn't counted for that environment.
 """
 
@@ -38,7 +38,7 @@ from benchmark import LABELS, summarize  # noqa: E402
 
 
 # --------------------------------------------------------------------------- #
-# Normalisation — accept either benchmark.py JSON shape (pure)
+# Normalisation: accept either benchmark.py JSON shape (pure)
 # --------------------------------------------------------------------------- #
 def normalize_result(payload: dict) -> dict:
     """Reduce a benchmark.py result to per-tool scalars for one environment.
@@ -133,7 +133,7 @@ def _ci(s: dict) -> str:
 def render_md(pooled: dict, timestamp: str) -> str:
     envs = pooled["environments"]
     lines = [
-        f"### Cross-environment discovery — {pooled['n_environments']} network(s)  ({timestamp})",
+        f"### Cross-environment discovery: {pooled['n_environments']} network(s)  ({timestamp})",
         "",
         f"Environments: {', '.join(f'`{e}`' for e in envs) or '—'}. Cells are "
         "**mean ± 95 % CI across environments** (each network is one sample).",
@@ -211,7 +211,7 @@ def main(argv=None) -> int:
     md = render_md(pooled, timestamp)
     if args.plot:
         saved = write_plot(pooled, args.plot)
-        md += f"\n\n{'![pooled](' + args.plot + ')' if saved else '_(plot skipped — matplotlib not installed)_'}"
+        md += f"\n\n{'![pooled](' + args.plot + ')' if saved else '_(plot skipped: matplotlib not installed)_'}"
     print("\n" + md + "\n")
     if args.json:
         with open(args.json, "w", encoding="utf-8") as fh:

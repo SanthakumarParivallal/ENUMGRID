@@ -1,9 +1,9 @@
-"""conftest.py — shared test-session setup for the backend suite.
+"""conftest.py: shared test-session setup for the backend suite.
 
 Keeps the tests from writing into the *operator's* real state. The audit trail
 is the one piece of backend state an endpoint touches as a side effect (every
 scan/refusal/credscan/schedule call appends a line), so without this the suite
-would interleave synthetic fixture events — `192.168.50.0/24`, `corp.local` —
+would interleave synthetic fixture events (`192.168.50.0/24`, `corp.local`)
 into `backend/enumgrid_audit.log`, the file `/api/audit` serves and an operator
 reads to reconstruct what was actually scanned. For a tool whose contract is
 "every recorded result is real", a test-polluted audit log is a correctness bug,

@@ -1,12 +1,12 @@
 # Reproduce every headline number (one page)
 
-Each row maps a claim in [`PAPER.md`](PAPER.md) / [`ACCURACY.md`](ACCURACY.md) to the
-exact command that produces it and the artifact it lands in. All scoring math is
-pure and unit-tested, so the *numbers* re-run in CI with **no Docker and no
-network**; the **live** runs (marked ⚡) need the operator's environment and are
-authoritative. Nothing here uses mock data.
+Each row maps a claim in [`PAPER.md`](PAPER.md) and [`ACCURACY.md`](ACCURACY.md) to the
+exact command that produces it and the artifact it lands in. All scoring math is pure and
+unit-tested, so the numbers re-run in CI with no Docker and no network. The live runs,
+marked ⚡, need the operator's environment and are the authoritative ones. Nothing here
+uses mock data.
 
-Use `.venv/bin/python` (or `python -m …`) — the repo venv's console scripts have
+Use `.venv/bin/python` (or `python -m …`), because the repo venv's console scripts have
 stale shebangs after a folder rename.
 
 ## The measured headlines
@@ -29,14 +29,14 @@ docker compose -f evaluation/docker-compose.yml up -d     # 9-host pinned testbe
 #   … run detection_benchmark.py / cve_baselines.py / benchmark.py 172.28.0.0/24 …
 docker compose -f evaluation/docker-compose.yml down
 ```
-No Docker Desktop? `brew install colima docker docker-compose nuclei && colima start`,
-then run the scans **inside** the VM (`colima ssh --`) where the container IPs are
+Without Docker Desktop, run `brew install colima docker docker-compose nuclei && colima
+start`, then run the scans inside the VM (`colima ssh --`) where the container IPs are
 routable. Tear down with `colima stop`.
 
-## Verify the scoring math + figures (no Docker, no network)
+## Verify the scoring math and figures (no Docker, no network)
 
 ```bash
-python -m pytest evaluation/                     # 177 tests — all harness scoring
+python -m pytest evaluation/                     # 178 tests, all harness scoring
 python docs/screenshots/redact.py --check        # figure redaction regions in bounds
 ```
 
@@ -44,7 +44,7 @@ python docs/screenshots/redact.py --check        # figure redaction regions in b
 
 | Gap | How to close it | Entry point |
 |---|---|---|
-| More real networks | one runbook per authorised `/24` → pool | [`evaluation/COLLECTING_NETWORKS.md`](../evaluation/COLLECTING_NETWORKS.md) |
+| More real networks | one runbook per authorised `/24`, then pool | [`evaluation/COLLECTING_NETWORKS.md`](../evaluation/COLLECTING_NETWORKS.md) |
 | Held-out CVE corpus | blind-sample, freeze, then `--corpus` | [`evaluation/nvd_corpus_heldout.json`](../evaluation/nvd_corpus_heldout.json) |
 | OpenVAS/Nessus baseline | export a report, set env var, `--tools openvas,nessus` | `evaluation/cve_baselines.py` |
 | Analyst user study | run the pre-registered protocol under ethics approval | [`USER_STUDY_PROTOCOL.md`](USER_STUDY_PROTOCOL.md) |

@@ -1,4 +1,4 @@
-"""test_notify.py — outbound alert summary + sink fan-out (network mocked)."""
+"""test_notify.py: outbound alert summary + sink fan-out (network mocked)."""
 
 from __future__ import annotations
 

@@ -36,7 +36,7 @@ def test_make_port_unknown_service_label():
 
 def test_probe_pair_closed_port_is_false():
     # A connect to a port nothing listens on must not be reported open. We grab a
-    # free port from the OS, close it, then probe it — guaranteed closed/refused.
+    # free port from the OS, close it, then probe it, which guarantees closed/refused.
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.bind(("127.0.0.1", 0))
     free_port = s.getsockname()[1]

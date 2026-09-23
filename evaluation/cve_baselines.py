@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """
-cve_baselines.py — compare EnumGrid's CVE detection against real vulnerability
+cve_baselines.py: compare EnumGrid's CVE detection against real vulnerability
 scanners on the SAME pinned testbed host.
 
 Why this exists
 ---------------
 `detection_benchmark.py` scores EnumGrid's planted-CVE recall against ground
-truth. A reviewer's very next question is *"compared to what?"* — self-measured
+truth. A reviewer's very next question is *"compared to what?"*, because self-measured
 recall is weak evidence on its own. This harness adds two independent,
 widely-used baselines and reports, per host and pooled:
 
-  * **planted-CVE recall** for each tool — EnumGrid vs **nmap `vulners`** vs
-    **Nuclei** (ProjectDiscovery) — on the identical, pinned host;
+  * **planted-CVE recall** for each tool: EnumGrid vs **nmap `vulners`** vs
+    **Nuclei** (ProjectDiscovery), on the identical, pinned host;
   * each tool's **unexpected** CVEs, surfaced for review (never auto-scored as a
     false positive: a rolling image's full CVE set is not knowable a priori);
   * pairwise **agreement** (Jaccard) between the tools' CVE sets.
@@ -19,36 +19,36 @@ widely-used baselines and reports, per host and pooled:
 The two live baselines embody the two schools of vulnerability detection, which is
 the point of comparing them:
 
-  * **version-match** (nmap `vulners`, and EnumGrid's CPE→NVD path) — maps a
+  * **version-match** (nmap `vulners`, and EnumGrid's CPE→NVD path): maps a
     detected product/version to its known CVEs. High recall, but a back-ported
     fix can make it over-report (a candidate false positive);
-  * **active-PoC** (Nuclei templates) — actually sends a probe that confirms the
+  * **active-PoC** (Nuclei templates): actually sends a probe that confirms the
     bug. High precision, but only covers vulns someone wrote a template for.
 
 Reporting both alongside EnumGrid frames its accuracy honestly instead of in a
 vacuum.
 
-**Heavyweight scanners (OpenVAS/Greenbone, Nessus) — report-file adapters.** These
+**Heavyweight scanners (OpenVAS/Greenbone, Nessus): report-file adapters.** These
 are the mature vuln scanners a reviewer will ask about, but driving them from a
 one-liner is unrealistic (each needs a running daemon, a scan task, and polling).
 So this harness takes the honest, operator-driven route: run the scanner through
 its own UI/CLI, export the report, and point the harness at the exported file via
 ``ENUMGRID_OPENVAS_REPORT`` / ``ENUMGRID_NESSUS_REPORT``. It then parses that real
 report, filters it to each testbed host, and scores planted-CVE recall with the
-*same* comparison used for the other tools — no fabrication, just whatever the
+*same* comparison used for the other tools. No fabrication, just whatever the
 scanner actually reported. With no report file set, the tool is ``unavailable``
 (never "found nothing"), exactly like a missing nmap/nuclei. Enable with
 ``--tools enumgrid,openvas,nessus``.
 
 Two layers, like the rest of the eval harness:
   * the parsers + comparison are **pure and unit-tested** (no network, no Docker,
-    no nmap/nuclei) so the published comparison is trustworthy and runs in CI —
+    no nmap/nuclei) so the published comparison is trustworthy and runs in CI;
     see `test_cve_baselines.py`;
   * the live runner shells out to nmap/nuclei and is **operator-run**. A baseline
-    that is not installed is reported as ``unavailable`` — never silently treated
+    that is not installed is reported as ``unavailable``, never silently treated
     as "found nothing".
 
-Usage (with the testbed up — `docker compose -f evaluation/docker-compose.yml up -d`):
+Usage (with the testbed up, via `docker compose -f evaluation/docker-compose.yml up -d`):
     python evaluation/cve_baselines.py                       # uses ground_truth.json
     python evaluation/cve_baselines.py --json out.json --md out.md
     python evaluation/cve_baselines.py --tools enumgrid,nmap-vulners
@@ -74,7 +74,7 @@ _HTTP_TIMEOUT = 300  # per-host nuclei/nmap wall-clock cap (seconds)
 
 
 # --------------------------------------------------------------------------- #
-# Parsers (pure — the trustworthy core, unit-tested with captured tool output)
+# Parsers (pure: the trustworthy core, unit-tested with captured tool output)
 # --------------------------------------------------------------------------- #
 def parse_cve_ids(text: str) -> set[str]:
     """Every CVE id mentioned in a blob of text, upper-cased and de-duplicated.
@@ -144,7 +144,7 @@ def parse_nessus_xml(text: str, ip: str | None = None) -> set[str]:
     ``<ReportHost name="…">``. When ``ip`` is given, only that host's block is
     read; otherwise every host. A ``ReportHost``'s ``name`` is frequently the
     resolved hostname/FQDN, not the IP, so a host also matches when its
-    ``HostProperties`` carries ``<tag name="host-ip">ip</tag>`` — otherwise a
+    ``HostProperties`` carries ``<tag name="host-ip">ip</tag>``; otherwise a
     real, FQDN-named report would score a misleading zero for an IP lookup. If the
     file has no ``<ReportHost>`` blocks (an unexpected export shape), fall back to
     a whole-file id sweep only for the unfiltered case, so a schema surprise
@@ -187,7 +187,7 @@ def parse_gvm_xml(text: str, ip: str | None = None) -> set[str]:
 
 
 # --------------------------------------------------------------------------- #
-# Comparison (pure — the scoring reviewers read)
+# Comparison (pure: the scoring reviewers read)
 # --------------------------------------------------------------------------- #
 def _jaccard(a: set, b: set) -> float:
     """Jaccard overlap of two sets; two empty sets are defined as identical (1.0)."""
@@ -201,7 +201,7 @@ def compare_host(planted: Iterable[str], tool_cves: dict[str, set[str]]) -> dict
     ``planted`` = the CVE ids a version-accurate scanner MUST recall on this host
     (from ground_truth.json). ``tool_cves`` maps tool name → the CVE-id set it
     reported (a tool that was unavailable is simply absent from the map, so it is
-    not counted as a zero — honest by omission)."""
+    not counted as a zero, i.e. honest by omission)."""
     planted_set = {str(c).upper() for c in planted}
     per_tool: dict[str, dict] = {}
     for tool, cves in tool_cves.items():
@@ -268,7 +268,7 @@ def _pct(x) -> str:
 def render_md(result: dict) -> str:
     agg = result["summary"]
     lines = [
-        f"### CVE-detection baselines — `{result['subnet']}`  ({result['timestamp']})",
+        f"### CVE-detection baselines: `{result['subnet']}`  ({result['timestamp']})",
         "",
         "Same pinned testbed, three detectors. **Recall** is over the planted, "
         "documented CVEs; **unexpected** CVEs are surfaced for review, not scored "
@@ -350,7 +350,7 @@ def _read_report(env_var: str) -> str | None:
     """Read a scanner's exported report from the path in ``env_var``.
 
     None (→ ``unavailable``) if the variable is unset or the file is missing/
-    unreadable — the honest signal that this baseline was not supplied, never a
+    unreadable. That is the honest signal that this baseline was not supplied, never a
     fabricated empty result."""
     path = os.environ.get(env_var)
     if not path or not os.path.isfile(path):
@@ -425,7 +425,7 @@ def run(gt: dict, tools: list[str], ports_spec: str | None = None,
     for entry in gt.get("hosts", []):
         ip = entry["ip"]
         planted = entry.get("planted_cves", [])
-        log(f"» {ip} ({entry.get('name', '')}) — {', '.join(tools)} …")
+        log(f"» {ip} ({entry.get('name', '')}): {', '.join(tools)} …")
         tool_cves: dict[str, set[str]] = {}
         error = None
         for tool in tools:
@@ -438,7 +438,7 @@ def run(gt: dict, tools: list[str], ports_spec: str | None = None,
                 error = f"{tool}: {exc}"
                 continue
             if found is None:
-                log(f"    {tool}: unavailable (not installed) — skipped")
+                log(f"    {tool}: unavailable (not installed), skipped")
                 continue
             tool_cves[tool] = found
         if error and not tool_cves:

@@ -1,9 +1,9 @@
 /**
- * useFocusTrap.js — keyboard focus management for modal dialogs.
+ * useFocusTrap.js: keyboard focus management for modal dialogs.
  * ---------------------------------------------------------------------------
  * A true modal (aria-modal="true") must keep keyboard focus inside it while
  * open and hand focus back to whatever opened it when it closes (WCAG 2.4.3
- * Focus Order + 2.1.2 No Keyboard Trap — the *good* kind of trap: escapable via
+ * Focus Order + 2.1.2 No Keyboard Trap, the *good* kind of trap: escapable via
  * the close button / Escape, but Tab can't wander off behind the overlay).
  *
  * The Tab-wrap decision is factored into the pure `trapTarget` helper so it can
@@ -35,7 +35,7 @@ export function focusableElements(container) {
 /**
  * Pure Tab-wrap logic. Given the tabbable `items`, the currently-focused
  * element `active`, and whether Shift is held, return the element focus should
- * jump to — or `null` to let the browser's native Tab handle an interior move.
+ * jump to, or `null` to let the browser's native Tab handle an interior move.
  *
  *   - focus escaped the container  → pull it back to the first item
  *   - Shift+Tab on the first item  → wrap to the last
@@ -54,7 +54,7 @@ export function trapTarget(items, active, shiftKey) {
 /**
  * Trap focus inside the returned ref'd container while `active`.
  * @param {{ active?: boolean, initialFocus?: React.RefObject }} [opts]
- *   `initialFocus` — element to focus on open (defaults to the first tabbable).
+ *   `initialFocus`: the element to focus on open (defaults to the first tabbable).
  * @returns a ref to attach to the dialog container.
  */
 export function useFocusTrap({ active = true, initialFocus } = {}) {

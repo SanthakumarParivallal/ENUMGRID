@@ -1,5 +1,5 @@
 """
-test_copilot_eval.py — the copilot evaluation's metric math (no provider, no
+test_copilot_eval.py: the copilot evaluation's metric math (no provider, no
 network). Verifies grounding/coverage scoring so the published numbers are
 trustworthy: a grounded reference reply scores ~1.0 and a hallucinated one has its
 grounding collapse to ~0.0.
@@ -38,7 +38,7 @@ def test_score_case_partial_coverage():
 
 
 def test_score_case_accepts_alternative_phrasings():
-    # "Log4Shell" should credit the same as citing the CVE id — we score
+    # "Log4Shell" should credit the same as citing the CVE id; we score
     # correctness, not exact wording.
     case = {"q": "q", "expect": [["CVE-2021-44228", "log4shell"]], "traps": []}
     assert ce.score_case("It's Log4Shell.", case)["coverage"] == 1.0
@@ -100,7 +100,7 @@ def test_self_test_mode_passes(capsys):
 
 
 # --------------------------------------------------------------------------- #
-# Multi-run statistics (mean ± 95 % CI) — pure math, no provider/network.
+# Multi-run statistics (mean ± 95 % CI): pure math, no provider/network.
 # --------------------------------------------------------------------------- #
 def test_summarize_single_value_has_zero_spread():
     s = ce.summarize([0.8])

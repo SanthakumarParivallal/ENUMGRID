@@ -1,14 +1,14 @@
 """
-snmp.py — minimal SNMP v2c read for device name / description.
+snmp.py: minimal SNMP v2c read for device name / description.
 
 Network gear (switches, APs, printers, UPS, some IoT) often has no reverse-DNS
 or mDNS record but answers SNMP on UDP/161 with a community string (frequently
 the default `public`). Reading `sysName` and `sysDescr` fills the name/OS column
-for exactly those devices — a classic enumeration win.
+for exactly those devices, a classic enumeration win.
 
 This is a tiny, dependency-free SNMP v2c GET: just enough BER to build a request
 for two OIDs and decode the reply. Best-effort and bounded; any error yields no
-data. Pure stdlib (sockets). Read-only — it never writes via SNMP.
+data. Pure stdlib (sockets). Read-only: it never writes via SNMP.
 """
 
 from __future__ import annotations

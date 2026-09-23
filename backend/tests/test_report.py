@@ -1,9 +1,9 @@
 """
-test_report.py — PDF report generation.
+test_report.py: PDF report generation.
 
 We don't parse the PDF binary; we assert it's a well-formed, non-trivial PDF and
 that the generator is total (never throws) across empty, partial and rich
-snapshots — the property that matters for a one-click "download report" button.
+snapshots, the property that matters for a one-click "download report" button.
 """
 
 from __future__ import annotations
@@ -107,7 +107,7 @@ def test_markup_in_scan_data_does_not_crash():
 def test_nonnumeric_cvss_and_port_still_render():
     # /api/report/pdf takes a RAW dict (not a validated model), so a hand-crafted
     # authenticated POST can carry a string `cvss` or mixed-type `port`. The
-    # renderer must coerce/skip them and still produce a PDF — not raise a 500 —
+    # renderer must coerce/skip them and still produce a PDF rather than raise a 500,
     # to keep its "a partial snapshot still renders" contract. Regression guard.
     payload = {
         "target": "10.0.0.0/24",

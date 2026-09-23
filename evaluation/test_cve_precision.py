@@ -4,7 +4,7 @@ Two layers, mirroring detection_benchmark:
   * the pure scoring/statistics are unit-tested with hand-built inputs, so the
     published precision/recall numbers are trustworthy;
   * an end-to-end pass runs the REAL matcher (backend/vulndb) over the labelled
-    corpus and asserts the accuracy floor — this is the CI gate that locks in
+    corpus and asserts the accuracy floor. This is the CI gate that locks in
     the "no wrong CVE" guarantee and guards the httpd-vs-lighttpd fix forever.
 """
 
@@ -134,7 +134,7 @@ def test_corpus_expected_ids_are_cve_shaped():
 
 
 # --------------------------------------------------------------------------- #
-# End-to-end against the REAL matcher — the accuracy floor / CI gate
+# End-to-end against the REAL matcher: the accuracy floor / CI gate
 # --------------------------------------------------------------------------- #
 def test_real_matcher_scores_perfect_on_corpus():
     result = cp.run(_corpus())

@@ -1,5 +1,5 @@
 """
-test_history.py — SQLite persistence + drift computation.
+test_history.py: SQLite persistence + drift computation.
 
 Uses a throwaway DB per test (monkeypatched `history.DB_PATH`) so nothing
 touches the real history file and the tests stay deterministic and offline.
@@ -86,7 +86,7 @@ def test_get_scan_refuses_an_id_sqlite_cannot_hold(db):
     """Same 64-bit bound as `jobs.get`: an unrepresentable id is a miss, not a crash.
 
     Today this function is only ever called with an id that came out of the database,
-    so the guard is not reachable from the API — but it is one route away from taking
+    so the guard is not reachable from the API, but it is one route away from taking
     caller input, and the OverflowError it would raise is the same 500 that bit
     `/api/jobs/{job_id}`.
     """

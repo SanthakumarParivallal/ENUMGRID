@@ -1,5 +1,5 @@
 /**
- * preferences.test.js — persisted cockpit view preferences (theme + column
+ * preferences.test.js: persisted cockpit view preferences (theme + column
  * widths). Covers the pure read/write/apply layer (via the public hook and
  * localStorage) and the resilience branches: missing / corrupt / unavailable
  * storage must never throw or lose the operator's other settings.
@@ -58,7 +58,7 @@ describe('colWidth', () => {
   });
 });
 
-describe('usePreferences — read() branches', () => {
+describe('usePreferences: read() branches', () => {
   it('seeds from a stored light theme + column widths', () => {
     store({ theme: 'light', colWidths: { hostname: 200 } });
     const { result } = renderHook(() => usePreferences());
@@ -98,7 +98,7 @@ describe('usePreferences — read() branches', () => {
   });
 });
 
-describe('usePreferences — setters persist, apply and merge', () => {
+describe('usePreferences: setters persist, apply and merge', () => {
   it('toggleTheme flips dark ↔ light and persists', () => {
     const { result } = renderHook(() => usePreferences());
     expect(result.current.theme).toBe('dark');

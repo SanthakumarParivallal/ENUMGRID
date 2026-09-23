@@ -1,5 +1,5 @@
 """
-test_nbns.py — NetBIOS node-status request build + reply parse.
+test_nbns.py: NetBIOS node-status request build + reply parse.
 
 The live UDP query isn't unit-tested (needs a responder); this pins the packet
 construction and the reply parser against a hand-built node-status response so a
@@ -120,7 +120,7 @@ def test_nbns_names_resolves_responders_only(monkeypatch):
 
 def test_parse_degrades_gracefully_on_unexpected_decode_error(monkeypatch):
     # Robustness contract: this parser consumes untrusted UDP from the wire, so an
-    # unexpected decode failure must be caught and reported as "no name" — never
+    # unexpected decode failure must be caught and reported as "no name", never
     # propagated as a crash. We fault-inject a struct error to prove the safety net
     # (the reason the try/except exists) actually holds.
     reply = _fake_node_status_reply("OFFICE-NAS")

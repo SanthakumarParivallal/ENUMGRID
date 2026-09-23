@@ -1,11 +1,11 @@
 """
-discovery.py — fast network *device* discovery for the web dashboard.
+discovery.py: fast network *device* discovery for the web dashboard.
 
 This is the "show me the live devices on my network" engine (like Angry IP /
 the CLI's `--discover`): ICMP + ARP host discovery, a proxy-ARP guard so a
 router can't make every address look "up", MAC + OUI-vendor resolution, and
 parallel reverse-DNS for hostnames. It streams `ScanState` snapshots so the
-dashboard fills in live — and deliberately does NOT run nmap. The slow
+dashboard fills in live, and deliberately does NOT run nmap. The slow
 service/vuln scan is on-demand, per device, via `/api/host/scan`.
 
 It reuses the already-tested primitives from the CLI tool (`purple_recon.py`)
@@ -59,7 +59,7 @@ def _oui_table() -> dict[str, str]:
 
 # --- discover-mode TCP port probe (fast, unprivileged) --------------------- #
 # A short connect-scan of the common service ports so the live grid shows open
-# ports immediately — without nmap or root. The full -sV/vuln enumeration stays
+# ports immediately, without nmap or root. The full -sV/vuln enumeration stays
 # on-demand per host (/api/host/scan). Tunable via env so it can be turned off
 # or made more/less aggressive.
 PORT_PROBE = os.environ.get("ENUMGRID_DISCOVER_PORTS", "1").lower() not in ("0", "false", "no")
@@ -72,7 +72,7 @@ SSDP_SECS = float(os.environ.get("ENUMGRID_SSDP_SECS", "2.5"))
 
 # The common TCP ports knocked per host (reuses the CLI's curated top-ports set).
 _COMMON_PORTS: tuple[int, ...] = pr.FALLBACK_PORTS
-# Open ports that are inherently risky/high-signal on a LAN — flagged so the UI
+# Open ports that are inherently risky/high-signal on a LAN, flagged so the UI
 # highlights them even before a full service scan.
 _CRITICAL_PORTS = frozenset({21, 23, 135, 139, 445, 1433, 1521, 3306, 3389, 5432, 5900, 5985, 6379})
 
@@ -81,7 +81,7 @@ def _probe_pair(pair: tuple[str, int]) -> bool:
     """True when a TCP connect to ``(ip, port)`` completes (a real open service).
 
     A full handshake can't be forged by a silent-drop firewall, so an ``open``
-    here is trustworthy — unlike nmap's ``filtered``. Best-effort: any socket
+    here is trustworthy, unlike nmap's ``filtered``. Best-effort: any socket
     error is treated as not-open.
     """
     ip, port = pair
@@ -168,7 +168,7 @@ def _read_arp() -> dict[str, str]:
 def _local_identity() -> tuple[str | None, set[str]]:
     """This machine's short hostname and its own IPv4 addresses, read from the OS.
 
-    Lets discovery name the operator's own device reliably — its mDNS reply to
+    Lets discovery name the operator's own device reliably. Its mDNS reply to
     itself is often missed, which left it unnamed and mis-typed in some scans.
     """
     try:
@@ -216,7 +216,7 @@ async def run_discovery(target: str, scan_id: str | None):
     total = len(candidates) or 1
     candidate_set = set(candidates)
     hosts: dict[str, Host] = {}
-    # Open ports observed during the active TCP knock — reused as seeds for the
+    # Open ports observed during the active TCP knock, reused as seeds for the
     # common-port probe below so we never re-test a port we already confirmed.
     seed_ports: dict[str, set[int]] = {}
 
@@ -253,16 +253,16 @@ async def run_discovery(target: str, scan_id: str | None):
     finally:
         pool.shutdown(wait=False)
 
-    # --- 2) ARP pass (+ proxy-ARP guard) — catches devices that ignore ICMP  #
+    # --- 2) ARP pass (+ proxy-ARP guard): catches devices that ignore ICMP  #
     arp_all = _read_arp()
     arp = {ip: mac for ip, mac in arp_all.items() if ip in candidate_set}
     # A live LAN always leaves at least the gateway in the ARP cache, so an empty
-    # table after finding hosts means the OS is hiding it — say so, don't guess.
+    # table after finding hosts means the OS is hiding it. Say so, don't guess.
     notice = ARP_HIDDEN_NOTE if hosts and not arp_all else None
     proxy = pr._proxy_macs(arp, max(8, len(candidates) // 10))
     for ip, mac in arp.items():
         if mac in proxy:
-            continue  # router proxying — not a distinct device
+            continue  # router proxying, not a distinct device
         host = hosts.get(ip) or Host(ip=ip, status=HostStatus.UP, discovered_via="arp")
         host.mac = mac
         host.vendor = pr._mac_vendor(mac, oui)
@@ -271,7 +271,7 @@ async def run_discovery(target: str, scan_id: str | None):
     yield snapshot(ScanPhase.NMAP_ENUMERATION, 75)
 
     # --- 2b) fast TCP connect-scan of the common ports (unprivileged) ------- #
-    # Fills the live grid's "ports" column right away — no nmap, no root. The
+    # Fills the live grid's "ports" column right away, with no nmap and no root. The
     # full -sV/vuln enumeration stays on-demand per host (/api/host/scan). Open
     # ports also feed the device-type classifier below (port signatures are its
     # strongest hint), so this sharpens DEVICE/OS for free. Probes are fanned out
@@ -340,7 +340,7 @@ async def run_discovery(target: str, scan_id: str | None):
                 hosts[ip].os = os_label
 
     # --- 3c) IPv6 neighbour cache (NDP): show each device's IPv6, by MAC ----- #
-    # The IPv6 analogue of the ARP pass — correlates IPv6 addresses to the same
+    # The IPv6 analogue of the ARP pass: correlates IPv6 addresses to the same
     # device discovered over IPv4 via its MAC (dual-stack visibility).
     try:
         ndp = pr._read_ndp_table()
@@ -360,8 +360,8 @@ async def run_discovery(target: str, scan_id: str | None):
         mdns = await loop.run_in_executor(None, lambda: discover_mdns(MDNS_SECS))
     except Exception:
         mdns = {}
-    # IPs whose device type came from a *service announcement* (mDNS or SSDP) —
-    # authoritative (device-declared), so the heuristic fill below must not
+    # IPs whose device type came from a *service announcement* (mDNS or SSDP).
+    # These are authoritative (device-declared), so the heuristic fill below must not
     # override them.
     typed_by_service: set[str] = set()
     for ip, info in mdns.items():
@@ -369,7 +369,7 @@ async def run_discovery(target: str, scan_id: str | None):
             continue  # keep results inside the requested scope
         host = hosts.get(ip)
         if host is None:
-            # Announced over mDNS but missed by ICMP/ARP — still a real device.
+            # Announced over mDNS but missed by ICMP/ARP, but still a real device.
             host = Host(ip=ip, status=HostStatus.UP, discovered_via="mdns")
             hosts[ip] = host
         if info.get("hostname") and not host.hostname:
@@ -412,7 +412,7 @@ async def run_discovery(target: str, scan_id: str | None):
         if own_name and not hosts[ip].hostname:
             hosts[ip].hostname = own_name
 
-    # (Re)classify device type from every signal we now have — crucially the open
+    # (Re)classify device type from every signal we now have, crucially the open
     # ports, whose signatures are the *strongest* hint (e.g. 9100→Printer,
     # 554→Camera, 445+139→Computer). Skip hosts already typed by a service
     # announcement (mDNS/SSDP). guess_device_type returns "" when no signal is
@@ -429,7 +429,7 @@ async def run_discovery(target: str, scan_id: str | None):
             host.device_type = guessed
 
     # Sharpen each host's coarse TTL family into a *specific* OS using the
-    # vendor, hostname and device type we now have — e.g. the vague
+    # vendor, hostname and device type we now have, e.g. the vague
     # "Linux / macOS / Unix" becomes "macOS (Apple)", "Android",
     # "Router firmware (Linux)", etc. We only touch the coarse TTL families (or
     # an empty/Unknown OS); an authoritative mDNS model label is left alone. This

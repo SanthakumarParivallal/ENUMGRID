@@ -1,28 +1,28 @@
 #!/usr/bin/env python3
 """
-detection_benchmark.py — ground-truth **detection accuracy** for EnumGrid.
+detection_benchmark.py: ground-truth **detection accuracy** for EnumGrid.
 
 benchmark.py measures host *discovery* (did we find the live hosts?). This
-harness measures the next layer — did the on-demand service scan report the
-right **ports, services, and CVEs** — against a known testbed whose answer is
+harness measures the next layer: did the on-demand service scan report the
+right **ports, services, and CVEs** against a known testbed whose answer is
 fixed in advance (evaluation/docker-compose.yml + evaluation/ground_truth.json).
 That turns the project's "no false positives / accurate" claim into numbers:
 
-  * **Ports**    — precision / recall / F1 of the open-port set. Decoy ports that
+  * **Ports**:    precision / recall / F1 of the open-port set. Decoy ports that
     are probed but closed make a false positive show up as precision < 1.
-  * **Services** — of the correctly-found ports, how many got the right service
+  * **Services**: of the correctly-found ports, how many got the right service
     name (nginx/apache → http, openssh → ssh, redis → redis).
-  * **Versions** — of the found ports that carry an expected version in the
+  * **Versions**: of the found ports that carry an expected version in the
     ground truth, how many reported the right version *string* (2.4.49 vs 2.4.50).
     This is the bridge between service detection and CVE matching: an accurate
     service name on a wrong version would still mismatch every CVE. Ports whose
     version nmap can't reliably fingerprint (e.g. auth-gated Postgres) carry no
-    expected version and are simply not version-scored — honest by omission.
-  * **CVEs**     — *recall* of a planted, documented CVE (Apache 2.4.49 →
+    expected version and are simply not version-scored, i.e. honest by omission.
+  * **CVEs**:     *recall* of a planted, documented CVE (Apache 2.4.49 →
     CVE-2021-41773/42013): did the scanner surface the bug we know is there? Any
     CVE reported beyond the planted set is surfaced as "unexpected" (a candidate
     false positive on the patched hosts) rather than silently scored, because a
-    rolling image's full CVE set is not knowable a priori — honest by design.
+    rolling image's full CVE set is not knowable a priori, i.e. honest by design.
 
 The scan uses the SAME code path as the dashboard (backend `scanner._service_scan`
 with `auto_cve`), so the measured accuracy is the product's, not a re-implementation.
@@ -34,10 +34,10 @@ Two layers, like benchmark.py:
 
 It also reports accuracy **by nmap detection confidence** (a high-confidence,
 actively-probed match is more trustworthy than a port-table guess), and can
-measure its own **run-to-run stability** (`--repeat N`) — a serious scanner
+measure its own **run-to-run stability** (`--repeat N`). A serious scanner
 quantifies its flakiness rather than pretending a live scan is deterministic.
 
-Usage (with the testbed up — `docker compose -f evaluation/docker-compose.yml up -d`):
+Usage (with the testbed up, via `docker compose -f evaluation/docker-compose.yml up -d`):
     python evaluation/detection_benchmark.py                 # uses ground_truth.json
     python evaluation/detection_benchmark.py --json out.json --md out.md
     python evaluation/detection_benchmark.py --ports 22,80,443,2222,6379
@@ -69,7 +69,7 @@ _SERVICE_ALIASES = {
     "microsoft-ds": "smb",
 }
 
-# nmap service/version-detection confidence is 1–10. >= this is an actively-probed,
+# nmap service/version-detection confidence is 1 to 10. >= this is an actively-probed,
 # high-confidence match; below it (or None) is a port-table guess we trust less.
 # Reporting accuracy *by* this band substantiates "high-confidence hits are more
 # accurate" rather than hiding it inside one blended number.
@@ -77,7 +77,7 @@ _HIGH_CONF = 7
 
 
 # --------------------------------------------------------------------------- #
-# Scoring (pure, deterministic, unit-tested — no Docker, no network)
+# Scoring (pure, deterministic, unit-tested; no Docker, no network)
 # --------------------------------------------------------------------------- #
 def _prf(found: set, truth: set) -> dict:
     """Precision / recall / F1 of a found set against a truth set."""
@@ -134,7 +134,7 @@ def score_versions(detected: dict, truth: dict) -> dict:
     no/empty expected version is skipped (nmap can't always fingerprint a version,
     and we never penalise what we don't assert). A detection matches when the
     reported version string CONTAINS the expected token, so "Apache httpd 2.4.49
-    ((Unix))" satisfies "2.4.49" but "2.4.50" does not — the 2.4.49-vs-2.4.50
+    ((Unix))" satisfies "2.4.49" but "2.4.50" does not, which is the 2.4.49-vs-2.4.50
     distinction the CVE match hinges on."""
     detected = {int(p): (v or "").strip().lower() for p, v in detected.items()}
     scored = 0
@@ -165,7 +165,7 @@ def score_cves(detected: set, planted: set) -> dict:
     We can guarantee the planted CVEs are present (pinned vulnerable image), so
     recall is a true metric. We CANNOT enumerate a rolling image's full CVE set,
     so extra CVEs are reported as 'unexpected' for review rather than counted as
-    false positives — over-claiming would be dishonest."""
+    false positives, because over-claiming would be dishonest."""
     planted = {str(c).upper() for c in planted}
     detected = {str(c).upper() for c in detected}
     recalled = planted & detected
@@ -231,11 +231,11 @@ def stability(runs: list[dict]) -> dict:
     tool should *quantify* its own flakiness rather than pretend it is zero.
     Given N ``detected_from_host`` dicts for the same target this reports:
 
-      * **port_stability**    — Jaccard of the open-port sets (1.0 = identical
+      * **port_stability**:    Jaccard of the open-port sets (1.0 = identical
         every run; < 1.0 = a port flapped in/out).
-      * **service_stability** — of the ports open in *every* run, the fraction
+      * **service_stability**: of the ports open in *every* run, the fraction
         whose service name was identical every run.
-      * **cve_stability**     — Jaccard of the CVE-id sets across runs.
+      * **cve_stability**:     Jaccard of the CVE-id sets across runs.
 
     One run (nothing to compare) is trivially stable (1.0)."""
     runs = [r for r in runs if r is not None]
@@ -345,7 +345,7 @@ def render_md(result: dict) -> str:
     agg = result["summary"]
     p = agg["ports"]
     lines = [
-        f"### Detection benchmark — `{result['subnet']}`  ({result['timestamp']})",
+        f"### Detection benchmark: `{result['subnet']}`  ({result['timestamp']})",
         "",
         f"Scan path: EnumGrid `_service_scan` (profile `{result['profile']}`, "
         f"ports `{result['ports']}`). Ground truth: {agg['hosts_scored']} host(s).",
@@ -457,7 +457,7 @@ def load_ground_truth(path: str) -> dict:
 def render_stability_md(result: dict) -> str:
     """Markdown for a repeated-scan stability run (flake measurement)."""
     lines = [
-        f"### Scan stability — `{result['subnet']}`, {result['repeats']}× per host "
+        f"### Scan stability: `{result['subnet']}`, {result['repeats']}× per host "
         f"({result['timestamp']})",
         "",
         "Each host scanned repeatedly; 1.00 = identical every run.",
@@ -539,7 +539,7 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="EnumGrid ground-truth detection benchmark")
     ap.add_argument("--ground-truth", default=_DEFAULT_GT, help="path to ground_truth.json")
     ap.add_argument("--ports", help="override the probed port spec (default: gt ports ∪ decoys)")
-    ap.add_argument("--profile", default="vuln", help="nmap profile (default: vuln — enables NSE CVE scripts)")
+    ap.add_argument("--profile", default="vuln", help="nmap profile (default: vuln, which enables NSE CVE scripts)")
     ap.add_argument("--repeat", type=int, default=1, metavar="N",
                     help="scan each host N times and report run-to-run stability instead of accuracy")
     ap.add_argument("--json", metavar="FILE", help="write the full result as JSON")

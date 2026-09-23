@@ -1,0 +1,30 @@
+cff-version: 1.2.0
+message: If you use ENUMGRID in your work, please cite it using the metadata below.
+title: "ENUMGRID: the Enumeration Platform"
+abstract: >-
+  ENUMGRID is a network enumeration platform for authorized assessment. It pairs
+  unprivileged-first host discovery with on-demand nmap service and version
+  detection, correlates findings against the live NVD feed with CISA KEV and FIRST
+  EPSS prioritisation, and presents the same engine through a terminal cockpit and a
+  web cockpit. Every measured claim in the repository is produced by a checked-in,
+  reproducible evaluation harness, and the tool reports unknowns rather than
+  inventing values.
+type: software
+authors:
+  - given-names: Santhakumar
+    family-names: Parivallal
+    email: santha6383@gmail.com
+version: 1.0.0
+date-released: "2026-09-23"
+license: MIT
+repository-code: https://github.com/SanthakumarParivallal/ENUMGRID
+url: https://github.com/SanthakumarParivallal/ENUMGRID
+keywords:
+  - network enumeration
+  - asset inventory
+  - nmap
+  - host discovery
+  - vulnerability management
+  - CVE
+  - purple team
+  - security tooling

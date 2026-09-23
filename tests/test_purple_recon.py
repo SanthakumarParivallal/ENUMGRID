@@ -1,6 +1,6 @@
 """Deterministic pytest suite for ``purple_recon.py``.
 
-These tests exercise the security-critical and pure-logic paths only — the
+These tests exercise the security-critical and pure-logic paths only: the
 guardrails, host expansion, report build/write, the differential analysis and
 the renderer.  They perform **no network I/O**, so they are safe and
 reproducible in CI and for the project write-up.
@@ -25,7 +25,7 @@ from rich.console import Console
 import purple_recon as pr
 
 # --------------------------------------------------------------------------- #
-# Guardrails — ScopeValidator must hard-refuse protected address space
+# Guardrails: ScopeValidator must hard-refuse protected address space
 # --------------------------------------------------------------------------- #
 FORBIDDEN_TARGETS = [
     "127.0.0.1",          # loopback host
@@ -236,7 +236,7 @@ def test_build_nmap_args():
 
 
 # --------------------------------------------------------------------------- #
-# Discovery liveness policy — the host-discovery false-positive guard
+# Discovery liveness policy: the host-discovery false-positive guard
 # --------------------------------------------------------------------------- #
 @pytest.mark.parametrize(
     "strong, saw_rst, rst_up, expected",
@@ -307,7 +307,7 @@ def test_reproducibility_manifest_injected_values_are_deterministic():
 
 
 def test_reproducibility_manifest_reports_unknowns_honestly():
-    # When git/nmap can't be resolved, say so — never fabricate a value.
+    # When git/nmap can't be resolved, say so. Never fabricate a value.
     m = pr.reproducibility_manifest(git_commit="", nmap_version="")
     assert m["git_commit"] == ""     # explicit empty injection passes through
     assert m["nmap_version"] == ""
@@ -468,7 +468,7 @@ def test_diff_panel_renders():
 
 
 # --------------------------------------------------------------------------- #
-# Alternative export formats — CSV + self-contained HTML
+# Alternative export formats: CSV + self-contained HTML
 # --------------------------------------------------------------------------- #
 def _export_report():
     now = datetime.now(timezone.utc)
@@ -591,7 +591,7 @@ def test_read_ndp_table_linux(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# Property-based fuzzing — the CLI primitives must never crash on hostile input
+# Property-based fuzzing: the CLI primitives must never crash on hostile input
 # (MACs/vendors come straight off the wire; targets come from the operator).
 # --------------------------------------------------------------------------- #
 @given(st.text(alphabet=string.printable, max_size=40))
@@ -612,7 +612,7 @@ def test_fuzz_mac_vendor(s):
 
 @given(st.text(alphabet=string.printable, max_size=48))
 def test_fuzz_scope_validate_only_scopeerror(s):
-    # validate() either returns a vetted namespace or raises *ScopeError* —
+    # validate() either returns a vetted namespace or raises *ScopeError*,
     # never any other exception, regardless of the input string.
     try:
         pr.ScopeValidator(max_hosts=4096).validate(s)

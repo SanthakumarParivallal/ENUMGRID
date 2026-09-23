@@ -1,5 +1,5 @@
 """
-test_scalability_benchmark.py — the scaling analysis math (no network, no nmap).
+test_scalability_benchmark.py: the scaling analysis math (no network, no nmap).
 Locks CIDR sizing, the least-squares fit (slope / R²) and throughput, so the
 published "does it scale?" curve is trustworthy and CI-checked.
 """

@@ -1,7 +1,7 @@
 """
-campaign.py — multi-subnet "campaign" aggregation.
+campaign.py: multi-subnet "campaign" aggregation.
 
-A single scan covers one target. Real engagements span several — an office /24, a
+A single scan covers one target. Real engagements span several: an office /24, a
 server VLAN, a DMZ. This rolls the *latest* stored scan of each subnet into one
 combined picture: total unique hosts, open ports, a merged inventory, and mixed
 device/service/severity rollups across the whole estate.
@@ -32,7 +32,7 @@ def _open_ports(host: dict) -> list[dict]:
 
 
 def _host_vulns(host: dict) -> list[dict]:
-    """Every vuln attached to a host — at host level and per open port."""
+    """Every vuln attached to a host, at host level and per open port."""
     out = list(host.get("vulns") or [])
     for port in host.get("ports") or []:
         out.extend(port.get("vulns") or [])

@@ -1,8 +1,8 @@
 """
-test_cve_baselines.py — the CVE-baseline harness's parsers + comparison math
+test_cve_baselines.py: the CVE-baseline harness's parsers + comparison math
 (no Docker, no network, no nmap/nuclei). Locks how nmap-`vulners` text and Nuclei
 JSON-lines are turned into CVE sets, and how per-tool planted-CVE recall,
-unexpected sets, and pairwise agreement are computed — so the published
+unexpected sets, and pairwise agreement are computed, so the published
 "EnumGrid vs nmap-vulners vs Nuclei" comparison is trustworthy and CI-checked.
 """
 
@@ -130,7 +130,7 @@ _NESSUS_FQDN = """<?xml version="1.0" ?>
 
 def test_parse_nessus_xml_matches_ip_via_hostproperties_when_named_by_fqdn():
     # The IP lookup must succeed via <tag name="host-ip"> even though ReportHost
-    # name is the FQDN — otherwise a real report scores a misleading zero.
+    # name is the FQDN; otherwise a real report scores a misleading zero.
     assert cb.parse_nessus_xml(_NESSUS_FQDN, "172.28.0.11") == {"CVE-2021-41773"}
     assert cb.parse_nessus_xml(_NESSUS_FQDN, "web1.lan") == {"CVE-2021-41773"}  # by name still works
     assert cb.parse_nessus_xml(_NESSUS_FQDN, "10.0.0.9") == set()               # neither → empty

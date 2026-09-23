@@ -1,5 +1,5 @@
 /**
- * toast.jsx — lightweight, accessible action-feedback toasts.
+ * toast.jsx: lightweight, accessible action-feedback toasts.
  * ---------------------------------------------------------------------------
  * A ToastProvider owns a small queue; `useToast().toast(msg, { type })` pushes
  * one and it auto-dismisses. Errors use role="alert" (assertive) so they are
@@ -14,7 +14,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 
 const ToastContext = createContext(null);
 
-/** Visual + a11y identity for a toast type. Pure — safe to unit-test. */
+/** Visual + a11y identity for a toast type. Pure, so it is safe to unit-test. */
 export function toastTone(type) {
   switch (type) {
     case 'success':

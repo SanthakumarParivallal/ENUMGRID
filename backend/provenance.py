@@ -1,10 +1,10 @@
 """
-provenance.py — a reproducibility manifest for the backend.
+provenance.py: a reproducibility manifest for the backend.
 
 Records *what produced a result*: tool + version, the exact git commit, the nmap
 build, the Python runtime and OS, and when it ran. Embedded in `/api/health` and
 in the PDF report so a saved artifact reproduces by itself. Best-effort and
-honest — unknowns are labelled ("unknown" / "not found"), never fabricated.
+honest: unknowns are labelled ("unknown" / "not found"), never fabricated.
 
 The git/nmap probes shell out once per process and are cached (`_probe`), so a
 frequently-polled endpoint like /api/health never spawns a subprocess per call.
@@ -53,7 +53,7 @@ def nmap_version() -> str | None:
 
 @lru_cache(maxsize=1)
 def _probe() -> tuple[str, str]:
-    """(git_commit, nmap_version) resolved once per process — subprocess-backed."""
+    """(git_commit, nmap_version) resolved once per process; subprocess-backed."""
     return (git_commit() or "unknown", nmap_version() or "not found")
 
 

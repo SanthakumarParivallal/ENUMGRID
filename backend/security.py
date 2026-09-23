@@ -1,21 +1,21 @@
 """
-security.py — shared authorization guardrails for the web API.
+security.py: shared authorization guardrails for the web API.
 
 The CLI (`purple_recon.py`) enforces a strict scope policy via `ScopeValidator`
 (no loopback / multicast / broadcast / link-local / reserved space, plus a host
 cap). Historically the FastAPI backend only ran a character-level anti-injection
 regex, which meant the dashboard could be pointed at `127.0.0.1`, a public host,
-or a huge CIDR — bypassing the project's headline safety guarantee.
+or a huge CIDR, bypassing the project's headline safety guarantee.
 
 This module closes that gap by reusing the *same* `ScopeValidator` for every web
 entry point, and layers on three web-specific controls:
 
-  * a public-target policy — internet-routable addresses are refused unless
+  * a public-target policy: internet-routable addresses are refused unless
     `ENUMGRID_ALLOW_PUBLIC=1` (there is no interactive "are you sure?" prompt
     over HTTP, so we fail safe);
-  * a concurrency cap — at most `ENUMGRID_MAX_SCANS` scans run at once, so a
+  * a concurrency cap: at most `ENUMGRID_MAX_SCANS` scans run at once, so a
     burst of requests can't fork-bomb the host with nmap processes;
-  * an optional bearer/token gate — enabled only when `ENUMGRID_API_TOKEN`
+  * an optional bearer/token gate, enabled only when `ENUMGRID_API_TOKEN`
     is set, so the default localhost dev experience is unchanged.
 """
 
@@ -70,7 +70,7 @@ API_TOKEN = os.environ.get("ENUMGRID_API_TOKEN") or None
 # --- role-based access control (RBAC) -------------------------------------- #
 # Two roles: ADMIN (can launch scans / credentialed checks) and VIEWER
 # (read-only: health, history, audit). The legacy ENUMGRID_API_TOKEN counts as
-# admin. When NO tokens are configured at all, access is open — preserving the
+# admin. When NO tokens are configured at all, access is open, preserving the
 # zero-config localhost dev flow. Configure tokens before exposing the API.
 # (Effective tokens are resolved at call time so they stay overridable/testable.)
 ADMIN_TOKEN = os.environ.get("ENUMGRID_ADMIN_TOKEN") or None
@@ -93,7 +93,7 @@ def vet_target(target: str) -> None:
 
     Raises :class:`ScopeRejected` (with an operator-readable reason) when the
     target contains injectable characters, resolves to forbidden/reserved
-    space, exceeds the host cap, or — unless explicitly permitted — includes
+    space, exceeds the host cap, or (unless explicitly permitted) includes
     public/internet-routable addresses. Returns ``None`` when the target is
     cleared for scanning.
     """
@@ -103,7 +103,7 @@ def vet_target(target: str) -> None:
     try:
         scope = pr.ScopeValidator(max_hosts=MAX_HOSTS).validate(target)
     except pr.ScopeError as exc:
-        # Loopback / multicast / broadcast / reserved / oversized — same policy
+        # Loopback / multicast / broadcast / reserved / oversized: same policy
         # as the CLI, which raises ScopeError for these.
         raise ScopeRejected(str(exc)) from exc
 
@@ -152,7 +152,7 @@ def open_mode() -> bool:
     """True when NO auth token is configured (the zero-config 'open' dev mode).
 
     In this mode :func:`role_for` grants admin to everyone, which is only safe for
-    *local* clients — the app-level access guard (see ``app.py``) therefore
+    *local* clients, so the app-level access guard (see ``app.py``) therefore
     restricts open mode to loopback peers so that binding to ``0.0.0.0`` (e.g. the
     Docker ``--network host`` deployment) can never expose the scanner to the LAN
     without an explicit token.
@@ -161,7 +161,7 @@ def open_mode() -> bool:
 
 
 # Hostnames that denote a same-machine client. "testclient"/"testserver" are
-# Starlette's in-process TestClient peer + Host values — synthesised by the ASGI
+# Starlette's in-process TestClient peer + Host values, synthesised by the ASGI
 # test transport and impossible to produce from a real network socket, so
 # trusting them keeps the test suite working without weakening the guarantee for
 # real peers.
@@ -198,7 +198,7 @@ def _host_only(host_header: str) -> str:
 
 
 def host_header_local(host_header: str | None) -> bool:
-    """True iff the ``Host`` header names a loopback host — an anti-DNS-rebinding
+    """True iff the ``Host`` header names a loopback host: an anti-DNS-rebinding
     check used only in open mode (a rebinding attack sends ``Host: evil.com``)."""
     if not host_header:
         return True  # no Host header (e.g. HTTP/1.0 / test client) → not a rebind
@@ -224,7 +224,7 @@ def admin_ok(token: str | None, authorization: str | None) -> bool:
 class scan_slot:
     """Async context manager that holds one concurrency slot for a scan.
 
-    Use ``async with scan_slot() as ok:`` — ``ok`` is False when the host is
+    Use ``async with scan_slot() as ok:``. ``ok`` is False when the host is
     already at `MAX_CONCURRENT_SCANS`, letting the caller reject fast instead of
     queueing an unbounded backlog of nmap processes.
     """
@@ -253,13 +253,13 @@ class scan_slot:
 # The token check itself is constant-time (see role_for), but a token can still
 # be guessed by brute force if failures are unlimited. This throttle records
 # failed auth attempts per source IP in a sliding window and, past a threshold,
-# locks that IP out for a cooldown — so an exposed instance cannot be hammered.
+# locks that IP out for a cooldown, so an exposed instance cannot be hammered.
 #
 # It is a *remote* defence: loopback / same-machine peers are exempt (a local
 # attacker already owns the host, and it keeps zero-config localhost dev and the
 # in-process test client from ever locking themselves out). Times use a monotonic
 # clock so a wall-clock change can't extend or void a lockout. State is process-
-# local (no shared store) — appropriate for the single-node deployment model.
+# local (no shared store), appropriate for the single-node deployment model.
 # --------------------------------------------------------------------------- #
 AUTH_MAX_FAILURES = _env_int("ENUMGRID_AUTH_MAX_FAILURES", 8)   # failures per window before lockout
 AUTH_WINDOW_S = _env_int("ENUMGRID_AUTH_WINDOW", 300)          # sliding window (5 min)
@@ -322,7 +322,7 @@ def register_auth_success(ip: str | None) -> None:
 
 
 def lockout_remaining(ip: str | None, now: float | None = None) -> int:
-    """Whole seconds until `ip`'s lockout expires (0 if not locked) — for Retry-After."""
+    """Whole seconds until `ip`'s lockout expires (0 if not locked), for Retry-After."""
     if not ip:
         return 0
     now = _mono(now)

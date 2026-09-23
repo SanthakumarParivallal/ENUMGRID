@@ -1,5 +1,5 @@
 /**
- * CopilotPanel.jsx — the ENUMGRID AI copilot as a right-hand slide-over.
+ * CopilotPanel.jsx: the ENUMGRID AI copilot as a right-hand slide-over.
  * ---------------------------------------------------------------------------
  * Self-contained (like the Operations panel) to keep the 2.6k-line dashboard
  * calm. It:
@@ -7,7 +7,7 @@
  *   • lets the operator paste an Anthropic or OpenAI key right here and pick the
  *     active provider (POST /api/copilot/key + /provider);
  *   • surfaces model-proposed scans as a confirm button that launches the real,
- *     scope-vetted scan — the model never runs anything on its own.
+ *     scope-vetted scan. The model never runs anything on its own.
  *
  * Opened from the command palette / Settings menu via the `eg:open-copilot`
  * event. Pure data shaping lives in `lib/copilot.js` (unit-tested).
@@ -70,13 +70,13 @@ function PullProgress({ pull }) {
       <p className="mt-1 truncate text-[10px] text-slate-500">
         {pull.total ? `${formatBytes(pull.completed)} / ${formatBytes(pull.total)} · ` : ''}{pull.status || 'working…'}
       </p>
-      <p className="mt-1 text-[10px] text-slate-600">First download can take a few minutes — you can keep this open.</p>
+      <p className="mt-1 text-[10px] text-slate-600">First download can take a few minutes. You can keep this open.</p>
     </div>
   );
 }
 
 /** Turnkey Ollama onboarding: detect the server + models, download a model with a
- *  live progress bar, pick which model to use — no terminal required. */
+ *  live progress bar, pick which model to use, with no terminal required. */
 function OllamaSetup({ status, onSaved, onRefresh }) {
   const { toast } = useToast();
   const p = (status && status.providers && status.providers.ollama) || {};
@@ -142,7 +142,7 @@ function OllamaSetup({ status, onSaved, onRefresh }) {
         toast(`${model} downloaded and selected.`, { type: 'success' });
       }
     } catch (e) {
-      if (e.name !== 'AbortError') toast('Download failed — is Ollama running?', { type: 'error' });
+      if (e.name !== 'AbortError') toast('Download failed. Is Ollama running?', { type: 'error' });
     } finally {
       setPull(null);
       pullAbort.current = null;
@@ -185,7 +185,7 @@ function OllamaSetup({ status, onSaved, onRefresh }) {
   if (step === 'ready') {
     return (
       <div className="space-y-2.5">
-        <p className="text-[11px] font-semibold text-matrix">✓ Ollama is running with {p.model} — ready to chat.</p>
+        <p className="text-[11px] font-semibold text-matrix">✓ Ollama is running with {p.model}, ready to chat.</p>
         {installed.length > 1 && (
           <label className="block text-[11px] text-slate-400">
             Model
@@ -247,12 +247,12 @@ function OllamaSetup({ status, onSaved, onRefresh }) {
     );
   }
 
-  // server_down / unknown — guide install, then auto-detect.
+  // server_down / unknown: guide install, then auto-detect.
   return (
     <div className="space-y-2">
       <p className="text-[11px] leading-relaxed text-slate-300">
         {note}{' '}
-        <a href="https://ollama.com/download" target="_blank" rel="noreferrer" className="font-semibold text-sky-400 hover:underline">
+        <a href="https://ollama.com/download" target="_blank" rel="noreferrer" className="font-semibold text-sky-300 hover:underline">
           Download Ollama ↗
         </a>
       </p>
@@ -267,7 +267,7 @@ function OllamaSetup({ status, onSaved, onRefresh }) {
   );
 }
 
-/** Provider chooser + credentials — shown when nothing is ready, or via the gear.
+/** Provider chooser + credentials, shown when nothing is ready, or via the gear.
  *  Four providers, the two free ones (Ollama · Gemini) first. Ollama gets a full
  *  turnkey setup wizard; the cloud providers get a key field. */
 function ConnectCard({ status, onSaved, onRefresh }) {
@@ -359,9 +359,9 @@ function ConnectCard({ status, onSaved, onRefresh }) {
               placeholder={hint.placeholder || 'API key'} className={fieldCls}
             />
             <p className="mt-1 text-[10px] text-slate-500">
-              {hint.note ? `${hint.note} ` : ''}Stored on your machine (0600, gitignored) — never logged.{' '}
+              {hint.note ? `${hint.note} ` : ''}Stored on your machine (0600, gitignored), never logged.{' '}
               {hint.url && (
-                <a href={hint.url} target="_blank" rel="noreferrer" className="text-sky-400 hover:underline">
+                <a href={hint.url} target="_blank" rel="noreferrer" className="text-sky-300 hover:underline">
                   {hint.linkText || 'Get a key ↗'}
                 </a>
               )}
@@ -369,7 +369,7 @@ function ConnectCard({ status, onSaved, onRefresh }) {
             {sdkMissing && (
               <p className="mt-1 text-[10px] text-amber">
                 The {PROVIDER_LABELS[provider]} SDK isn’t installed on the backend
-                (<code>pip install {provider === 'gemini' ? 'openai' : provider}</code>) — the key saves, but chat needs the SDK.
+                (<code>pip install {provider === 'gemini' ? 'openai' : provider}</code>). The key saves, but chat needs the SDK.
               </p>
             )}
           </div>
@@ -401,7 +401,7 @@ function Bubble({ who, children, html }) {
 }
 
 // Conversation persistence: survive closing/reopening the panel (the layer
-// unmounts the panel on close). Kept small and local — never leaves the browser.
+// unmounts the panel on close). Kept small and local; never leaves the browser.
 const HISTORY_KEY = 'eg:copilot:history';
 const HISTORY_MAX = 50;
 
@@ -428,8 +428,8 @@ function CopilotPanel({ onClose }) {
   const [input, setInput] = useState('');
   const [streaming, setStreaming] = useState(false);
 
-  // Persist the conversation (capped) whenever it changes, but not mid-stream —
-  // wait until streaming settles so we store complete turns.
+  // Persist the conversation (capped) whenever it changes, but not mid-stream.
+  // Wait until streaming settles so we store complete turns.
   useEffect(() => {
     if (streaming) return;
     try {
@@ -611,7 +611,7 @@ function CopilotPanel({ onClose }) {
               <ul className="space-y-1">
                 <li>· “Which hosts are most exposed and why?”</li>
                 <li>· “Summarise the open services on this subnet.”</li>
-                <li>· “What should I scan next?” — I can propose a scan to run.</li>
+                <li>· “What should I scan next?” I can propose a scan to run.</li>
               </ul>
             </div>
           )}

@@ -1,15 +1,15 @@
 """
-credscan.py — authenticated (credentialed) host facts over SSH.
+credscan.py: authenticated (credentialed) host facts over SSH.
 
 Network-only scanning infers the OS/software from banners, which is approximate
 and prone to false positives (backported fixes). A *credentialed* check logs in
 and reads the truth: the exact distro (`/etc/os-release`), kernel (`uname`), and
 installed-package inventory (`dpkg`/`rpm`). That's how authoritative vulnerability
-assessment is done — exact installed versions instead of guesses.
+assessment is done: exact installed versions instead of guesses.
 
 SSH is via `paramiko` (optional dependency). The pure parsers are always
 available and fully tested; the live login is best-effort and never raises into
-the caller. Credentials are used in-memory only — never logged or persisted.
+the caller. Credentials are used in-memory only, never logged or persisted.
 Authorized use only: run this only against hosts you administer.
 """
 
@@ -96,7 +96,7 @@ def ssh_facts(
     """Log into `ip` over SSH and return authoritative host facts.
 
     Returns ``{"ok": bool, "error"?: str, "os", "kernel", "arch", "packages"}``.
-    Never raises — connection/auth problems come back as ``{"ok": False, ...}``.
+    Never raises; connection/auth problems come back as ``{"ok": False, ...}``.
     """
     if not _HAVE_PARAMIKO:
         return {"ok": False, "error": "paramiko not installed (pip install paramiko)"}
@@ -107,7 +107,7 @@ def ssh_facts(
     except Exception:  # noqa: BLE001 - missing known_hosts is fine
         pass
     if _SSH_AUTOADD:
-        # Opt-in only (ENUMGRID_SSH_AUTOADD=1): trust unknown keys — convenient
+        # Opt-in only (ENUMGRID_SSH_AUTOADD=1): trust unknown keys, which is convenient
         # for first-use on a LAN you control, at the cost of MITM detection.
         client.set_missing_host_key_policy(paramiko.AutoAddPolicy())  # nosec B507 - gated, off by default
     else:

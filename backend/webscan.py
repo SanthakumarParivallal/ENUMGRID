@@ -1,10 +1,10 @@
 """
-webscan.py — lightweight web-posture audit (DAST-lite) for HTTP(S) services.
+webscan.py: lightweight web-posture audit (DAST-lite) for HTTP(S) services.
 
 Not a full crawler/fuzzer, but a real, safe passive check of the most common
 web-security hygiene issues on a discovered web port: missing security response
 headers (HSTS / CSP / X-Frame-Options / …), insecure cookies, the server banner,
-and — for HTTPS — the TLS certificate (issuer, expiry, self-signed). It performs
+and, for HTTPS, the TLS certificate (issuer, expiry, self-signed). It performs
 a single GET of the root path; it never crawls, fuzzes, or sends payloads.
 
 Pure parsers (header/cert → findings) are fully tested; the live fetch is
@@ -24,10 +24,10 @@ _TIMEOUT = 6
 
 # Recommended security headers → (severity if missing, short explanation).
 _SECURITY_HEADERS = {
-    "strict-transport-security": (Severity.MEDIUM, "No HSTS — connections can be downgraded to HTTP"),
-    "content-security-policy": (Severity.MEDIUM, "No Content-Security-Policy — weaker XSS mitigation"),
-    "x-frame-options": (Severity.LOW, "No X-Frame-Options — clickjacking risk"),
-    "x-content-type-options": (Severity.LOW, "No X-Content-Type-Options — MIME-sniffing risk"),
+    "strict-transport-security": (Severity.MEDIUM, "No HSTS: connections can be downgraded to HTTP"),
+    "content-security-policy": (Severity.MEDIUM, "No Content-Security-Policy: weaker XSS mitigation"),
+    "x-frame-options": (Severity.LOW, "No X-Frame-Options: clickjacking risk"),
+    "x-content-type-options": (Severity.LOW, "No X-Content-Type-Options: MIME-sniffing risk"),
     "referrer-policy": (Severity.LOW, "No Referrer-Policy"),
 }
 
@@ -93,7 +93,7 @@ def _peercert_dict(der: bytes | None) -> dict | None:
 
     We connect with ``verify_mode = CERT_NONE`` (we *inspect* the cert, we don't
     trust-gate the connection). Under CERT_NONE, ``ssl.getpeercert()`` returns an
-    empty dict — so the only way to read the cert is its binary (DER) form, which
+    empty dict, so the only way to read the cert is its binary (DER) form, which
     we decode here. Returns ``notAfter`` + ``issuer``/``subject`` in the same
     nested-tuple layout the stdlib produces, so the pure `cert_findings` parser
     (and its tests) work unchanged. Best-effort: ``None`` on any parse failure.
@@ -114,7 +114,7 @@ def _peercert_dict(der: bytes | None) -> dict | None:
         not_after_str = not_after.strftime("%b %d %H:%M:%S %Y GMT")
 
         def _name(name) -> tuple:
-            # ((attr, value),) per RDN — issuer == subject ⇒ self-signed.
+            # ((attr, value),) per RDN; issuer == subject ⇒ self-signed.
             return tuple(((attr.rfc4514_attribute_name, attr.value),) for attr in name)
 
         return {

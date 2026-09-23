@@ -1,10 +1,10 @@
 /**
- * markdown.js — a tiny, safe Markdown→HTML renderer for copilot replies.
+ * markdown.js: a tiny, safe Markdown→HTML renderer for copilot replies.
  * ---------------------------------------------------------------------------
  * LLM answers read far better with headings, lists, code and links than as one
- * grey block of text. We render the small Markdown subset models actually emit —
+ * grey block of text. We render the small Markdown subset models actually emit:
  * headings, bold/italic, inline + fenced code, ordered/unordered lists,
- * blockquotes, links — and we do it *without a dependency* so there's no new
+ * blockquotes and links. We do it *without a dependency* so there's no new
  * supply-chain surface in a security tool.
  *
  * Safety: this output is injected with `dangerouslySetInnerHTML`, so the golden
@@ -27,7 +27,17 @@ const OL_CLASS = 'my-1 list-decimal space-y-0.5 pl-4 marker:text-slate-500';
 const CODE_CLASS = 'rounded bg-steel-800 px-1 py-0.5 text-[11px] text-matrix';
 const PRE_CLASS = 'my-1.5 overflow-x-auto rounded-md border border-slate-800 bg-steel-950 p-2 text-[11px] leading-relaxed text-slate-200';
 const QUOTE_CLASS = 'my-1 border-l-2 border-slate-600 pl-2 text-slate-400';
-const LINK_CLASS = 'text-sky-400 underline decoration-sky-400/40 underline-offset-2 hover:text-sky-300';
+// `sky-400` is `--accent-sky-strong`, the ICON tone: it is toned to clear the
+// 3:1 bar for non-text graphics, and as 12px link text on the copilot bubble it
+// measured 3.99:1 on the light theme, under the 4.5:1 body-text bar. `sky-300`
+// (`--accent-sky`) is the text tone and takes it to 5.78 light / 11.52 dark.
+// The underline is the link's non-colour cue (WCAG 1.4.1), so it has to be
+// visible in its own right: at 40% alpha it was 1.86:1 on paper, and 70% is the
+// lowest that clears 3:1 on both themes (3.22 light, 6.06 dark) while leaving
+// hover a step up. Hover moves the underline rather than the text because the
+// shades either side of 300 are Tailwind's stock sky and are not re-toned per
+// theme; `sky-200` would be near-white on paper.
+const LINK_CLASS = 'text-sky-300 underline decoration-sky-300/70 underline-offset-2 hover:decoration-sky-300';
 const HR_CLASS = 'my-2 border-slate-700';
 
 const NVD = 'https://nvd.nist.gov/vuln/detail/';
@@ -74,10 +84,10 @@ function inline(escaped) {
   const keep = (html) => S0 + (stash.push(html) - 1) + S1;
   let s = escaped;
 
-  // `inline code` — its content is already escaped
+  // `inline code`: its content is already escaped
   s = s.replace(/`([^`]+)`/g, (_, c) => keep('<code class="' + CODE_CLASS + '">' + c + '</code>'));
 
-  // [label](url) — validate scheme, keep the literal text if it's not allowed
+  // [label](url): validate scheme, keep the literal text if it's not allowed
   s = s.replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (m, label, url) => {
     const safe = safeUrl(url);
     if (!safe) return m;
@@ -152,7 +162,7 @@ export function renderMarkdown(md) {
       continue;
     }
 
-    // paragraph — gather consecutive non-blank, non-block lines
+    // paragraph: gather consecutive non-blank, non-block lines
     const para = [];
     while (i < lines.length && !/^\s*$/.test(lines[i]) && !BLOCK_START.test(lines[i])) {
       para.push(lines[i]);

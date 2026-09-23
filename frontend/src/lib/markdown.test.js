@@ -8,7 +8,7 @@ describe('escapeHtml', () => {
   });
 });
 
-describe('renderMarkdown — formatting', () => {
+describe('renderMarkdown: formatting', () => {
   it('renders headings', () => {
     expect(renderMarkdown('# Title')).toContain('>Title</div>');
     expect(renderMarkdown('### Sub')).toMatch(/font-semibold[^>]*>Sub<\/div>/);
@@ -52,7 +52,7 @@ describe('renderMarkdown — formatting', () => {
   });
 });
 
-describe('renderMarkdown — links', () => {
+describe('renderMarkdown: links', () => {
   it('links [label](http…) and sets safe rel/target', () => {
     const html = renderMarkdown('[docs](https://example.com/x)');
     expect(html).toContain('href="https://example.com/x"');
@@ -71,7 +71,7 @@ describe('renderMarkdown — links', () => {
   });
 });
 
-describe('renderMarkdown — XSS safety', () => {
+describe('renderMarkdown: XSS safety', () => {
   it('escapes raw HTML so it never becomes live markup', () => {
     const html = renderMarkdown('<img src=x onerror=alert(1)>');
     expect(html).not.toContain('<img');
@@ -91,7 +91,7 @@ describe('renderMarkdown — XSS safety', () => {
   });
 });
 
-describe('renderMarkdown — sentinel collision regression', () => {
+describe('renderMarkdown: sentinel collision regression', () => {
   it('leaves plain numbers untouched (would break with a naive placeholder)', () => {
     const html = renderMarkdown('Found 3 open ports and 5 hosts');
     expect(html).toContain('Found 3 open ports and 5 hosts');

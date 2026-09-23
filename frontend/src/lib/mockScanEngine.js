@@ -1,5 +1,5 @@
 /**
- * mockScanEngine.js — a stand-in for the FastAPI + python-nmap backend.
+ * mockScanEngine.js: a stand-in for the FastAPI + python-nmap backend.
  * ---------------------------------------------------------------------------
  * The real platform streams `ScanState` snapshots over Server-Sent Events as
  * the two-tiered pipeline runs (Ping Sweep -> Nmap Service Scan). Until that
@@ -14,7 +14,7 @@
  * `onSnapshot(scanState)` receives a plain object matching schema.ScanState.
  *
  * To switch to the real backend, replace `startScan()` in ScanContext.jsx with
- * an EventSource subscription — the reducer already ingests these snapshots
+ * an EventSource subscription. The reducer already ingests these snapshots
  * verbatim.
  */
 
@@ -136,7 +136,7 @@ function deriveBaseOctets(target) {
  * reveals this progressively to imitate discovery + enumeration latency.
  */
 function buildHostBlueprint(ip, deep) {
-  // Decide reachability first — plenty of dead addresses in a real /24.
+  // Decide reachability first: plenty of dead addresses in a real /24.
   if (chance(0.42)) {
     return { ip, hostname: null, status: HostStatus.DOWN, os: 'Unknown', ports: [] };
   }
@@ -281,7 +281,7 @@ export function createScanEngine({ onSnapshot, onDone, tickMs = 480 }) {
       }));
 
     // emit is only ever called from start() (before any cancel) or from step(),
-    // which bails at its own `if (cancelled) return` guard first — so cancelled
+    // which bails at its own `if (cancelled) return` guard first, so cancelled
     // is always false here. The single cancellation check lives in step().
     const emit = (phase, progress, finished = false) => {
       onSnapshot({

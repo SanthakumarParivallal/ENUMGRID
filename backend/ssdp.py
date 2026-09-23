@@ -1,22 +1,22 @@
 """
-ssdp.py — SSDP / UPnP device-name + model discovery (Fing-style).
+ssdp.py: SSDP / UPnP device-name + model discovery (Fing-style).
 
 A large class of LAN devices that have *no* reverse-DNS record and don't answer
 mDNS or NetBIOS still announce themselves over SSDP (UPnP): home routers, smart
 TVs and media renderers, game consoles, NAS boxes, printers and a lot of IoT.
 We send the standard ``M-SEARCH`` multicast, collect the unicast replies, then
 fetch each responder's UPnP *device description* XML to read its
-``friendlyName`` / ``manufacturer`` / ``modelName`` / ``deviceType`` — exactly
-what fills the "— no PTR —" gaps in the inventory.
+``friendlyName`` / ``manufacturer`` / ``modelName`` / ``deviceType``. That is exactly
+what fills the "no PTR" gaps in the inventory.
 
 Pure stdlib (sockets + urllib), best-effort and bounded: any error just yields
 no data for that host. Everything returned is the device's *own* announced
-description — never inferred or invented.
+description, never inferred or invented.
 
 SECURITY
 --------
 A reply's ``LOCATION`` URL is only fetched when its host matches the IP that
-actually answered (and the scheme is http/https) — so a rogue device can't use
+actually answered (and the scheme is http/https), so a rogue device can't use
 its SSDP reply to make us fetch an arbitrary internal URL (SSRF). The XML is
 scraped with targeted regexes (no XML entity expansion), so a hostile
 description can't trigger an XXE / billion-laughs parse.
@@ -88,7 +88,7 @@ def _collect_responses(timeout: float) -> dict[str, dict]:
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_TTL, 2)
         sock.settimeout(max(0.5, timeout))
-        # Send a couple of times — UDP multicast is lossy and some stacks only
+        # Send a couple of times: UDP multicast is lossy and some stacks only
         # answer the second probe.
         for _ in range(2):
             try:

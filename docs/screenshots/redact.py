@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """
-redact.py — produce publication-safe copies of the committed screenshots.
+redact.py: produce publication-safe copies of the committed screenshots.
 
 The live-capture figures show real device data from the operator's **own**
 authorised LAN: the operator's hostname (``santhas-MacBook-Air[.local]``) and
 MAC addresses (mostly OS-randomised, but real). None of this is third-party
 data, but a published figure should not carry the operator's machine name or
 hardware addresses. This script blurs those regions and writes ``*-redacted.png``
-copies alongside the originals — the originals are kept for the operator's own
+copies alongside the originals. The originals are kept for the operator's own
 reference; the ``-redacted`` copies are the ones to publish.
 
 It is deliberately data-driven and conservative: each region is a generously
-sized box (over-covering is safe — better to hide a little too much than to leak
+sized box (over-covering is safe, since it is better to hide a little too much than to leak
 an address), and the transform is a heavy Gaussian blur + darken so the redaction
 is visually obvious (the reader sees that something was hidden, not a suspicious
 clean gap). Regions are expressed in the **original** pixel space of each frame
@@ -37,9 +37,9 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 # Coordinates were read off the 2× captures; boxes are padded for safety.
 #
 # What each box covers:
-#   * sidebar "THIS DEVICE → Host" value  — the operator hostname
+#   * sidebar "THIS DEVICE → Host" value:  the operator hostname
 #   * the "scanning from … · <hostname>" line in the standby panel
-#   * the asset-matrix MAC column          — real (mostly randomised) MACs
+#   * the asset-matrix MAC column:          real (mostly randomised) MACs
 #   * the one resolved-hostname cell / node label for the operator's own machine
 REGIONS: dict[str, list[tuple[int, int, int, int]]] = {
     "command-center-standby.png": [
@@ -63,7 +63,7 @@ REGIONS: dict[str, list[tuple[int, int, int, int]]] = {
         (1970, 1378, 2230, 1430),  # .154 node label (operator machine)
     ],
     # mobile.png (1170×2532) shows only the KPI strip + filter toolbar in the
-    # captured crop — no hostname or MAC on screen — so it needs no redaction.
+    # captured crop, with no hostname or MAC on screen, so it needs no redaction.
 }
 
 
@@ -107,7 +107,7 @@ def check() -> int:
     if problems:
         print(f"redact --check: {problems} problem(s)", file=sys.stderr)
         return 1
-    print(f"redact --check: OK — {len(REGIONS)} frames, all regions in bounds")
+    print(f"redact --check: OK, {len(REGIONS)} frames, all regions in bounds")
     return 0
 
 

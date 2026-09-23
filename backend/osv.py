@@ -1,9 +1,9 @@
 """
-osv.py — backport-aware vulnerability matching via OSV.dev.
+osv.py: backport-aware vulnerability matching via OSV.dev.
 
 Matching a *banner version* to NVD over-reports: distros backport security fixes
 without bumping the upstream version, so "OpenSSH 8.9" looks vulnerable even when
-Ubuntu already patched it. OSV.dev solves this — its Debian/Ubuntu/Alpine feeds
+Ubuntu already patched it. OSV.dev solves this: its Debian/Ubuntu/Alpine feeds
 encode the *distro-fixed* versions, so querying an installed package + version in
 its distro ecosystem returns only the CVEs that **actually still affect it**.
 
@@ -134,7 +134,7 @@ def parse_osv(data: dict) -> list[Vuln]:
                 title=(v.get("summary") or "")[:140],
                 severity=sev,
                 cvss=None,
-                output=f"{vid} — distro-confirmed affecting installed version (OSV)",
+                output=f"{vid}: distro-confirmed affecting installed version (OSV)",
                 url=url,
                 confidence="version",  # version-scoped, but distro/backport-aware
             )

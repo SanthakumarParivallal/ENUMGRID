@@ -1,5 +1,5 @@
 """
-audit.py — append-only audit trail for accountability.
+audit.py: append-only audit trail for accountability.
 
 Every scan request (and refusal) is recorded as one JSON line: when, what, the
 client, the mode, and a result summary. This is the minimum an authorized-use
@@ -32,7 +32,7 @@ def record(event: str, **fields) -> None:
 
 
 def tail(limit: int = 100) -> list[dict]:
-    """Most recent audit entries (newest first) — powers an audit view/endpoint."""
+    """Most recent audit entries (newest first), which powers an audit view/endpoint."""
     limit = max(1, min(int(limit), 1000))
     try:
         with open(AUDIT_LOG, encoding="utf-8") as fh:

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-benchmark.py — accuracy + speed comparison: EnumGrid vs nmap.
+benchmark.py: accuracy + speed comparison: EnumGrid vs nmap.
 
 Runs EnumGrid's discovery (`--discover`) and `nmap -sn` against the *same*
 target, then reports how they agree. Two ways to read the result:
@@ -25,7 +25,7 @@ Usage:
     python evaluation/benchmark.py 192.168.0.0/24 --json out.json --md out.md
     python evaluation/benchmark.py 192.168.0.0/24 --privileged   # add sudo nmap -sn (ARP) baseline
 
-No raw tracebacks; honest output only — nothing is fabricated. Baselines that are
+No raw tracebacks; honest output only; nothing is fabricated. Baselines that are
 not installed are reported as such (never silently treated as "found nothing").
 """
 
@@ -60,7 +60,7 @@ def _ips_from_nmap(text: str) -> set[str]:
 
 def _nmap_sn_cmd(target: str, privileged: bool = False) -> list[str]:
     """The `nmap -sn` argv. `privileged` prefixes sudo so nmap can use ARP ping on
-    a local subnet — the fair, root-equivalent baseline for EnumGrid's ARP pass."""
+    a local subnet, the fair, root-equivalent baseline for EnumGrid's ARP pass."""
     base = ["nmap", "-sn", "-T4", target]
     return ["sudo", *base] if privileged else base
 
@@ -130,7 +130,7 @@ def render_md(result: dict) -> str:
     c = result["comparison"]
     pm, nm = c["enumgrid_metrics"], c["nmap_metrics"]
     return "\n".join([
-        f"### Benchmark — target `{result['target']}`  ({result['timestamp']})",
+        f"### Benchmark: target `{result['target']}`  ({result['timestamp']})",
         "",
         f"Reference for precision/recall: **{c['reference']}** "
         f"({c['reference_count']} hosts). Jaccard agreement: **{c['jaccard']:.2f}**.",
@@ -169,21 +169,21 @@ def render_privileged_md(seconds: float, summary: dict) -> str:
     agree = not summary["enumgrid_only"] and not summary["privileged_only"]
     if summary["count"] == 0:
         # A privileged scan that found nothing means sudo was denied or nmap is
-        # unavailable — not a real comparison. Say so rather than claim a "tie".
+        # unavailable, not a real comparison. Say so rather than claim a "tie".
         note = (
-            "- `sudo nmap -sn` returned no hosts — sudo was likely denied or nmap is "
+            "- `sudo nmap -sn` returned no hosts; sudo was likely denied or nmap is "
             "unavailable; re-run with working sudo to compare."
         )
     elif agree:
         note = (
-            "- With root, `nmap -sn` closes the gap via ARP — the two agree exactly, "
+            "- With root, `nmap -sn` closes the gap via ARP: the two agree exactly, "
             "confirming EnumGrid delivers that same coverage **without** privilege."
         )
     else:
         note = "- Even with root, the tools differ on the hosts above (timing / responsiveness)."
     return "\n".join([
         "",
-        f"**Privileged baseline** — `sudo nmap -sn` (ARP ping): "
+        f"**Privileged baseline**, `sudo nmap -sn` (ARP ping): "
         f"found **{summary['count']}** hosts in {seconds:.1f}s, "
         f"recall {summary['metrics']['recall']:.2f}, "
         f"Jaccard vs EnumGrid **{summary['jaccard_vs_enumgrid']:.2f}**.",
@@ -217,7 +217,7 @@ LABELS = {
 
 
 def _ips_with_mac(text: str) -> set[str]:
-    """IPs from ``IP<whitespace>MAC …`` lines — the arp-scan / netdiscover format."""
+    """IPs from ``IP<whitespace>MAC …`` lines, i.e. the arp-scan / netdiscover format."""
     out: set[str] = set()
     for line in text.splitlines():
         parts = line.split()
@@ -265,7 +265,7 @@ def run_baseline(name: str, target: str, privileged: bool = False,
                  timeout: float = 600.0) -> tuple[set[str] | None, float]:
     """Run one baseline discovery tool. Returns ``(hosts, seconds)``.
 
-    ``hosts`` is ``None`` when the tool is not installed — the caller reports it
+    ``hosts`` is ``None`` when the tool is not installed. The caller reports it
     as "unavailable" rather than pretending it found nothing (honest output)."""
     spec = BASELINES[name]
     if not shutil.which(spec["which"]):
@@ -330,13 +330,13 @@ def multi_run(target: str, tool_names: list[str], runs: int,
     raw: dict[str, dict] = {name: {"hosts": [], "time": []} for name in tool_names}
     for name in tool_names:
         for i in range(runs):
-            log(f"» {LABELS.get(name, name)} — run {i + 1}/{runs} …")
+            log(f"» {LABELS.get(name, name)}: run {i + 1}/{runs} …")
             if name == "enumgrid":
                 hosts, secs = run_enumgrid(target)
             else:
                 hosts, secs = run_baseline(name, target, privileged)
                 if hosts is None:  # not installed → stop retrying this tool
-                    log(f"  ({name} not installed — skipping)")
+                    log(f"  ({name} not installed, skipping)")
                     break
             raw[name]["hosts"].append(hosts)
             raw[name]["time"].append(secs)
@@ -367,7 +367,7 @@ def _fmt_ci(s: dict) -> str:
 
 def render_multirun_md(target: str, timestamp: str, result: dict, runs: int) -> str:
     lines = [
-        f"### Multi-run benchmark — `{target}`  ({timestamp}) · {runs} run(s)/tool",
+        f"### Multi-run benchmark: `{target}`  ({timestamp}) · {runs} run(s)/tool",
         "",
         f"Reference for precision/recall: **{result['reference']}** "
         f"({result['reference_count']} hosts). Cells are **mean ± 95 % CI** across runs.",
@@ -378,7 +378,7 @@ def render_multirun_md(target: str, timestamp: str, result: dict, runs: int) -> 
     for name, t in result["tools"].items():
         label = LABELS.get(name, name)
         if not t.get("available"):
-            lines.append(f"| {label} | — | _not installed / no data_ |  |  |  |")
+            lines.append(f"| {label} | n/a | _not installed / no data_ |  |  |  |")
             continue
         lines.append(
             f"| {label} | {t['runs']} | {_fmt_ci(t['hosts'])} | {_fmt_ci(t['recall'])} | "
@@ -412,7 +412,7 @@ def write_plot(result: dict, path: str) -> str | None:
     ax2.bar(names, times, yerr=t_err, capsize=4, color="#a78bfa")
     ax2.set_title("Discovery time, s (mean ± 95 % CI)")
     ax2.tick_params(axis="x", rotation=30)
-    fig.suptitle(f"EnumGrid discovery benchmark — {result['reference_count']} reference hosts")
+    fig.suptitle(f"EnumGrid discovery benchmark: {result['reference_count']} reference hosts")
     fig.tight_layout()
     fig.savefig(path, dpi=120)
     plt.close(fig)
@@ -468,7 +468,7 @@ def main(argv: list[str] | None = None) -> int:
         md = render_multirun_md(args.target, payload["timestamp"], result, runs)
         if args.plot:
             saved = write_plot(result, args.plot)
-            md += f"\n\n{'![benchmark](' + args.plot + ')' if saved else '_(plot skipped — matplotlib not installed)_'}"
+            md += f"\n\n{'![benchmark](' + args.plot + ')' if saved else '_(plot skipped: matplotlib not installed)_'}"
             if saved:
                 print(f"» wrote plot {saved}", file=sys.stderr)
         print("\n" + md + "\n")

@@ -23,7 +23,7 @@ export default [
     plugins: { react, 'react-hooks': reactHooks, 'jsx-a11y': jsxA11y },
     rules: {
       ...react.configs.flat.recommended.rules,
-      ...react.configs.flat['jsx-runtime'].rules, // Vite's automatic JSX runtime — no `import React` needed
+      ...react.configs.flat['jsx-runtime'].rules, // Vite's automatic JSX runtime, so no `import React` is needed
       ...jsxA11y.flatConfigs.recommended.rules,
       'react-hooks/rules-of-hooks': 'error',
       'react-hooks/exhaustive-deps': 'warn',

@@ -1,8 +1,8 @@
 """
-passive.py — zero-packet ("passive") host discovery.
+passive.py: zero-packet ("passive") host discovery.
 
 Every other discovery path in ENUMGRID is *active*: it sends a probe (ICMP, TCP,
-ARP request, mDNS query) and waits for a reply. This module is the opposite — it
+ARP request, mDNS query) and waits for a reply. This module is the opposite: it
 sends **nothing**. It listens for the broadcast/multicast chatter hosts emit on
 their own (ARP announcements, DHCP, mDNS/Bonjour, LLMNR, NetBIOS) and records who
 is talking. That makes it stealthy (invisible to an IDS watching for scans) and a
@@ -11,11 +11,11 @@ clean research contrast: *active coverage vs passive coverage vs noise*.
 Design
 ------
 * The aggregation + classification core (`PassiveMonitor`, `method_for_ports`,
-  `_valid_ip`, `_valid_iface`) is pure Python and fully unit-tested — no scapy,
+  `_valid_ip`, `_valid_iface`) is pure Python and fully unit-tested, with no scapy,
   no root, no network.
 * The actual capture (`discover_passive`) uses scapy, which is an *optional*
   dependency and needs raw-socket/BPF privilege. When either is missing we return
-  ``available: False`` with an honest reason — we never fabricate hosts.
+  ``available: False`` with an honest reason. We never fabricate hosts.
 
 Run standalone (needs sudo + `pip install scapy`):
 
@@ -40,7 +40,7 @@ except Exception:  # noqa: BLE001  # pragma: no cover - optional dependency; imp
 # UDP ports whose mere presence names the discovery protocol (host is live).
 _UDP_METHODS = {5353: "mDNS", 5355: "LLMNR", 137: "NBNS", 67: "DHCP", 68: "DHCP"}
 
-# Only broadcast/multicast discovery traffic — keeps capture tiny and on-topic.
+# Only broadcast/multicast discovery traffic, which keeps capture tiny and on-topic.
 BPF_FILTER = "arp or (udp and (port 5353 or port 5355 or port 137 or port 67 or port 68))"
 
 _IFACE_RE = re.compile(r"^[A-Za-z0-9_.:\-]{1,32}$")
@@ -48,7 +48,7 @@ _MAX_SECONDS = 300
 
 
 def _unavailable(reason: str) -> dict:
-    """The standard 'no result' payload — used for every honest failure path."""
+    """The standard 'no result' payload, used for every honest failure path."""
     return {"available": False, "reason": reason, "seconds": 0, "hosts": [], "count": 0}
 
 

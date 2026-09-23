@@ -2,10 +2,10 @@
   "_comment": [
     "Ground truth for the pinned evaluation testbed (evaluation/docker-compose.yml).",
     "Every open port + service name + version below is fixed by the pinned container",
-    "images, so detection_benchmark.py can compute true precision/recall — nothing is",
+    "images, so detection_benchmark.py can compute true precision/recall. Nothing is",
     "assumed. 'version' is the version TOKEN the reported banner must contain (e.g.",
     "'2.4.49'); omit it where nmap cannot reliably fingerprint a version (e.g. Postgres",
-    "behind auth) so that port is service-scored but not version-scored — never penalise",
+    "behind auth) so that port is service-scored but not version-scored, so we never penalise",
     "what we don't assert. 'planted_cves' lists CVEs a version-accurate scanner MUST",
     "recall on that host. Any reported CVE not planted is surfaced as 'unexpected' for",
     "operator review; on a rolling image an unexpected CVE may be genuine, so it is",

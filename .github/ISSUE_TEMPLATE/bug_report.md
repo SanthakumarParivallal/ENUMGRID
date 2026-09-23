@@ -1,12 +1,12 @@
 ---
 name: Bug report
-about: Report a defect in ENUMGRID (the tool itself — not a host you scanned)
+about: Report a defect in ENUMGRID itself, not in a host you scanned
 title: "[bug] "
 labels: bug
 ---
 
 <!--
-⚠️ Only report bugs in ENUMGRID itself. Do NOT paste scan output from systems
+Only report bugs in ENUMGRID itself. Do NOT paste scan output from systems
 you don't own or aren't authorized to test. For a security vulnerability in
 ENUMGRID, follow SECURITY.md instead of opening a public issue.
 -->

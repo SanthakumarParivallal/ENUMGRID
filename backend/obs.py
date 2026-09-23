@@ -1,10 +1,10 @@
 """
-obs.py — structured (JSON) logging with request / scan correlation ids.
+obs.py: structured (JSON) logging with request / scan correlation ids.
 
 The per-report *provenance* manifest answers "what produced this artifact?". This
 is its runtime companion: every API request is given a short **request id**
 (accepted from an inbound ``X-Request-Id`` header if the caller sets one, else
-generated), stamped on the response, and attached — via context variables — to
+generated), stamped on the response, and attached, via context variables, to
 every log line emitted while the request is handled. Scan pipelines additionally
 run under a **scan id**. So a finding on screen can be traced from the browser's
 ``X-Request-Id`` back through the structured log to the exact request and scan
@@ -15,7 +15,7 @@ Design:
     human-readable line when ``ENUMGRID_LOG_FORMAT=text``;
   * correlation ids come from context vars, so they attach automatically without
     every call site having to pass them;
-  * level via ``ENUMGRID_LOG_LEVEL`` (default INFO). No secrets are ever logged —
+  * level via ``ENUMGRID_LOG_LEVEL`` (default INFO). No secrets are ever logged;
     callers pass explicit fields, never tokens/passwords.
 """
 
@@ -38,7 +38,7 @@ _configured = False
 
 
 def new_id() -> str:
-    """A short, unique correlation id (12 hex chars — enough to be unambiguous)."""
+    """A short, unique correlation id (12 hex chars, enough to be unambiguous)."""
     return uuid.uuid4().hex[:12]
 
 
@@ -133,7 +133,7 @@ def get_logger() -> logging.Logger:
 def log(level: int, msg: str, **fields) -> None:
     """Emit a structured record with arbitrary key/value ``fields`` attached.
 
-    Fields must be non-sensitive (paths/counts/status — never tokens/passwords).
+    Fields must be non-sensitive (paths/counts/status, never tokens/passwords).
     """
     get_logger().log(level, msg, extra={"fields": fields})
 

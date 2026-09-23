@@ -1,8 +1,8 @@
 """
-test_cve.py — live NVD enrichment: parsing, CPE handling, caching, dedupe.
+test_cve.py: live NVD enrichment: parsing, CPE handling, caching, dedupe.
 
 The network is never touched: `_query_nvd` is monkeypatched and the cache points
-at a tmp DB. These pin the contract that makes real-world CVE coverage work —
+at a tmp DB. These pin the contract that makes real-world CVE coverage work:
 authoritative parsing, version-scoped CPE keys, a cache that avoids re-fetching,
 and graceful no-ops when disabled or given no CPE.
 """
@@ -13,7 +13,7 @@ import cve
 import pytest
 from models import Severity
 
-# A syntactically valid NVD key (they are UUIDs). Not a real credential — it is
+# A syntactically valid NVD key (they are UUIDs). Not a real credential; it is
 # never sent anywhere; `set_api_key` validates the shape and writes it to a tmp
 # file. Using a placeholder like "SECRET-123" here would exercise a value the
 # endpoint now (correctly) refuses.
@@ -80,7 +80,7 @@ def test_lookup_caches_and_avoids_refetch(monkeypatch):
     monkeypatch.setattr(cve, "_query_nvd", fake_query)
     first = cve.lookup("cpe:/a:openbsd:openssh:7.2p2")
     assert len(first) == 2 and calls["n"] == 1
-    # Second call is served from cache — no extra network hit.
+    # Second call is served from cache, with no extra network hit.
     second = cve.lookup("cpe:/a:openbsd:openssh:7.2p2")
     assert [v.id for v in second] == [v.id for v in first]
     assert calls["n"] == 1
@@ -165,7 +165,7 @@ def test_malformed_api_key_is_refused_not_stored(tmp_path, monkeypatch):
 
     Storing it would leave the dashboard claiming the 50 req/30s limit while NVD
     rejects every request and the lookups silently fall back to the anonymous
-    rate — the tool asserting a capability it does not have.
+    rate, i.e. the tool asserting a capability it does not have.
     """
     kf = tmp_path / "nvd_key"
     monkeypatch.setattr(cve, "KEY_FILE", str(kf))
@@ -216,7 +216,7 @@ def test_parse_nvd_truncates_long_description():
     assert len(cve.parse_nvd(data)[0].title) == 140  # capped for a tidy UI/report
 
 
-# --- live query path (mocked urlopen — still no network) -------------------- #
+# --- live query path (mocked urlopen, still no network) -------------------- #
 def test_query_nvd_builds_request_and_sends_api_key(monkeypatch):
     import json as _json
 

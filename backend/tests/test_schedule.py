@@ -1,5 +1,5 @@
 """
-test_schedule.py — cron-style recurrence math + the persisted rule store.
+test_schedule.py: cron-style recurrence math + the persisted rule store.
 
 All timing is deterministic (an explicit `now` is injected), so these verify the
 firing decision, next-run computation, spec parsing, and JSON persistence without

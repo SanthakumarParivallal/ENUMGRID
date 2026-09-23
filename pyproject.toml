@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "enumgrid"
 version = "1.0.0"
-description = "ENUMGRID: the Enumeration Platform — Angry-IP-style device discovery + nmap service/vuln depth + live CVE intelligence, as a CLI and a web cockpit."
+description = "ENUMGRID: the Enumeration Platform. Angry-IP-style device discovery + nmap service/vuln depth + live CVE intelligence, as a CLI and a web cockpit."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "MIT"
@@ -57,8 +57,8 @@ py-modules = ["purple_recon"]
 # Pytest. Tests live in per-component `tests/` dirs (repo-root `tests/` for the
 # CLI, `backend/tests/` for the FastAPI service). `pythonpath` puts the repo root
 # and `backend/` on sys.path so those tests resolve the flat imports
-# (`import purple_recon`, `import scanner`) regardless of the invocation dir —
-# `pytest`, `cd backend && pytest tests/...`, and the CI matrix all just work.
+# (`import purple_recon`, `import scanner`) regardless of the invocation dir,
+# so `pytest`, `cd backend && pytest tests/...` and the CI matrix all just work.
 [tool.pytest.ini_options]
 addopts = "-q"
 testpaths = ["tests"]
@@ -66,7 +66,7 @@ pythonpath = [".", "backend"]
 
 # Ruff (lint + import order). Correctness-focused and low-noise: gate on the rules
 # that catch real bugs (undefined names, unused imports/vars, syntax) plus import
-# ordering — not stylistic bikeshedding — so the CI lint signal stays meaningful.
+# ordering, rather than stylistic bikeshedding, so the CI lint signal stays meaningful.
 [tool.ruff]
 line-length = 100
 target-version = "py310"
@@ -85,13 +85,13 @@ select = [
 ]
 
 # Bandit (SAST). The skips below are *reviewed and accepted*, with rationale:
-#   B404/B603/B607 — a network-enumeration tool must shell out to ping/arp/ndp/
+#   B404/B603/B607: a network-enumeration tool must shell out to ping/arp/ndp/
 #     nmap. Every call uses list-form args (never shell=True), and the only
 #     externally-influenced value (the scan target) is validated by
 #     ScopeValidator / the anti-injection regex before it can reach a command.
-#   B110            — a few deliberately best-effort try/except/pass blocks
+#   B110:            a few deliberately best-effort try/except/pass blocks
 #     (mDNS, history persistence) that must never break a scan.
-#   B101/B104       — asserts and the "0.0.0.0" target string appear only in the
+#   B101/B104:       asserts and the "0.0.0.0" target string appear only in the
 #     test suite, not in shipped code.
 # The two genuine findings (B310 OUI download, B608 SQL) are fixed inline with
 # justified `# nosec` markers, so medium/high issues elsewhere still fail CI.

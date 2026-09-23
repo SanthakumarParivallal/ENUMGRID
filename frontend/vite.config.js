@@ -36,12 +36,12 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     // A concrete origin (not the opaque about:blank default) so jsdom enables
-    // window.localStorage — the auth token + view-preference modules persist
+    // window.localStorage; the auth token + view-preference modules persist
     // there, and their real read/write branches must run under test.
     environmentOptions: { jsdom: { url: 'http://localhost:5173/' } },
     setupFiles: ['./vitest.setup.js'],
     include: ['src/**/*.test.{js,jsx}'],
-    // Coverage is gated on src/lib/** only — the pure logic + security layer
+    // Coverage is gated on src/lib/** only: the pure logic + security layer
     // (schema coercion, markdown XSS escaping, CSV formula-injection defence,
     // auth token handling, the toast/focus-trap primitives, preferences, the
     // offline scan engine). These are the frontend peer of the CLI/backend
@@ -49,12 +49,12 @@ export default defineConfig({
     // mock-stubbed to fake a line). The large stateful view components
     // (IndustrialDashboard, ScanContext, CopilotPanel) are verified by ESLint
     // (react-hooks + jsx-a11y) and the preview/E2E path, not force-driven to
-    // 100% in jsdom — that would be coverage theatre, not a real guarantee.
+    // 100% in jsdom, which would be coverage theatre, not a real guarantee.
     coverage: {
       provider: 'v8',
       include: ['src/lib/**/*.{js,jsx}'],
       reporter: ['text', 'text-summary'],
-      // Gated on lines + functions + statements at 100%, per file — the same
+      // Gated on lines + functions + statements at 100%, per file, the same
       // line-coverage standard the Python CLI/backend are held to in CI. Branch
       // coverage is reported for insight but not gated at 100, so genuinely
       // unreachable defensive fallbacks (e.g. `x || safeDefault` where x is

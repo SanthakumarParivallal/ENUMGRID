@@ -5,7 +5,7 @@ title: "[feat] "
 labels: enhancement
 ---
 
-**Problem / motivation**
+**Problem or motivation**
 What gap or pain point does this address?
 
 **Proposed solution**
@@ -15,5 +15,5 @@ What you'd like ENUMGRID to do.
 Other approaches you thought about.
 
 **Scope check**
-- [ ] This keeps results **real** (no simulated/fabricated scan data).
-- [ ] This respects the authorized-use model (no bypassing scope guards).
+- [ ] This keeps results real, with no simulated or fabricated scan data.
+- [ ] This respects the authorized-use model and does not bypass scope guards.

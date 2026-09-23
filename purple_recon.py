@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""EnumGrid — a two-tiered, single-terminal network enumeration cockpit.
+"""EnumGrid: a two-tiered, single-terminal network enumeration cockpit.
 
 Author : santhakumarParivallal
 Project: Industrial-Level Network Enumeration Platform (Master's security project)
@@ -17,19 +17,19 @@ ARCHITECTURE
 ------------
 A single, self-contained Python file with four cooperating layers:
 
-  1. Guardrails  (``ScopeValidator``) — strictly refuses loopback, multicast,
+  1. Guardrails  (``ScopeValidator``): strictly refuses loopback, multicast,
      broadcast, link-local, unspecified and reserved space to prevent a
      self-inflicted denial of service, and caps the scan size.
-  2. Phase 1     (``DiscoveryEngine``) — a fast, *unprivileged-friendly*
+  2. Phase 1     (``DiscoveryEngine``): a fast, *unprivileged-friendly*
      horizontal sweep (threaded TCP connect + system ICMP) to find live hosts.
-  3. Phase 2     (``EnumerationEngine``) — a threaded, vertical deep-dive that
+  3. Phase 2     (``EnumerationEngine``): a threaded, vertical deep-dive that
      runs nmap service/version detection strictly on the live hosts.
-  4. Cockpit     (``rich`` Layout + Live) — a fixed header, a live-updating
+  4. Cockpit     (``rich`` Layout + Live): a fixed header, a live-updating
      asset matrix, and a progress footer, all in one terminal window.
 
 Everything is defensively coded: network timeouts, missing privileges, a
 missing nmap binary, missing dependencies, invalid input and Ctrl-C are all
-handled gracefully — never with a raw traceback.
+handled gracefully, never with a raw traceback.
 
 USAGE
 -----
@@ -67,7 +67,7 @@ from types import SimpleNamespace
 
 # --------------------------------------------------------------------------- #
 # Third-party dependency: rich.  Fail loudly but cleanly if it is missing.
-# (Requirement: gracefully handle missing dependencies — no raw traceback.)
+# (Requirement: gracefully handle missing dependencies, no raw traceback.)
 # --------------------------------------------------------------------------- #
 try:
     from rich import box
@@ -112,15 +112,15 @@ APP_NAME = "ENUMGRID"
 VERSION = "1.0.0"
 AUTHOR = "santhakumarParivallal"
 
-# Industrial "cockpit" palette — restrained, signal-only accent colours.
+# Industrial "cockpit" palette: restrained, signal-only accent colours.
 C_AMBER = "#FFB300"   # energised / in-progress
 C_GREEN = "#00E676"   # healthy / up / done
 C_CRIMSON = "#D32F2F"  # critical / blocked / error
 C_STEEL = "grey42"    # chrome / dim
 
 # A small, high-signal set of TCP ports knocked during discovery. These are a
-# *fallback* for hosts that block ICMP but expose a service (see DiscoveryEngine
-# — ICMP is the primary signal, so this list is kept short for speed).
+# *fallback* for hosts that block ICMP but expose a service (see DiscoveryEngine;
+# ICMP is the primary signal, so this list is kept short for speed).
 SWEEP_PORTS: tuple[int, ...] = (80, 443, 22, 445, 3389)
 
 # A compact "top ports" list used by the built-in fallback scanner when nmap
@@ -147,7 +147,7 @@ STATE_STYLE: dict[str, tuple[str, str]] = {
 }
 
 # Label for devices using a randomized / locally-administered MAC (modern phones
-# with "private Wi-Fi address" — there is no real vendor to look up).
+# with "private Wi-Fi address"; there is no real vendor to look up).
 VENDOR_RANDOM = "(private/random)"
 
 # IEEE OUI registry download source. A module constant so the HTTPS-only guard in
@@ -326,7 +326,7 @@ class HostRecord:
 
 
 # --------------------------------------------------------------------------- #
-# Guardrails — the security-critical pre-scan validator (Requirement 5)
+# Guardrails: the security-critical pre-scan validator (Requirement 5)
 # --------------------------------------------------------------------------- #
 class ScopeValidator:
     """Strictly validate a target specification before any packet is sent.
@@ -346,7 +346,7 @@ class ScopeValidator:
     ) -> str | None:
         """Return a human reason if ``addr`` is forbidden, else ``None``.
 
-        Works for both IPv4 and IPv6 — the ``ipaddress`` properties below are
+        Works for both IPv4 and IPv6. The ``ipaddress`` properties below are
         defined on both, so loopback (``127.0.0.0/8`` / ``::1``), multicast
         (``224.0.0.0/4`` / ``ff00::/8``), link-local, unspecified and reserved
         space are all refused regardless of family.
@@ -449,7 +449,7 @@ class ScopeValidator:
         """Parse a single entry into an IPv4 *or* IPv6 network.
 
         ``ip_network`` auto-detects the family. An oversized IPv6 prefix (e.g. a
-        ``/64``) is not rejected here — it simply trips the host cap in
+        ``/64``) is not rejected here. It simply trips the host cap in
         :meth:`validate` once expansion exceeds ``max_hosts``, which is the
         correct behaviour (you can't sweep 2^64 addresses).
         """
@@ -624,21 +624,21 @@ class SharedState:
 
 
 # --------------------------------------------------------------------------- #
-# Phase 1 — high-speed horizontal discovery (sockets + ICMP, threaded)
+# Phase 1: high-speed horizontal discovery (sockets + ICMP, threaded)
 # --------------------------------------------------------------------------- #
 class DiscoveryEngine:
-    """Find live hosts quickly and *without requiring root* — with a deliberate
+    """Find live hosts quickly and *without requiring root*, with a deliberate
     bias against false positives.
 
     Liveness is graded by **confidence**, because not every "response" proves a
     host is really there:
 
-      * ``strong`` — a *completed* TCP handshake (a real listening service) or
+      * ``strong``: a *completed* TCP handshake (a real listening service) or
         an ICMP echo reply.  Neither can be forged by a silent ``drop`` firewall,
         so these are trusted.
-      * ``weak``   — only a TCP **RST** (connection refused) was observed.  A
+      * ``weak``:   only a TCP **RST** (connection refused) was observed.  A
         real host with a closed port produces this, but a ``reject``-style
-        firewall *also* sends RSTs on behalf of **dead** addresses — which makes
+        firewall *also* sends RSTs on behalf of **dead** addresses, which makes
         every IP in a protected range look "up".  This is the classic discovery
         false positive, so weak-only hosts are **suppressed by default** and
         reported only when ``rst_up=True`` (CLI ``--rst-up``).
@@ -674,7 +674,7 @@ class DiscoveryEngine:
 
     @staticmethod
     def _decide(strong: bool, saw_rst: bool, rst_up: bool) -> tuple[bool, str]:
-        """Pure liveness policy — extracted so it can be unit-tested.
+        """Pure liveness policy, extracted so it can be unit-tested.
 
         Returns ``(is_up, confidence)``.  A strong signal always wins; a
         RST-only ("weak") host counts as up only when the operator opted in.
@@ -689,14 +689,14 @@ class DiscoveryEngine:
         """Probe one host -> ``(up, discovered_via, open_ports, confidence)``.
 
         ICMP is tried **first**: most end-user devices (phones, tablets, IoT)
-        expose no open ports but answer echo — just slowly. A TCP knock is the
+        expose no open ports but answer echo, just slowly. A TCP knock is the
         fallback for hosts that block ICMP but run a service.
         """
-        # 1) ICMP echo — primary, trusted, and tolerant of slow Wi-Fi replies.
+        # 1) ICMP echo: primary, trusted, and tolerant of slow Wi-Fi replies.
         if self.use_ping and self._ping(ip):
             return True, "icmp", [], "strong"
 
-        # 2) TCP knock — for ICMP-blocked hosts/servers; grades a RST as weak.
+        # 2) TCP knock: for ICMP-blocked hosts/servers; grades a RST as weak.
         open_ports: list[int] = []
         via = ""
         strong = False
@@ -709,12 +709,12 @@ class DiscoveryEngine:
             except OSError:
                 # Per-port failures (no route, etc.) are non-fatal; keep going.
                 continue
-            if rc == 0:                    # full handshake — a real open service
+            if rc == 0:                    # full handshake: a real open service
                 open_ports.append(port)
                 strong = True
                 if not via:
                     via = f"tcp/{port}"
-            elif rc in self._UP_ERRNOS:    # RST — ambiguous (host *or* firewall)
+            elif rc in self._UP_ERRNOS:    # RST: ambiguous (host *or* firewall)
                 saw_rst = True
 
         up, confidence = self._decide(strong, saw_rst, self.rst_up)
@@ -747,16 +747,16 @@ class DiscoveryEngine:
             # Cancel anything still queued; let in-flight probes drain quickly.
             pool.shutdown(wait=False, cancel_futures=True)
 
-        # Tell the operator *why* RST-only hosts didn't show — and how to see them.
+        # Tell the operator *why* RST-only hosts didn't show, and how to see them.
         if suppressed and not self.rst_up:
             state.push_log(
-                f"Suppressed {suppressed} RST-only host(s) — likely a firewall; "
+                f"Suppressed {suppressed} RST-only host(s), likely a firewall; "
                 f"re-run with --rst-up to include them"
             )
 
         # ARP pass: the active probe above forced the OS to ARP every candidate.
         # Any in-scope IP now resolved to a real MAC is *definitively* present on
-        # the local segment — even if it ignored ICMP (Wi-Fi power-save devices).
+        # the local segment, even if it ignored ICMP (Wi-Fi power-save devices).
         if self.use_arp and not state.is_aborted():
             scoped = {ip: mac for ip, mac in _read_arp_table().items() if ip in candidates}
             # Proxy-ARP guard: a router that answers ARP for the whole subnet with
@@ -764,13 +764,13 @@ class DiscoveryEngine:
             proxy = _proxy_macs(scoped, max(8, len(candidates) // 10))
             if proxy:
                 state.push_log(
-                    f"Proxy-ARP detected — {len(proxy)} MAC(s) answer for many IPs; "
+                    f"Proxy-ARP detected: {len(proxy)} MAC(s) answer for many IPs; "
                     f"ignoring those ARP entries (set may be client-isolated)"
                 )
             before = state.live_count()
             for ip, mac in scoped.items():
                 if mac in proxy:
-                    continue  # router proxying — not a distinct device
+                    continue  # router proxying, not a distinct device
                 state.add_live_host(ip, "arp", [], "strong")  # idempotent
                 state.set_host_mac(ip, mac)
                 state.set_host_vendor(ip, _mac_vendor(mac, self.oui_table))
@@ -783,8 +783,8 @@ class DiscoveryEngine:
     def _ping(self, ip: str) -> bool:
         """Unprivileged ICMP echo (system ``ping``): generous timeout + retry.
 
-        Returns True on the first successful echo across ``ping_attempts`` tries
-        — the retry absorbs the packet loss that is normal on busy Wi-Fi.
+        Returns True on the first successful echo across ``ping_attempts`` tries.
+        The retry absorbs the packet loss that is normal on busy Wi-Fi.
         """
         cmd = _ping_command(ip, self.ping_timeout)
         deadline = self.ping_timeout + 1.0
@@ -805,7 +805,7 @@ class DiscoveryEngine:
 
 
 # --------------------------------------------------------------------------- #
-# Phase 2 — vertical deep-dive enumeration (nmap, threaded) with fallback
+# Phase 2: vertical deep-dive enumeration (nmap, threaded) with fallback
 # --------------------------------------------------------------------------- #
 class EnumerationEngine:
     """Run service/version detection on the live hosts from Phase 1.
@@ -854,7 +854,7 @@ class EnumerationEngine:
             else:
                 record = self._socket_scan(ip, state.seed_ports_of(ip))
             state.update_host_record(record)
-            state.push_log(f"{ip}: {record.open_count} open port(s) — {record.os}")
+            state.push_log(f"{ip}: {record.open_count} open port(s), {record.os}")
         except Exception as exc:  # noqa: BLE001 - convert any failure to a state
             state.set_host_state(ip, "ERROR", error=str(exc))
             state.push_log(f"{ip}: enumeration error ({type(exc).__name__})")
@@ -977,7 +977,7 @@ class EnumerationEngine:
 
 
 # --------------------------------------------------------------------------- #
-# Orchestrator — drives the two phases and keeps the cockpit fed
+# Orchestrator: drives the two phases and keeps the cockpit fed
 # --------------------------------------------------------------------------- #
 class Orchestrator:
     """Run Phase 1 then Phase 2, recording progress into shared state."""
@@ -1004,7 +1004,7 @@ class Orchestrator:
             self.discovery.sweep(self.hosts, self.state)
 
             live = self.state.live_ips()
-            self.state.push_log(f"Discovery complete — {len(live)} live host(s)")
+            self.state.push_log(f"Discovery complete: {len(live)} live host(s)")
 
             if self.state.is_aborted():
                 self.state.set_phase("ABORTED")
@@ -1022,7 +1022,7 @@ class Orchestrator:
             if live:
                 self.enumeration.run(live, self.state)
             else:
-                self.state.push_log("No live hosts — skipping deep-dive")
+                self.state.push_log("No live hosts, skipping deep-dive")
 
             self.state.set_phase("ABORTED" if self.state.is_aborted() else "COMPLETE")
         except Exception as exc:  # noqa: BLE001 - last-resort guard for the thread
@@ -1033,7 +1033,7 @@ class Orchestrator:
 
 
 # --------------------------------------------------------------------------- #
-# Cockpit renderer — builds the rich Layout from a state snapshot
+# Cockpit renderer: builds the rich Layout from a state snapshot
 # --------------------------------------------------------------------------- #
 def _phase_style(phase: str) -> str:
     if phase.startswith(("PHASE 1", "PHASE 2", "INITIAL")):
@@ -1148,7 +1148,7 @@ def _render_footer(snap: SimpleNamespace) -> Panel:
 
     log_text = Text("\n".join(snap.log) or "Ready.", style="dim")
     notice = Text(
-        "⚠  Authorized use only — scan assets you own or are explicitly permitted to test.",
+        "⚠  Authorized use only. Scan assets you own or are explicitly permitted to test.",
         style=f"dim {C_AMBER}",
     )
     group = Group(progress, Rule(style="grey23"), log_text, notice)
@@ -1260,7 +1260,7 @@ def run_cockpit(state: SharedState, orchestrator: Orchestrator, console: Console
             live.update(render_dashboard(state.snapshot()))  # final frame
     except KeyboardInterrupt:
         state.abort()
-        console.print(f"[bold {C_AMBER}]Operator abort — exporting partial results…[/]")
+        console.print(f"[bold {C_AMBER}]Operator abort, exporting partial results…[/]")
     finally:
         worker.join(timeout=5)
 
@@ -1289,7 +1289,7 @@ def run_headless(state: SharedState, orchestrator: Orchestrator, console: Consol
             time.sleep(0.3)
     except KeyboardInterrupt:
         state.abort()
-        console.print(f"[bold {C_AMBER}]Operator abort — exporting partial results…[/]")
+        console.print(f"[bold {C_AMBER}]Operator abort, exporting partial results…[/]")
     finally:
         worker.join(timeout=5)
 
@@ -1334,7 +1334,7 @@ def reproducibility_manifest(
     Captures *what produced the numbers*: tool + version, the exact git commit,
     the nmap build, the Python runtime and OS, and when it ran. Pure given its two
     keyword arguments (defaults probe git/nmap best-effort), so it is deterministic
-    under test — nothing here is fabricated; unknowns are reported as such."""
+    under test. Nothing here is fabricated; unknowns are reported as such."""
     return {
         "tool": APP_NAME,
         "tool_version": VERSION,
@@ -1399,7 +1399,7 @@ def write_report(report: dict, output_dir: str) -> str:
 
 
 # --------------------------------------------------------------------------- #
-# Alternative export formats — CSV (spreadsheet) and self-contained HTML.
+# Alternative export formats: CSV (spreadsheet) and self-contained HTML.
 # Both are written atomically (temp → fsync → rename, mode 0600), like the JSON.
 # --------------------------------------------------------------------------- #
 def _timestamped_path(report: dict, output_dir: str, ext: str) -> str:
@@ -1542,7 +1542,7 @@ def render_html_report(report: dict) -> str:
         )
         detail_blocks.append(
             f'<h3 class="mono">{esc(host.get("ip", ""))}'
-            f'<span class="dim"> — {esc(host.get("hostname") or host.get("os") or "")}</span></h3>'
+            f'<span class="dim"> · {esc(host.get("hostname") or host.get("os") or "")}</span></h3>'
             '<table class="grid"><thead><tr><th>Port</th><th>Proto</th>'
             "<th>State</th><th>Service</th><th>Version</th></tr></thead>"
             f"<tbody>{prows}</tbody></table>"
@@ -1564,7 +1564,7 @@ def render_html_report(report: dict) -> str:
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>EnumGrid Report — {esc(report.get('target', ''))}</title>
+<title>EnumGrid Report: {esc(report.get('target', ''))}</title>
 <style>
   :root {{ --bg:#0b0f17; --panel:#121826; --line:#1e2738; --ink:#e7e9ee;
           --dim:#8b94a7; --amber:#FFB300; --green:#00E676; --crimson:#D32F2F; }}
@@ -1619,7 +1619,7 @@ def render_html_report(report: dict) -> str:
   {detail_section}
   <footer>
     Generated by EnumGrid v{esc(report.get('version', ''))} ·
-    Authorized use only — scan assets you own or are explicitly permitted to test.
+    Authorized use only. Scan assets you own or are explicitly permitted to test.
   </footer>
 </div></body></html>"""
 
@@ -1633,7 +1633,7 @@ def write_html_report(report: dict, output_dir: str) -> str:
 
 
 # --------------------------------------------------------------------------- #
-# Differential analysis — compare a fresh scan against a previous JSON report
+# Differential analysis: compare a fresh scan against a previous JSON report
 # --------------------------------------------------------------------------- #
 def load_baseline(path: str) -> dict:
     """Load + sanity-check a previous report for diffing (raises on failure)."""
@@ -1648,7 +1648,7 @@ def diff_reports(old: dict, new: dict) -> dict:
     """Structured delta between a baseline report and the current scan.
 
     Surfaces newly-appeared / disappeared hosts and, per surviving host, the
-    ports that opened or closed and any service/version or OS changes — i.e.
+    ports that opened or closed and any service/version or OS changes, i.e.
     *configuration drift* and potential new exposure since the baseline.
     """
     old_hosts = {h["ip"]: h for h in old.get("hosts", [])}
@@ -1703,7 +1703,7 @@ def render_diff_panel(diff: dict) -> Panel:
     """Render the configuration-drift delta as a coloured cockpit panel."""
     body = Text()
     if not diff["has_changes"]:
-        body.append("No changes vs baseline — environment is stable.", style=C_GREEN)
+        body.append("No changes vs baseline: environment is stable.", style=C_GREEN)
     else:
         if diff["appeared_hosts"]:
             body.append("＋ NEW HOSTS    ", style=f"bold {C_AMBER}")
@@ -1797,8 +1797,8 @@ def _ping_command(ip: str, timeout_s: float) -> list[str]:
     """Build a portable, single-echo ping command with a per-OS timeout.
 
     Home / Wi-Fi devices (phones, tablets, IoT in power-save) frequently answer
-    ICMP only after 0.5–2 s, so the timeout must be generous or they are missed
-    entirely — the cause of "Angry IP finds 13, we find 3".
+    ICMP only after 0.5 to 2 s, so the timeout must be generous or they are missed
+    entirely. That is the cause of "Angry IP finds 13, we find 3".
     """
     secs = max(1, int(math.ceil(timeout_s)))
     system = platform.system().lower()
@@ -1837,7 +1837,7 @@ def _proxy_macs(ip_to_mac: dict[str, str], threshold: int) -> set[str]:
     """MACs that answer for more than ``threshold`` IPs.
 
     A single MAC mapped to many addresses is a router doing *proxy ARP*, not
-    that many distinct devices — counting them would flood the result with false
+    that many distinct devices. Counting them would flood the result with false
     positives (every IP in the subnet showing "up" with the gateway's MAC).
     """
     counts = Counter(ip_to_mac.values())
@@ -1953,7 +1953,7 @@ def _oui_key(six_hex: str) -> str:
 def _mac_vendor(mac: str | None, oui_table: dict[str, str]) -> str | None:
     """Resolve a MAC to a vendor name.
 
-    A randomized / locally-administered MAC (the 0x02 bit of the first octet —
+    A randomized / locally-administered MAC (the 0x02 bit of the first octet;
     a modern phone's "private Wi-Fi address") has no real vendor and is labelled
     as such. Otherwise the OUI is looked up in ``oui_table`` (full IEEE registry
     if loaded), then the built-in fallback.
@@ -2115,7 +2115,7 @@ def detect_nmap(console: Console) -> bool:
     """Return True if a usable nmap engine exists; warn (don't fail) otherwise."""
     if not _HAVE_PYNMAP:
         console.print(
-            f"[{C_AMBER}]» python-nmap not installed — Phase 2 will use the "
+            f"[{C_AMBER}]» python-nmap not installed. Phase 2 will use the "
             f"built-in socket scanner.[/]"
         )
         return False
@@ -2124,7 +2124,7 @@ def detect_nmap(console: Console) -> bool:
         return True
     except Exception:  # nmap.PortScannerError or anything else
         console.print(
-            f"[{C_AMBER}]» nmap binary not found — Phase 2 will use the "
+            f"[{C_AMBER}]» nmap binary not found. Phase 2 will use the "
             f"built-in socket scanner. (Install nmap for full results.)[/]"
         )
         return False
@@ -2136,7 +2136,7 @@ def detect_nmap(console: Console) -> bool:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="enumgrid",
-        description=f"{APP_NAME} v{VERSION} — two-tiered network enumeration "
+        description=f"{APP_NAME} v{VERSION}: two-tiered network enumeration "
         f"cockpit by {AUTHOR}.",
         epilog="Authorized use only. Example: enumgrid 192.168.1.0/24 -y",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -2148,7 +2148,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--full", action="store_true", help="scan all 65535 ports")
     parser.add_argument("-D", "--discover", action="store_true",
                         help="DISCOVERY ONLY: fast device inventory (IP/MAC/hostname), "
-                             "skipping the slower nmap deep-dive — best for 'list every device'")
+                             "skipping the slower nmap deep-dive, best for 'list every device'")
     parser.add_argument("--host-timeout", default="120s",
                         help="per-host nmap timeout")
     parser.add_argument("--sweep-workers", type=int, default=128,
@@ -2309,7 +2309,7 @@ def main(argv: list[str] | None = None) -> int:
 
     # The live cockpit is a fixed-height view that can clip a long host list (and
     # the alternate screen is torn down on exit), so always print the COMPLETE
-    # results to the scrollback — the operator must see every device found.
+    # results to the scrollback. The operator must see every device found.
     if args.discover:
         console.print(render_device_list(state.snapshot()))
     else:
@@ -2351,7 +2351,7 @@ def cli() -> None:
 
     Wraps :func:`main` with the same last-resort guard the ``__main__`` block
     uses, so the installed command converts *any* unexpected failure or Ctrl-C
-    into a clean, operator-friendly message and exit code — never a raw
+    into a clean, operator-friendly message and exit code, never a raw
     traceback.
     """
     try:

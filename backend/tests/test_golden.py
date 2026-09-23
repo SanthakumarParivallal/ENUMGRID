@@ -1,12 +1,12 @@
 """
-test_golden.py — determinism / golden-file guarantees for the offline processing
+test_golden.py: determinism / golden-file guarantees for the offline processing
 pipeline (nmap XML → scanner model → PDF report).
 
 A network scan is inherently non-deterministic (the network changes between runs),
 but *processing a fixed scan result must not be*. These tests pin that contract:
 
   1. A fixed nmap XML fixture, fed through the real ``scanner._service_scan``
-     transform, must reproduce a checked-in golden host model byte-for-byte — and
+     transform, must reproduce a checked-in golden host model byte-for-byte, and
      do so identically on repeat runs. This locks the nmap-XML → host-model parser
      and the NSE-script → CVE extraction (the accuracy-critical path) against
      silent regressions.
@@ -16,7 +16,7 @@ but *processing a fixed scan result must not be*. These tests pin that contract:
      byte-identical. This makes "the report reproduces the screen" a mechanical
      guarantee, not a hope.
 
-No nmap binary and no network are needed — python-nmap's ``analyse_nmap_xml_scan``
+No nmap binary and no network are needed: python-nmap's ``analyse_nmap_xml_scan``
 parses the fixture XML in-process, and ``_run_scan`` is stubbed to return it.
 """
 
@@ -41,11 +41,11 @@ def _load_scanner_from_xml(path: str) -> "nmap.PortScanner":
     """Parse a fixed nmap XML file into a PortScanner (no nmap binary, no network).
 
     python-nmap's ``PortScanner()`` constructor shells out to ``nmap --version`` to
-    locate the binary and raises ``PortScannerError`` when it's absent — but the XML
+    locate the binary and raises ``PortScannerError`` when it's absent, but the XML
     parser (``analyse_nmap_xml_scan``) needs no binary at all. So when nmap isn't
     installed (e.g. the backend CI runner), we build the object *without* the version
     probe and initialise only the two attributes the parser touches. This keeps the
-    determinism guarantee a genuinely pure-processing test, exactly as documented —
+    determinism guarantee a genuinely pure-processing test, exactly as documented:
     it exercises the real parse path either way (real constructor when nmap is
     present, probe-free construction when it isn't)."""
     with open(path, encoding="utf-8") as fh:
@@ -182,7 +182,7 @@ def test_build_pdf_content_reflects_the_scan(monkeypatch):
 
 
 def test_build_pdf_reflects_input_changes(monkeypatch):
-    # A different snapshot must produce different bytes — proves the output is
+    # A different snapshot must produce different bytes, which proves the output is
     # data-driven, so byte-stability above is not just "always the same file".
     _freeze_report_clock(monkeypatch)
     base = _report_payload_from_golden()

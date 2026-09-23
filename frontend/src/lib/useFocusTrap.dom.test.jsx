@@ -1,5 +1,5 @@
 /**
- * useFocusTrap.dom.test.jsx — the DOM-bound half of the modal focus trap
+ * useFocusTrap.dom.test.jsx: the DOM-bound half of the modal focus trap
  * (the pure trapTarget math is covered in useFocusTrap.test.js): the tabbable
  * query, focus-on-open, Tab/Shift+Tab wrapping via real keydown events, and
  * focus restoration to the trigger on unmount.

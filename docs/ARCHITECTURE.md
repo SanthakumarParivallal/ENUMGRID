@@ -1,8 +1,8 @@
-# ENUMGRID — Architecture
+# ENUMGRID architecture
 
-How the system is built and **why** it's built that way. The design goal is a
-tool that thinks like an offensive scanner but behaves like a defensive asset
-mapper: fast, honest, unprivileged-friendly, and safe to point at a real network.
+How the system is built, and why it is built that way. The design goal is a tool
+that scans like an offensive tool and records like a defensive asset mapper: fast,
+honest, unprivileged-friendly, and safe to point at a real network.
 
 ![ENUMGRID architecture diagram](architecture.svg)
 
@@ -18,11 +18,10 @@ mapper: fast, honest, unprivileged-friendly, and safe to point at a real network
         frontend/ (React)  ──HTTP/SSE──► backend
 ```
 
-The CLI is the **single source of truth**. The web backend imports it
-(`sys.path` to the repo root) rather than re-implementing scope rules, ARP/NDP
-parsing, MAC/OUI vendor logic, or the drift diff. This is the most important
-structural decision: **security-critical logic exists once**, is tested once,
-and cannot drift between the two interfaces.
+The CLI is the single source of truth. The web backend imports it (`sys.path` to
+the repo root) rather than re-implementing scope rules, ARP/NDP parsing, MAC/OUI
+vendor logic, or the drift diff. Security-critical logic therefore exists once, is
+tested once, and cannot drift between the two interfaces.
 
 ## 2. The two-tier pipeline (and why)
 
@@ -31,33 +30,32 @@ and cannot drift between the two interfaces.
 | 1 · Horizontal sweep | Find *which* hosts are live + name/type them (ICMP/TCP/ARP/NDP/mDNS/NBNS/SNMP/SSDP/TTL + common-port preview) | Cheap, fast, runs unprivileged; you almost always want the inventory first |
 | 2 · Vertical deep-dive | Find *what's on* a host (`nmap -sV`, NSE, `-O` if root) | Expensive + noisy; should be **on demand**, per host or "Scan All" |
 
-Separating discovery from enumeration is what makes the tool feel like Angry IP
-*and* Zenmap: an instant device list, then opt-in depth. The web UI makes Phase 2
-explicitly user-triggered so a scan never blasts every port on every host by
-surprise.
+Separating discovery from enumeration is what gives the tool both an instant
+device list and opt-in depth. The web UI makes Phase 2 explicitly user-triggered,
+so a scan never hits every port on every host by surprise.
 
-**Adaptive depth.** Phase 2's default is a top-1000 `-sV` scan; then, *only* for a
+**Adaptive depth.** Phase 2's default is a top-1000 `-sV` scan. Then, only for a
 host that already showed an open port, it sweeps all 65 535 ports and merges the
-results (`scan_single_host(adaptive=…)` → `_merge_scan_results`, deep wins on a
-port collision). This is "thorough where it pays": live servers get an exhaustive
-picture, while firewalled/quiet endpoints (the common case — host firewalls, Wi-Fi
-client isolation) cost just the quick pass. Zero open ports is reported honestly,
-with the likely cause surfaced; ports are never fabricated.
+results (`scan_single_host(adaptive=…)` → `_merge_scan_results`, where deep wins on
+a port collision). Live servers get an exhaustive picture, while firewalled or quiet
+endpoints, which are the common case thanks to host firewalls and Wi-Fi client
+isolation, cost just the quick pass. Zero open ports is reported as such, with the
+likely cause surfaced; ports are never fabricated.
 
 ## 3. Confidence-graded liveness (anti-false-positive)
 
 Not every "response" proves a host exists. The discovery engine grades evidence:
 
-- **strong** — a completed TCP handshake (real listening service) or an ICMP
-  echo reply, or a MAC in the ARP/NDP cache. Cannot be forged by a silent-drop
-  firewall.
-- **weak** — only a bare TCP `RST` (connection *refused*). A `reject`-style
-  firewall sends these for **dead** addresses too, which would make every IP look
-  "up". Weak hosts are **suppressed by default** (`--rst-up` to include).
+- **strong.** A completed TCP handshake (a real listening service), an ICMP echo
+  reply, or a MAC in the ARP/NDP cache. A silent-drop firewall cannot forge these.
+- **weak.** Only a bare TCP `RST`, meaning the connection was refused. A
+  `reject`-style firewall sends these for dead addresses too, which would make
+  every IP look up. Weak hosts are suppressed by default; pass `--rst-up` to
+  include them.
 
 The policy is the pure, unit-tested `DiscoveryEngine._decide(strong, saw_rst,
 rst_up)`. A separate **proxy-ARP guard** (`_proxy_macs`) drops a router that
-answers ARP for the whole subnet with one MAC — the classic 254-fake-hosts bug.
+answers ARP for the whole subnet with one MAC, the classic 254-fake-hosts bug.
 
 ## 4. Multi-method discovery (each covers the others' blind spots)
 
@@ -83,9 +81,10 @@ its strongest signal), so DEVICE/OS sharpens before the on-demand `nmap -sV` run
 **Classification priority (and why it's honest).** `guess_device_type` ranks
 evidence **open ports > services > hostname > OUI vendor**. Hostname sits above
 vendor on purpose: a device's *self-assigned* name (`DESKTOP-…`, `W11N-…`) is a
-stronger identity than the OUI of a sub-component — the OUI frequently names the
-Wi-Fi/BT module (AzureWave, Intel, InProComm) rather than the product, which would
-otherwise mislabel a Windows laptop as "IoT". The OS line is equally conservative:
+stronger identity than the OUI of a sub-component. The OUI frequently names the
+Wi-Fi or BT module (AzureWave, Intel, InProComm) rather than the product, which
+would otherwise mislabel a Windows laptop as "IoT". The OS line is equally
+conservative:
 a randomized ("locally-administered") MAC reports only the TTL family, never a
 fabricated "Android / iOS"; an empty/ambiguous signal stays blank. The rule
 throughout is *label only what the evidence supports, never guess*.
@@ -93,7 +92,7 @@ throughout is *label only what the evidence supports, never guess*.
 This is the measured design thesis (see [`EVALUATION.md`](EVALUATION.md)):
 unprivileged, it finds ~3.7× the hosts of `nmap -sn`.
 
-## 5. Web backend — streaming, async, stateless
+## 5. Web backend: streaming, async, stateless
 
 - **SSE, not polling.** `GET /api/scan/stream` yields `ScanState` snapshots as the
   scan progresses, so the grid fills live. Blocking nmap/ICMP work runs in a
@@ -104,27 +103,27 @@ unprivileged, it finds ~3.7× the hosts of `nmap -sn`.
   the server simple and horizontally restartable.
 - **Validated frames.** Pydantic models (`backend/models.py`) are mirrored
   field-for-field by `frontend/src/lib/schema.js`, whose factories coerce every
-  field and never throw — a malformed frame can't corrupt the UI tree.
+  field and never throw, so a malformed frame cannot corrupt the UI tree.
 
-### 5a. Cockpit theming & view preferences
+### 5a. Cockpit theming and view preferences
 
-The dashboard is **themeable without a re-render**: `index.css` defines the colour
+The dashboard is themeable without a re-render. `index.css` defines the colour
 ramp (chassis + neutral text/border shades) as CSS variables, and Tailwind's
 `steel`/`slate` colours are declared as `rgb(var(--token) / <alpha-value>)`. A
 single `<html data-theme="light|dark">` swap repaints everything (opacity
 modifiers keep working via `<alpha-value>`); signal accents (amber/matrix/crimson)
-are shared. **Density** (`data-density`) and **column widths** work the same way —
-attribute selectors / inline `gridTemplateColumns` rather than React state for the
-visual. `frontend/src/lib/preferences.js` persists theme · density · column widths
+are shared. Density (`data-density`) and column widths work the same way, through
+attribute selectors and an inline `gridTemplateColumns` rather than React state.
+`frontend/src/lib/preferences.js` persists theme, density and column widths
 to `localStorage` and applies them at import time (before first paint, no flash).
 The matrix header and every row consume one shared grid-template string, so
 drag-resized columns stay aligned by construction.
 
-## 6. Persistence & drift
+## 6. Persistence and drift
 
 `backend/history.py` is a dependency-free SQLite store. Drift ("What Changed")
-**reuses the CLI's `diff_reports()`** so the comparison logic lives in one place;
-the API just enriches appeared/disappeared IPs with vendor/hostname. Monitor mode
+reuses the CLI's `diff_reports()`, so the comparison logic lives in one place, and
+the API only enriches appeared and disappeared IPs with vendor and hostname. Monitor mode
 is a declarative React effect that re-schedules a scan after each completion and
 raises an alert (+ desktop notification) when drift is detected.
 
@@ -138,26 +137,26 @@ Full detail in [`THREAT_MODEL.md`](THREAT_MODEL.md).
 ## 8. Testing strategy
 
 - **Deterministic unit tests** for all pure logic (guardrails, parsers,
-  fingerprinting, CVSS, drift) — no network, safe in CI.
+  fingerprinting, CVSS, drift), with no network, so they are safe in CI.
 - **FastAPI TestClient** integration tests for every endpoint (scope rejection,
   PDF, history) using *rejected* targets so nothing scans.
 - **Property-based fuzzing** (hypothesis) of every parser that touches hostile
-  network/API input — they must never raise.
-- **Coverage gates** — the CLI (`purple_recon.py`), every backend module, and the
-  whole frontend `src/lib/**` logic layer are held at a full **100% line coverage**
-  in CI, with the live-network / nmap / SDK / `rich`-UI / DOM I/O driven through
-  real (jsdom) or mocked boundaries rather than skipped. The large React view
-  components stay lint- + E2E-verified rather than line-gated (driving a
-  3 000-line stateful DOM view to 100% in jsdom would be coverage theatre).
+  network and API input. They must never raise.
+- **Coverage gates.** The CLI (`purple_recon.py`), every backend module, and the
+  whole frontend `src/lib/**` logic layer are held at a full 100% line coverage in
+  CI, with the live-network, nmap, SDK, `rich`-UI and DOM I/O driven through real
+  (jsdom) or mocked boundaries rather than skipped. The large React view components
+  stay lint- and E2E-verified rather than line-gated, because driving a 3 000-line
+  stateful DOM view to 100% in jsdom would mostly measure the test harness.
 - **SAST + dependency audit** (bandit, pip-audit, npm audit) in CI.
 - A **black-box benchmark** vs nmap for measured accuracy.
 
-## 9. Key trade-offs (honest)
+## 9. Key trade-offs
 
 | Decision | Trade-off |
 |---|---|
 | Unprivileged by default | No raw-socket OS fingerprint without `sudo`; TTL family fills the gap |
-| Union-as-proxy in the benchmark | Can't see hosts *neither* tool finds → the docker testbed gives true ground truth |
+| Union-as-proxy in the benchmark | Cannot see hosts that neither tool finds, so the docker testbed supplies true ground truth |
 | Single-file CLI imported by the backend | Slightly unusual import path, in exchange for zero logic duplication |
-| mDNS run after the active probe | +~5s, but reliable (the 128-thread sweep was starving multicast) |
+| mDNS run after the active probe | Adds about 5s, and is reliable (the 128-thread sweep was starving multicast) |
 | Stateless backend | Client must re-send state for the PDF; in exchange the server stays trivial |

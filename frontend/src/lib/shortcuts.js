@@ -1,5 +1,5 @@
 /**
- * shortcuts.js — global keyboard-shortcut metadata + a pure guard.
+ * shortcuts.js: global keyboard-shortcut metadata + a pure guard.
  * ---------------------------------------------------------------------------
  * Deliberately safe: no shortcut triggers a network action (an accidental scan
  * would be harmful), only navigation/appearance. The list is rendered by the

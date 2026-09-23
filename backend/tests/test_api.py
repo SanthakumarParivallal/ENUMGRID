@@ -1,10 +1,10 @@
 """
-test_api.py — FastAPI endpoint integration tests (TestClient, no real scans).
+test_api.py: FastAPI endpoint integration tests (TestClient, no real scans).
 
 These drive the actual ASGI app end-to-end: routing, the auth/scope guardrails,
 SSE error frames, the PDF endpoint and the history API. Every scan endpoint is
 exercised with a *rejected* target (loopback / public / injection) so no test
-ever touches the network or nmap — the rejection happens before any scan starts.
+ever touches the network or nmap; the rejection happens before any scan starts.
 """
 
 from __future__ import annotations
@@ -228,7 +228,7 @@ def test_nvd_key_set_and_clear():
 
 
 def test_nvd_key_rejects_malformed_key():
-    """A bad key gets a 400 with the reason — never a green "active" badge."""
+    """A bad key gets a 400 with the reason, never a green "active" badge."""
     import cve
 
     try:
@@ -428,7 +428,7 @@ def test_report_pdf():
 
 def test_report_pdf_is_read_gated_in_token_mode(monkeypatch):
     """The PDF endpoint must not be drivable by an unauthenticated caller when
-    RBAC is on — it can spend the operator's LLM key (include_ai_summary) and burn
+    RBAC is on. It can spend the operator's LLM key (include_ai_summary) and burn
     CPU, exactly like /api/copilot/summary, which is also read-gated."""
     monkeypatch.setattr(security, "API_TOKEN", "s3cret")
     payload = {"target": "192.168.0.0/24", "hosts": [{"ip": "192.168.0.1"}]}
@@ -478,7 +478,7 @@ def test_security_headers_present():
 # --- open-mode locality guard (anti LAN-exposure / DNS-rebinding) ----------- #
 def test_open_mode_blocks_rebinding_host_header():
     # In open (no-token) mode a request whose Host header is a rebound domain is
-    # refused, even though the in-process peer is "local" — defeating DNS rebinding.
+    # refused, even though the in-process peer is "local", which defeats DNS rebinding.
     r = client.get("/api/health", headers={"host": "evil.example.com"})
     assert r.status_code == 401
     # A genuinely local Host is served.
@@ -667,7 +667,7 @@ def test_jobs_get_out_of_range_id_is_404_not_500(monkeypatch, tmp_path):
     """A 21-digit job id is a wrong URL, not a server fault.
 
     FastAPI's `int` coercion accepts arbitrary precision, so the value reached sqlite3
-    and raised OverflowError — a 500. `/api/history?limit=<same number>` already
+    and raised OverflowError, i.e. a 500. `/api/history?limit=<same number>` already
     clamped and answered 200, which is what made the inconsistency obvious.
     """
     import jobs
@@ -928,7 +928,7 @@ def test_credscan_rejects_unparseable_port():
 
 @pytest.mark.parametrize("port", [0, -1, 65536, 99999])
 def test_credscan_rejects_out_of_range_port(port):
-    """0 is a bad value, not a request for the default — it must not become 22."""
+    """0 is a bad value, not a request for the default, so it must not become 22."""
     r = client.post("/api/host/credscan", json={"ip": "192.168.1.5", "username": "u", "port": port})
     assert r.status_code == 400
     assert "between 1 and 65535" in r.json()["error"]

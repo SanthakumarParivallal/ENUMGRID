@@ -1,5 +1,5 @@
 """
-test_security.py — the web API's authorization guardrails.
+test_security.py: the web API's authorization guardrails.
 
 These assert that the FastAPI backend enforces the *same* scope policy as the
 CLI (the project's headline safety requirement), so the dashboard can never be

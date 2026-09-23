@@ -14,9 +14,9 @@ cryptography>=48.0.1  # security floor: <48.0.1 is affected by GHSA-537c-gmf6-5c
 # Optional integrations (install only if you use them):
 #   boto3>=1.34   # AWS cloud asset discovery  (GET /api/cloud/aws)
 #   ldap3>=2.9    # Active Directory enumeration (POST /api/ad/enum)
-#   scapy>=2.5    # passive (zero-packet) discovery  (POST /api/passive) — needs raw-socket privilege
+#   scapy>=2.5    # passive (zero-packet) discovery  (POST /api/passive), needs raw-socket privilege
 #   anthropic>=0.40  # AI copilot via Anthropic Claude          (paid)
 #   openai>=1.40     # AI copilot via OpenAI, Google Gemini (free tier), and
-#                    #   Ollama (free, local, keyless) — all use the openai SDK.
+#                    #   Ollama (free, local, keyless); all use the openai SDK.
 #                    #   Ollama also needs the local server: https://ollama.com
 #                    #   (`ollama pull llama3.1`). Gemini key: aistudio.google.com/apikey

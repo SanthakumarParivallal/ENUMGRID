@@ -1,5 +1,5 @@
 """
-test_osfp.py — TTL → OS-family mapping (the unprivileged OS signal).
+test_osfp.py: TTL → OS-family mapping (the unprivileged OS signal).
 
 The live ping is not unit-tested (needs a host); this pins the bucketing and the
 "ambiguous/none -> empty" contract so the UI never shows a fabricated OS.
@@ -65,7 +65,7 @@ def test_refine_router_device_type():
 def test_refine_mikrotik_routeros():
     out = refine_os("Network device / IoT", vendor="MikroTik", device_type="Router / Gateway")
     assert out == "MikroTik RouterOS"
-    # MikroTik's OUI is registered as "Routerboard.com" — must also map to RouterOS.
+    # MikroTik's OUI is registered as "Routerboard.com", so it must also map to RouterOS.
     assert refine_os("Linux / macOS / Unix", vendor="Routerboard.com",
                      device_type="Router / Gateway") == "MikroTik RouterOS"
     assert refine_os("Linux / macOS / Unix", vendor="Fortinet Inc",
@@ -94,7 +94,7 @@ def test_refine_windows_hostname():
 
 def test_refine_random_mac_does_not_fake_mobile_os():
     # "Phone / Laptop" is the randomized-MAC fallback (no real vendor/hostname).
-    # We must report only the honest TTL family — never a fabricated "Android / iOS".
+    # We must report only the honest TTL family, never a fabricated "Android / iOS".
     assert refine_os("Linux / macOS / Unix", vendor="(private/random)",
                      device_type="Phone / Laptop") == "Linux / macOS / Unix"
     assert refine_os("Windows", vendor="(private/random)",

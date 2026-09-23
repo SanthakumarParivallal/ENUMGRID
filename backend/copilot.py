@@ -1,25 +1,25 @@
 """
-copilot.py — the ENUMGRID AI copilot: a security-analyst chatbot that is
+copilot.py: the ENUMGRID AI copilot, a security-analyst chatbot that is
 **grounded in the live scan** and can **propose actions** (scans) for the
 operator to confirm.
 
 Design
 ------
-* **Four providers, switchable — two of them free** — Anthropic Claude and OpenAI
-  (paid), plus **Ollama** (a model running *locally* — no key, no cloud, no cost)
+* **Four providers, switchable, two of them free**: Anthropic Claude and OpenAI
+  (paid), plus **Ollama** (a model running *locally*, with no key, no cloud and no cost)
   and **Google Gemini** (a generous free tier). Ollama and Gemini both speak the
   OpenAI wire protocol, so they reuse the OpenAI code path with a different base
   URL. Each provider is an *optional* dependency (`anthropic` for Claude; the
   `openai` SDK powers OpenAI **and** Gemini **and** Ollama); when a provider's SDK
   or key is missing we say so honestly (`ready: false` + reason) and never fake a
   reply. The operator pastes their own key in the dashboard (persisted 0600,
-  gitignored, never logged) — mirroring the NVD-key pattern in ``cve.py``. Ollama
+  gitignored, never logged), mirroring the NVD-key pattern in ``cve.py``. Ollama
   needs no key at all; it just needs the local Ollama server running.
-* **Grounded** — every request carries a compact, real summary of the current
+* **Grounded**: every request carries a compact, real summary of the current
   scan (hosts, open ports, services, CVEs, severities) built by
   ``build_context_block``. The model answers about *your* network, not in the
   abstract. No scan data is invented.
-* **Agentic, human-in-the-loop** — the model may call the ``propose_scan`` tool.
+* **Agentic, human-in-the-loop**: the model may call the ``propose_scan`` tool.
   We do **not** execute it; we surface it as an ``action`` event and the cockpit
   renders a confirm button that runs the normal, scope-vetted scan endpoint. A
   security tool must never launch a scan the operator didn't approve.
@@ -38,14 +38,14 @@ import socket
 import urllib.request
 from urllib.parse import urlparse
 
-try:  # Anthropic Claude — optional (the operator may only use OpenAI, or neither).
+try:  # Anthropic Claude, optional (the operator may only use OpenAI, or neither).
     import anthropic  # type: ignore
 
     _HAVE_ANTHROPIC = True
 except Exception:  # noqa: BLE001  # pragma: no cover - optional dependency; import/link error means unavailable
     _HAVE_ANTHROPIC = False
 
-try:  # OpenAI — optional.
+try:  # OpenAI, optional.
     import openai  # type: ignore
 
     _HAVE_OPENAI = True
@@ -105,9 +105,9 @@ _TEMPERATURE = float(os.environ.get("ENUMGRID_COPILOT_TEMPERATURE", "0.2"))
 # a low-RAM machine has an obvious safe pick; `llama3.1` is the balanced default.
 _OLLAMA_RECOMMENDED = (
     {"name": "llama3.2", "label": "Llama 3.2 (3B)", "size": "~2 GB",
-     "note": "Lightest — good on ~8 GB RAM"},
+     "note": "Lightest: good on ~8 GB RAM"},
     {"name": "llama3.1", "label": "Llama 3.1 (8B)", "size": "~4.7 GB",
-     "note": "Balanced default — needs ~16 GB RAM", "recommended": True},
+     "note": "Balanced default: needs ~16 GB RAM", "recommended": True},
     {"name": "qwen2.5", "label": "Qwen 2.5 (7B)", "size": "~4.7 GB",
      "note": "Strong reasoning + tool use"},
 )
@@ -115,21 +115,21 @@ _OLLAMA_RECOMMENDED = (
 _MODEL_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/\-]{0,63}")
 
 SYSTEM_PROMPT = (
-    "You are the ENUMGRID Copilot — a concise, expert security analyst embedded in "
+    "You are the ENUMGRID Copilot, a concise, expert security analyst embedded in "
     "a network-enumeration cockpit. You help the operator understand and act on the "
     "results of their own authorized scans.\n\n"
     "Rules:\n"
     "- Ground every answer in the SCAN CONTEXT provided below. If the context does "
-    "not contain the answer, say so plainly — never invent hosts, ports, CVEs, or "
+    "not contain the answer, say so plainly. Never invent hosts, ports, CVEs, or "
     "versions.\n"
     "- Be practical and specific: explain findings, prioritise by real risk "
     "(exploitability + exposure, not just CVSS), and suggest concrete next steps.\n"
     "- ALWAYS answer the question directly in text, using the SCAN CONTEXT. NEVER "
     "call a tool instead of answering. For any question about the existing results "
     "(which host is exposed, what's running, what are the risks), just answer in "
-    "prose — do not call `propose_scan`.\n"
+    "prose, and do not call `propose_scan`.\n"
     "- Only call `propose_scan` when the operator explicitly asks to scan/enumerate "
-    "something, or when answering truly needs data on a host not yet in the context — "
+    "something, or when answering truly needs data on a host not yet in the context. "
     "and even then, give your text answer first. It suggests a scan the operator "
     "confirms; it never runs one.\n"
     "- Authorized use only. Only ever discuss or propose scanning the operator's own "
@@ -208,7 +208,7 @@ def _tcp_up(timeout: float = 0.35) -> bool:
 def ollama_probe(timeout: float = 0.6) -> dict:
     """Ask the local Ollama server what it has: ``{'up': bool, 'models': [names]}``.
 
-    A single cheap call powers the whole setup UX — is the server running, and which
+    A single cheap call powers the whole setup UX: is the server running, and which
     models are already pulled. Never raises (a down/absent server → ``up: False``)."""
     if not _tcp_up():                       # avoid a slow HTTP wait when nothing listens
         return {"up": False, "models": []}
@@ -221,7 +221,7 @@ def ollama_probe(timeout: float = 0.6) -> dict:
                   if isinstance(m, dict) and m.get("name")]
         return {"up": True, "models": models}
     except (OSError, ValueError):
-        return {"up": True, "models": []}   # server answered TCP but tags failed — still "up"
+        return {"up": True, "models": []}   # server answered TCP but tags failed; still "up"
 
 
 def _model_installed(name: str, models) -> bool:
@@ -265,8 +265,8 @@ def _stored_key(provider: str) -> str | None:
 
 def load_key(provider: str) -> str | None:
     """The key handed to the SDK. A real stored key wins; a keyless provider
-    (Ollama) falls back to a harmless placeholder so the OpenAI client — which
-    demands a non-empty ``api_key`` — is satisfied."""
+    (Ollama) falls back to a harmless placeholder so the OpenAI client, which
+    demands a non-empty ``api_key``, is satisfied."""
     if not valid_provider(provider):
         return None
     key = _stored_key(provider)
@@ -277,7 +277,7 @@ def load_key(provider: str) -> str | None:
 
 def has_key(provider: str) -> bool:
     """Whether the operator has stored a real key (used for the status display).
-    Keyless providers report False here but are still ``ready`` — see ``status``."""
+    Keyless providers report False here but are still ``ready``. See ``status``."""
     return bool(_stored_key(provider))
 
 
@@ -313,7 +313,7 @@ def default_model(provider: str) -> str:
 def status() -> dict:
     """Everything the dashboard needs to render the copilot + key-upload UI.
 
-    Never includes key values — only whether each provider is usable."""
+    Never includes key values, only whether each provider is usable."""
     prov = {}
     probe = None   # probe the local Ollama server at most once per status call
     for name in PROVIDERS:
@@ -335,7 +335,7 @@ def status() -> dict:
             entry["models"] = probe["models"]
             entry["model_present"] = _model_installed(entry["model"], probe["models"])
             entry["recommended"] = list(_OLLAMA_RECOMMENDED)
-            # Ready only when the server is up AND the chosen model is pulled — else
+            # Ready only when the server is up AND the chosen model is pulled. Otherwise
             # the UI guides setup (install / download) instead of a failing chat.
             entry["ready"] = sdk and probe["up"] and entry["model_present"]
         else:
@@ -405,7 +405,7 @@ def build_context_block(context: dict | None) -> str:
     """A short, real, deterministic summary of the current scan for the model.
 
     Uses only what's actually in `context` (the dashboard's live state). Empty or
-    partial input degrades gracefully — it never fabricates a scan."""
+    partial input degrades gracefully and never fabricates a scan."""
     ctx = context or {}
     target = str(ctx.get("target") or "").strip()
     hosts = ctx.get("hosts") if isinstance(ctx.get("hosts"), list) else []
@@ -533,7 +533,7 @@ def scan_tool_openai() -> dict:
 
 # Only offer the propose_scan tool when the operator's latest message actually
 # expresses scan intent. Small local models (e.g. Llama 3.2 3B) get confused when a
-# tool is always present — they call it, or emit fake tool-call JSON as their text —
+# tool is always present: they call it, or emit fake tool-call JSON as their text,
 # so analytical questions ("which host is exposed?") should run tool-free and just
 # answer. Bigger models are unaffected; this only removes spurious tool calls.
 _SCAN_INTENT_RE = re.compile(
@@ -552,7 +552,7 @@ def wants_scan(turns) -> bool:
 def sanitize_action(raw) -> dict | None:
     """Validate a model-proposed scan into a safe, minimal action dict, or None.
 
-    This is only a *proposal* surfaced to the UI — the real scope check happens
+    This is only a *proposal* surfaced to the UI. The real scope check happens
     when the operator confirms and the normal scan endpoint runs `vet_target`."""
     if not isinstance(raw, dict):
         return None
@@ -587,7 +587,7 @@ def stream_reply(messages, context=None, *, provider: str | None = None,
         yield from _unavailable(f"{provider} SDK not installed (pip install {pkg})"); return
     key = load_key(provider)
     if not key:
-        yield from _unavailable(f"no {provider} API key set — add one in the dashboard"); return
+        yield from _unavailable(f"no {provider} API key set. Add one in the dashboard"); return
     turns = sanitize_messages(messages)
     if not turns:
         yield from _unavailable("no message to send"); return
@@ -603,7 +603,7 @@ def stream_reply(messages, context=None, *, provider: str | None = None,
                                       base_url=_BASE_URLS.get(provider), tools_on=tools_on)
     except Exception as exc:  # noqa: BLE001 - surface any provider error honestly
         reason = " ".join(str(exc).split()).strip() or type(exc).__name__
-        # Ollama is local: the usual failure is "server not started" — say so plainly.
+        # Ollama is local: the usual failure is "server not started", so say so plainly.
         if provider == "ollama" and any(w in reason.lower() for w in ("connect", "refused", "connection")):
             reason = (f"Can't reach Ollama at {_BASE_URLS['ollama']}. Start it "
                       f"(`ollama serve`) and pull the model (`ollama pull {model}`).")
@@ -669,11 +669,11 @@ def _stream_openai(key: str, model: str, system: str, turns: list[dict],
 # --- one-click Ollama model download (streamed progress) ---------------------- #
 def pull_model(name: str, timeout: float = 120.0):
     """Stream an Ollama model download as events so the dashboard can show a live
-    progress bar — no terminal needed. Yields ``{'type':'progress', percent, ...}``
+    progress bar, with no terminal needed. Yields ``{'type':'progress', percent, ...}``
     frames, then ``done`` or an honest ``error``. Never raises.
 
     Talks to Ollama's native ``/api/pull`` (newline-delimited JSON). ``name`` is
-    validated (no shell — it's a JSON field) so it can't smuggle anything odd."""
+    validated (no shell, since it's a JSON field) so it can't smuggle anything odd."""
     name = (name or "").strip()
     if not valid_model_name(name):
         yield {"type": "error", "message": "invalid model name"}
@@ -713,7 +713,7 @@ def pull_model(name: str, timeout: float = 120.0):
     except (OSError, ValueError) as exc:
         reason = " ".join(str(exc).split()).strip() or type(exc).__name__
         if any(w in reason.lower() for w in ("refused", "connect", "timed out", "timeout")):
-            reason = f"Can't reach Ollama at {_ollama_root()} — start it first (`ollama serve`)."
+            reason = f"Can't reach Ollama at {_ollama_root()}. Start it first (`ollama serve`)."
         yield {"type": "error", "message": reason[:300]}
         yield {"type": "done"}
 
@@ -723,7 +723,7 @@ _SUMMARY_PROMPT = (
     "Write a concise executive summary of this network scan for a security report. "
     "Cover: overall exposure, the most at-risk hosts and why, the notable "
     "vulnerabilities, and the top 2-3 recommended actions. 120-180 words of plain "
-    "prose — no markdown headings, no bullet lists. Use ONLY the scan context above; "
+    "prose, with no markdown headings and no bullet lists. Use ONLY the scan context above; "
     "do not invent hosts, ports, or CVEs."
 )
 
@@ -748,13 +748,13 @@ def summarize_scan(context, *, provider: str | None = None, model: str | None = 
     # Deterministic grounding guard: if the model cited any CVE not present in the
     # real scan, append an explicit integrity note so a fabricated id can never
     # reach the PDF report unflagged. (With real ids now in the context block this
-    # should be empty — this is the belt-and-braces safety net.)
+    # should be empty; this is the belt-and-braces safety net.)
     stray = ungrounded_cves(text, context_cve_ids(context)) if text else []
     if stray:
         text += (
             "\n\nData-integrity note: the following CVE identifier(s) in this summary "
             "were not present in the scan data and must be independently verified "
-            "before use — " + ", ".join(stray) + "."
+            "before use: " + ", ".join(stray) + "."
         )
     return {"available": bool(text) and not err, "summary": text,
             "provider": provider, "error": err, "ungrounded_cves": stray}

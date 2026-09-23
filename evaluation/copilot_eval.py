@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """
-copilot_eval.py — measure the AI copilot's **grounding** and **accuracy**, in the
+copilot_eval.py: measure the AI copilot's **grounding** and **accuracy**, in the
 same spirit as benchmark.py: the scoring is deterministic and unit-tested, and it
 never fabricates. Run it with a provider configured (free local Ollama, the Gemini
 free tier, or a paid key) and it produces real numbers over a fixed scan; run it
-with nothing configured and it says so and exits — it does not invent a score.
+with nothing configured and it says so and exits. It does not invent a score.
 
 Two properties matter for a security copilot, and we score both:
 
-  * **grounding**  — it must NOT invent hosts/ports/CVEs that aren't in the scan
+  * **grounding**:  it must NOT invent hosts/ports/CVEs that aren't in the scan
     (ENUMGRID's "no fake data" rule turned into a metric): the fraction of
     hallucination-trap facts the reply correctly *avoids*.
-  * **coverage**   — it should surface the facts that matter: the fraction of the
+  * **coverage**:   it should surface the facts that matter: the fraction of the
     expected, genuinely-present facts the reply *mentions*.
 
 Usage:
@@ -36,7 +36,7 @@ import sys
 _CVE_RE = re.compile(r"CVE-\d{4}-\d{4,7}", re.I)
 
 # ---------------------------------------------------------------------------- #
-# Fixed evaluation set — a realistic, in-scope scan (172.16.2.0/24 is authorized)
+# Fixed evaluation set: a realistic, in-scope scan (172.16.2.0/24 is authorized)
 # plus questions whose ground truth is known. `expect` = facts a correct grounded
 # answer should mention; `traps` = plausible facts NOT in the scan that a
 # fabricating model might invent.
@@ -58,7 +58,7 @@ SCAN_CONTEXT = {
 
 # Each `expect` entry is a fact the answer should convey; a nested list means
 # "any of these phrasings counts" (so citing "Log4Shell" credits the same as the
-# CVE id — we score correctness, not verbosity). `traps` are exact fabrications.
+# CVE id; we score correctness, not verbosity). `traps` are exact fabrications.
 CASES = [
     {
         "q": "Which host is the most exposed, and why?",
@@ -92,13 +92,13 @@ CASES = [
 # something.
 FIXTURE_GOOD = {
     "Which host is the most exposed, and why?":
-        "172.16.2.1 (the gateway) is most exposed — three open ports and a critical CVE-2021-44228.",
+        "172.16.2.1 (the gateway) is most exposed, with three open ports and a critical CVE-2021-44228.",
     "Are there any critical vulnerabilities? Name the CVE id(s).":
         "Yes: CVE-2021-44228 (critical) on the router. CVE-2022-0778 (high) on 172.16.2.5.",
     "What is running on 172.16.2.5?":
         "172.16.2.5 exposes ssh (22) and an http-proxy (8080).",
     "Is host 172.16.2.20 a web server?":
-        "No — 172.16.2.20 is an IP camera exposing rtsp (554), not a web server.",
+        "No: 172.16.2.20 is an IP camera exposing rtsp (554), not a web server.",
     "Give a one-line risk summary of this subnet.":
         "Highest risk is 172.16.2.1 (critical Log4Shell); patch it first, then 172.16.2.5.",
 }
@@ -106,7 +106,7 @@ FIXTURE_HALLUCINATED = {
     "Which host is the most exposed, and why?":
         "172.16.2.99 is the most exposed with CVE-2099-0001 and open RDP.",
     "Are there any critical vulnerabilities? Name the CVE id(s).":
-        "Yes — CVE-2017-0144 (EternalBlue) and CVE-2014-0160 (Heartbleed) are present.",
+        "Yes: CVE-2017-0144 (EternalBlue) and CVE-2014-0160 (Heartbleed) are present.",
     "What is running on 172.16.2.5?":
         "It runs RDP on 3389 and a Windows domain controller.",
     "Is host 172.16.2.20 a web server?":
@@ -143,7 +143,7 @@ def context_cves(context: dict) -> set:
 
 def score_case(reply: str, case: dict, known_cves: set | None = None) -> dict:
     """Score one reply. Coverage = expected facts hit. Grounding is strict and
-    per-case: it is 1.0 only when the reply invents *nothing* — neither a listed
+    per-case: it is 1.0 only when the reply invents *nothing*, neither a listed
     trap nor any CVE id that isn't in the scan. Catching *novel* fabricated CVEs
     (not just pre-listed traps) is what makes this an honest "no fake data" check."""
     reply = reply or ""
@@ -187,7 +187,7 @@ def summarize(values: list[float]) -> dict:
 
     Mirrors ``benchmark.py``'s statistics helper so both harnesses report variance
     the same way. The CI uses the normal approximation (z = 1.96) and is 0 for a
-    single run (no variance to estimate) — small-n samples stay honest."""
+    single run (no variance to estimate), so small-n samples stay honest."""
     vals = [float(v) for v in values]
     n = len(vals)
     if n == 0:
@@ -218,7 +218,7 @@ def _import_copilot():
 
 
 def _collect_reply(copilot, question: str, provider, model):
-    """Run one turn and return (reply_text, error) — no fabrication on failure."""
+    """Run one turn and return (reply_text, error), with no fabrication on failure."""
     parts: list[str] = []
     for ev in copilot.stream_reply(
         [{"role": "user", "content": question}], SCAN_CONTEXT, provider=provider, model=model
@@ -254,7 +254,7 @@ def aggregate_runs(runs: list[dict]) -> dict:
     """Aggregate the headline metrics across whole-evaluation runs as mean ± 95 % CI.
 
     ``runs`` is a list of :func:`run` results. We summarise only what was actually
-    measured — the per-run coverage/grounding/score — so nothing is invented; the
+    measured, i.e. the per-run coverage/grounding/score, so nothing is invented; the
     spread (stdev / CI) is what removes the single-run caveat from the writeup."""
     cov = [r["summary"]["coverage"] for r in runs]
     grd = [r["summary"]["grounding"] for r in runs]
@@ -286,7 +286,7 @@ def run_many(provider=None, model=None, runs: int = 1) -> dict:
 
 
 def run_fixtures(fixtures: dict) -> dict:
-    """Score a set of canned replies — used by --self-test and the unit tests."""
+    """Score a set of canned replies, used by --self-test and the unit tests."""
     known = context_cves(SCAN_CONTEXT)
     results = [score_case(fixtures.get(c["q"], ""), c, known_cves=known) for c in CASES]
     return {"provider": "fixture", "results": results, "summary": aggregate(results)}
@@ -294,7 +294,7 @@ def run_fixtures(fixtures: dict) -> dict:
 
 def _print_report(res: dict) -> None:
     s = res["summary"]
-    print(f"\nCopilot evaluation — provider: {res.get('provider')}"
+    print(f"\nCopilot evaluation, provider: {res.get('provider')}"
           + (f" · model: {res['model']}" if res.get("model") else ""))
     print("-" * 60)
     for r in res["results"]:
@@ -313,7 +313,7 @@ def _print_report(res: dict) -> None:
 
 def _print_multi(res: dict) -> None:
     """Print a multi-run report: each run's headline metrics, then mean ± 95 % CI."""
-    print(f"\nCopilot evaluation — provider: {res.get('provider')}"
+    print(f"\nCopilot evaluation, provider: {res.get('provider')}"
           + (f" · model: {res['model']}" if res.get("model") else "")
           + f" · {res['runs']} run(s)")
     print("-" * 60)
@@ -343,9 +343,9 @@ def main(argv=None) -> int:
     if args.self_test:
         good = run_fixtures(FIXTURE_GOOD)
         bad = run_fixtures(FIXTURE_HALLUCINATED)
-        print("Self-test — grounded reference replies:")
+        print("Self-test, grounded reference replies:")
         _print_report(good)
-        print("Self-test — hallucinated reference replies (grounding should collapse):")
+        print("Self-test, hallucinated reference replies (grounding should collapse):")
         _print_report(bad)
         ok = good["summary"]["score"] >= 0.9 and bad["summary"]["grounding"] <= 0.1
         print("metric sanity:", "PASS" if ok else "FAIL")

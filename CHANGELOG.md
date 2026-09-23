@@ -1,874 +1,671 @@
 # Changelog
 
-All notable changes to **ENUMGRID: the Enumeration Platform**. Format based on
-[Keep a Changelog](https://keepachangelog.com/).
+All notable changes to ENUMGRID, the Enumeration Platform, are recorded in this file.
 
-## [Unreleased]
+The format follows [Keep a Changelog 1.1.0][kac] and the project versions according to
+[Semantic Versioning 2.0.0][semver].
 
-### Verification pass on the sweep — one more 500, and the last unthemed colours (2026-09-22)
-A re-check of the sweep below, run as an A/B against the pre-fix tree rather than as a
-re-reading of the diff: every claimed defect was reproduced on the old code and re-probed on
-the new one, and the API was then fuzzed with 463 malformed / hostile / out-of-range requests
-to see what the first pass had missed. Four things had.
+## Conventions
 
-- **`GET /api/jobs/{job_id}` still returned a 500** for an id beyond SQLite's 64-bit integer
-  range. FastAPI's `int` coercion accepts arbitrary precision, so a 21-digit path segment
-  reached the driver and raised `OverflowError: Python int too large to convert to SQLite
-  INTEGER`. `/api/history?limit=<the same number>` already clamped and answered 200, which is
-  what made the inconsistency visible. An id SQLite cannot represent names no row, so it now
-  reads as "not found" — checked in `jobs.get()` (and the identical `history.get_scan()`)
-  rather than at the route, so the scheduler and any future caller get it too.
-- **Selecting text in the light theme made it disappear.** `::selection` hardcoded the cockpit
-  amber wash *and* white text; on a white panel that is white-on-pale-amber at **1.28:1**. The
-  wash now follows `--accent-amber` and the text keeps the theme's own `--app-fg` — **10.5:1**
-  on light, unchanged on dark.
-- **Ten places still painted with colours from outside the theme** (eight JSX class strings,
-  two stylesheet rules), each invisible or near-invisible on paper: the copilot's user chat bubble (`text-sky-100` on a sky wash — measured **1.10:1**
-  live), its error box and Stop button (`text-rose-300`), the CVE and NVD-key links
-  (`text-amber-300`, **1.44:1**), two `bg-black/40` code/boot surfaces, and the brand wordmark's
-  gradient (**1.32:1** — exempt from WCAG 1.4.3 as a logotype, but legible only as a smudge).
-  All now read theme tokens; a new `crimson.glow` carries error text, which needs to invert
-  across themes (pale red on the cockpit, deep red on paper) where `crimson` itself cannot.
-  Measured after: bubble **5.1:1**, error box **6.97:1**, links **7.09:1**, wordmark **4.58:1**,
-  and 0 AA failures on either theme across seven rendered surfaces (base view, copilot, scan
-  options, export menu, settings, privilege dialog, topology).
-- **A throttled host was labelled "Failed".** The backend answers `/api/host/scan` with a 429
-  and *"server busy — too many concurrent scans, retry shortly"* once more than
-  `ENUMGRID_MAX_SCANS` (4) are in flight — reachable from "Scan All" (3 workers) plus a row
-  click, or a second open tab; the live log from this session has four of them. The dashboard
-  collapsed it into the generic error path, so the grid showed a red **Failed** badge, tooltip
-  "the last nmap scan for this host failed", for a host nmap had never been pointed at. The
-  client now honours the server's own advice: retry at 750 ms / 1.5 s / 3 s and only call it a
-  failure if the server stays busy through all four attempts (new `lib/retry.js`, unit-tested;
-  a 504 stays non-retryable because that scan really did run and time out). Verified in the
-  browser against a stubbed 429: attempts at 1 / 766 / 2267 / 5268 ms, no badge before 5 s.
+- **Public interface.** For versioning purposes the public interface is the HTTP API
+  (`/api/*`), the `purple_recon` CLI flags and exit codes, the `ENUMGRID_*` environment
+  variables, and the on-disk report and export schemas. Internal module layout is not part
+  of it.
+- **Measured claims.** Every quantitative statement below was produced by a checked-in,
+  re-runnable harness or captured from a real authorised scan. Each one names its
+  artifact under [`evaluation/results/`](evaluation/results/README.md) so a reader can
+  re-derive it. Nothing here is estimated, rounded up, or simulated.
+- **Limitations are listed.** Where a capability has a known failure mode, or the
+  evaluation has a known weakness, it appears under *Known limitations*.
 
-Also corrected: the entry below says 34 API endpoints; there are **35** route declarations.
-After the fuzz run the API returns **0 5xx across 463 hostile requests** (161 × 200, 167 × 400,
-97 × 422, 35 × 404). 10 regression tests added (backend 773 → **776**, frontend 207 → **214**,
-total 1355 → **1365**).
+---
 
-### Full API + UI sweep — crash fixes, honest commands, and a readable light theme (2026-09-22)
-A second pass over the same live `192.168.0.0/24`, this time driving **every one of the 35 API
-route declarations** (happy path, malformed input, out-of-range values, auth) and **every UI surface**
-(scan options, per-host detail, topology, exports, settings, operations, command palette,
-copilot, both themes, 375 px). Fifteen defects, the worst of which were two unhandled 500s and
-a light theme that failed WCAG AA on 74 elements.
+## [1.0.0] - 2026-09-23
 
-**Crashes and validation (unhandled input reaching the user as a 500)**
-- **`POST /api/host/credscan` crashed on a non-numeric port.** `int(payload["port"])` on
-  free-form JSON raised `ValueError` straight out of the handler — `{"port": "abc"}` returned
-  *500 Internal Server Error*. Now a 400 naming the problem. An explicit `0` is also refused
-  rather than silently becoming 22: `int(x or 22)` treated the falsy `0` as "unset", so a bad
-  value quietly turned into a real SSH attempt on a port the caller never asked for.
-- **`POST /api/report/pdf` crashed on a malformed payload.** The endpoint formats whatever the
-  dashboard POSTs, so the body is untrusted; a string where a port dict was expected raised
-  `AttributeError: 'str' object has no attribute 'get'` out of `report._summary` — another 500.
-  A single `_normalise_hosts` pass at the entry point now coerces the shape once (instead of an
-  `isinstance` check at each of a dozen access sites) and **drops** malformed entries rather
-  than rendering blanks — a report must never show a host that was not in the scan.
-- **`GET /api/host/webscan` accepted impossible ports.** `port=0`, `-1` and `99999` returned
-  200 with `web fetch failed (gaierror)` — an internal exception name standing in for "that is
-  not a port". Bounded to 1–65535 (422), matching `/api/passive`'s existing bounds.
-- **`POST /api/jobs/submit` queued out-of-scope network scans.** The scope guard only checked
-  the `host_scan` parameter (`ip`), never the `network_scan` one (`target`), so a public
-  subnet came back `{"status": "queued"}` and failed later inside a worker — and the audit log
-  recorded a `job_submit` with no matching refusal. Both parameters are now vetted at submit,
-  and a refusal is audited like any other.
+Initial public release. ENUMGRID is a two-tiered, purple-team network enumeration
+platform: a fast horizontal discovery sweep followed by on-demand `nmap` service and
+vulnerability depth, wrapped in live CVE intelligence and delivered through two
+front-ends that share one engine, a single-file terminal cockpit and a web cockpit.
 
-**Honesty — where the screen disagreed with what the tool actually did**
-- **The scan-options drawer printed a command that never runs.** `/api/profiles` returned each
-  profile's *declared* arguments, so an unprivileged backend showed `nmap -sS -Pn -T2
-  --top-ports 200` for Stealth while `_adapt_args` rewrote it to `-sT` before execution (same
-  for `-sU` and `-A`). The endpoint now also returns `effective_args` + `adapt_note` from a new
-  `scanner.effective_args()`, keeping one source of truth, and the drawer and the per-host live
-  command both print the real one with a line explaining the difference.
-- **`POST /api/settings/nvd-key` accepted any string as an API key** and reported
-  `key_active: true` / "50 req / 30s" — so a typo'd paste left the dashboard asserting a rate
-  limit NVD would never grant, with every live lookup silently falling back to the anonymous
-  limit. The runtime setter now validates NVD's documented UUID shape and returns a 400 naming
-  the problem; `ENUMGRID_NVD_API_KEY` stays unchecked as an escape hatch.
-- **The grid showed a crimson "VULN SCAN" badge during ordinary service scans.** The flag
-  behind it (`vulnScanning`) means "a per-host nmap scan is in flight" and is set for every row
-  scan, deep or not — every other affordance already said "Nmap scanning…". The badge now
-  matches.
+Its organising constraint is that a result is never fabricated. Where the tool cannot
+answer, it says so. An unreachable backend produces an error banner instead of a
+plausible grid, an uninstalled baseline scanner is reported as unavailable instead of as
+having found nothing, and a missing LLM provider returns `ready: false` with a reason
+instead of a generated reply. Tests enforce that discipline.
 
-**Accessibility and layout**
-- **The light theme failed WCAG AA on 74 elements** (measured with alpha compositing), the
-  worst at **1.39:1** — including the primary **Start Scan** button, the KPI figures and every
-  OS string in the grid. Root cause: the chassis and neutral ramp were themeable but the three
-  signal accents were shared hex, and `#00E676` / `#FFB300` are tuned for a near-black surface.
-  The accents (plus the two sky shades and the muted end of the neutral ramp) are now theme
-  tokens with darker light-mode values. **Light: 74 → 0 failures. Dark: 6 → 0.**
-- **The floating Copilot launcher covered the Engine panel's honesty note** — the last two
-  lines of "Results are always real. Backend unreachable → the scan fails with a clear error,
-  never simulated." sat underneath it at every desktop size. The sidebar now reserves space.
-- **The target input had no accessible label**, leaving a screen reader to announce the
-  placeholder — which disappears as soon as anything is typed. Every other control was already
-  labelled.
+### Added
 
-**Maintenance**
-- `@app.on_event("startup"/"shutdown")` are deprecated and emitted a `DeprecationWarning` on
-  every boot; replaced with a `lifespan` context manager that also **holds and awaits** the
-  worker/ticker task handles (a bare `create_task` nobody references can be garbage-collected
-  mid-flight, and shutdown could return while a worker was still inside a scan).
-- **`/api/ad/enum` hung for ~75 s on an unreachable DC** — `ldap3` inherited the OS TCP retry
-  schedule — so a mistyped hostname froze the AD panel. Bounded to 8 s connect / 30 s per
-  operation (`ENUMGRID_LDAP_TIMEOUT`, `ENUMGRID_LDAP_READ_TIMEOUT`); measured 75 s → 8 s.
-- `HEAD /` returned 405. FastAPI does not add HEAD to a GET route the way plain Starlette does,
-  and `/` is the natural liveness URL for a container healthcheck. Served now.
-- The service banner at `/` advertised `?target=127.0.0.1` — a target the scope validator
-  refuses, so the API's own example was guaranteed to fail. Changed to a private-LAN example,
-  with a test that asserts the advertised example passes `vet_target`.
-- The settings menu labelled the copilot "chat · Claude / OpenAI", naming only the two paid
-  providers and omitting the free local Ollama it defaults to.
-- 22 regression tests added (backend 751 → **773**, total 1333 → **1355**); backend line
-  coverage stays at 100 %.
+#### Discovery engine
 
-### End-to-end audit on a real LAN — supply-chain, audit-trail and reporting fixes (2026-09-22)
-Every feature was exercised against the operator's own `192.168.0.0/24` (CLI, web cockpit,
-API, copilot, Docker image) rather than assumed. The scan pipeline itself held up — a deep
-`vuln` pass on the gateway identified **dnsmasq 2.87** and correlated **10 CVEs** from both
-NSE `vulners` and live NVD, EPSS-ranked and banded `version · verify`; the **0 CVEs** it
-reported for that gateway's lighttpd 1.4.67 was confirmed correct against NVD directly
-(1.4.66 has one, 1.4.67 has none). These are the defects the pass turned up.
-- **The test suite was writing into the operator's real audit trail.** Endpoint tests call the
-  same `audit.record()` the live API does, so every run appended fixture events
-  (`192.168.50.0/24`, `corp.local`) to `backend/enumgrid_audit.log` — the file `/api/audit`
-  serves. 647 of 4,650 entries (14 %) were synthetic. For a tool whose contract is that every
-  recorded result is real, that is a correctness bug, not untidiness. A new
-  `backend/tests/conftest.py` repoints `audit.AUDIT_LOG` at a temp file for the session
-  (verified: a full backend run now leaves the log byte-identical). Entries written before
-  this fix are still there; purge them if the trail matters to you.
-- **Pinned dependencies had rotted: 27 known advisories** in `requirements.lock`
-  (`pillow` 12.2.0 → **12.3.0**, `anyio` 4.13.0 → **4.14.2**). CI never caught it because
-  `pip-audit` only ran against `backend/requirements.txt` and `requirements-dev.txt`, whose
-  open ranges always resolve to something current — the *pinned* set is the one that can rot
-  silently. CI now audits `requirements.lock` too.
-- **The dashboard claimed a healthy backend while the backend was down.** With the API killed
-  the scan error is correct ("Backend unreachable…", counters zeroed, nothing fabricated), but
-  the Engine footer still showed a green "FastAPI". It now reads a crimson **unreachable**,
-  derived from the same empty-profile-set signal the scan-options drawer already used.
-- **PDF report wrapped IP addresses mid-octet**: at 26 mm the inventory table's monospace IP
-  column could not fit a 13-character address, so `192.168.0.106` broke across two lines.
-  Widened to 30 mm (hostname and vendor give up 2 mm each; total width unchanged).
-- **Documented test counts were stale**: 1307 → **1333** (CLI 197 + backend 751 + evaluation
-  178 + frontend 207) across the README badge and table, `docs/PUBLICATION.md` and
-  `docs/PAPER.md`. Also corrected the README's claim that `docker-compose` deploys a
-  `requirements.lock`-pinned environment — the Dockerfile installs from
-  `backend/requirements.txt`; what *is* pinned is the base image's `sha256` digest.
-- The `/api/settings/nvd-key` docstring said the key was held "in memory only"; it is
-  persisted by `cve.set_api_key` to a 0600, gitignored file. Docstring corrected.
-- **`.env.example` was missing the settings the README tells you to use.** It documented
-  only the legacy `ENUMGRID_API_TOKEN`, so the `ADMIN`/`VIEWER` RBAC pair, all three
-  outbound-alerting channels (`ENUMGRID_WEBHOOK_URL`, `ENUMGRID_SLACK_WEBHOOK`,
-  `ENUMGRID_SYSLOG`) and `ENUMGRID_SSH_AUTOADD` were undiscoverable from the config
-  template. Added, with the open-mode and host-key-verification caveats spelled out.
-  (All three alert channels were verified against local sinks; syslog emits
-  `<12>EnumGrid: scan_complete target=… kev=1` and Slack calls KEV hits out.)
+- **Multi-method, confidence-graded host discovery.** ICMP, TCP, ARP, NDP (IPv6),
+  mDNS/Bonjour, NBNS and SSDP/UPnP run together and are merged into a single
+  confidence-scored view, with a proxy-ARP guard and RST suppression so a router that
+  answers for absent hosts cannot inflate the result.
+- **Passive (zero-packet) discovery** (`backend/passive.py`, `POST /api/passive`), a
+  stealth mode that transmits nothing and listens instead for the broadcast and multicast
+  chatter hosts emit unprompted (ARP, DHCP, mDNS, LLMNR, NetBIOS). It is invisible to an
+  IDS watching for scans. `scapy` is optional and capture needs raw-socket privilege; when
+  either is missing the endpoint returns `available: false` with a reason.
+- **Vendor and device identity.** MAC resolved against the IEEE OUI registry (39,000+
+  entries), randomized and locally-administered MAC detection, and a device-type classifier
+  ranked ports, then services, then hostname, then vendor.
+- **Specific OS identity** (`backend/osfp.py`). TTL, vendor, hostname and device type are
+  fused into a concrete product name, and mDNS `model=` and `osxvers=` records resolve the
+  exact Apple device and macOS version. With privilege, `nmap -O` is added, and a match
+  below `ENUMGRID_OS_MIN_ACCURACY` is labelled `name (nmap guess, NN%)` instead of being
+  asserted.
+- **Discover-mode port preview.** A fast parallel unprivileged TCP connect scan of common
+  service ports runs during discovery, so the grid shows open ports immediately and the
+  device classifier gets its strongest signal for free.
+- **SNMP device naming** (`backend/snmp.py`), which names switches, APs and printers that
+  have no DNS or mDNS presence, from `sysName` and `sysDescr`.
 
-### Startup fix + live-scan accuracy fixes (2026-09-16)
-Found by running real scans on the operator's own `192.168.1.0/24`, both unprivileged and as
-root via `./start.sh`.
-- **Backend would not start**: a stray leading space before the module docstring of
-  `backend/nbns.py` raised `IndentationError` on import, which took down `app.py`. Restored.
-- **Slow hosts no longer read as "no open ports"**: nmap drops *every* result for a host that
-  passes `--host-timeout` and still lists it as up, so the dashboard showed "No ports" for it.
-  The ISP router here holds back each closed-port RST for about 1 s, so a top-1000 `-sV`
-  takes about 6.5 min against the default profile's 120 s limit. A phone lost 3 real open
-  ports the same way. The scanner now detects `timedout="true"` in nmap's XML, retries once
-  with `FALLBACK_TUNING` (`--version-light --min-parallelism 64 --max-retries 2`, about 70 s on
-  that router), and sets a new `Host.scan_warning`. On the router this recovered
-  **MiniUPnP 2.3.1 on :5000 and a CVSS 9.1 finding**. The dashboard shows a **Partial result**
-  banner and a **Partial** badge instead of "No ports".
-- **One time budget per host scan**: `ENUMGRID_HOST_DEADLINE` (now 900 s) covers every stage.
-  Each stage's nmap `--host-timeout` is clamped to what is left, so nmap always stops before
-  Python gives up. Before this, `fullports` (600 s) and `comprehensive` (900 s) ran under a
-  360 s Python limit and returned 504 while nmap kept running. The budget is exposed as
-  `host_scan_deadline` in `/api/health` and `/api/profiles`, and the dashboard's request
-  timeout now follows it (it was a fixed 360 s). The all-ports sweep is skipped for hosts that
-  needed the retry. Profile timeouts are now integers (seconds).
-- **Low-confidence nmap OS guesses are labelled**: a `-O` match below
-  `ENUMGRID_OS_MIN_ACCURACY` (95) now ranks below service CPE/banner evidence and is shown as
-  `name (nmap guess, NN%)`. Before, a WiZ smart bulb was shown as a "Garmin Virb Elite action
-  camera" and the Zyxel router as "QNAP QTS". The golden fixture (95 %) is unchanged.
-- **MAC addresses hidden by macOS are explained**: on macOS 27, `arp -an` run by some
-  unprivileged, non-Apple-signed processes succeeds but lists nothing, so every MAC and vendor
-  was blank without any explanation. Discovery now re-reads the table under sudo when the
-  session is elevated (`scanner.sudo_output`). Otherwise the finished scan carries a note that
-  the dashboard shows as a **Scan note** banner. As root (`./start.sh`), all MACs resolve.
-- **The operator's own machine is always named**: discovery takes this machine's hostname and
-  addresses from the OS instead of waiting for its own mDNS reply, which was often missed.
-- The per-host scan button's tooltip no longer claims it always runs `--script vuln`.
-- Tests: backend 726 → 751 (still 100 % coverage); frontend 206 → 207.
+#### Enumeration and scan profiles
 
-### Publication push — paper draft, figure redaction, turnkey scaffolding (2026-07-11)
-- **Paper draft** `docs/PAPER.md` (Markdown, version-controlled) **and `docs/ENUMGRID_Paper.docx`**
-  (submission-ready Word: title page, auto-TOC, native tables, and the **redacted** figures +
-  eval plots embedded — every number audited against `evaluation/results/*.json`): an end-to-end
-  engineering + measurement paper wired to the real artifacts — abstract, the three defensible claims, related work + the two
-  detection schools, system design, the honesty discipline, evaluation (discovery,
-  detection, offline + live-NVD CVE matching, baselines, scalability, copilot), threats to
-  validity, ethics, reproducibility, and a figure/reproduce appendix. Every quantitative
-  claim cites an `evaluation/results/*.json`; honest by construction (under-claims, carries
-  CIs, names its own limits, surfaces the CPE-drift finding rather than hiding it).
-- **Defense/demo deck** `docs/ENUMGRID_Defense.pptx` (16 slides, on-brand cyber palette, the
-  redacted screenshot + real eval plots embedded, speaker notes) — built with pptxgenjs,
-  structurally validated, and **visually QA'd** (rendered every slide, no overflow/overlap).
-- **Rendered PDFs** `docs/ENUMGRID_Paper.pdf` and `docs/ENUMGRID_Defense.pdf` (via LibreOffice)
-  so both the paper and the deck are portable/submission-ready; figures + tables verified intact.
-- **One-page reproducibility map** `docs/REPRODUCE.md`: every headline number → its exact
-  command → its artifact, plus the testbed lifecycle and the scaffolding entry points.
-- **Screenshot redaction** `docs/screenshots/redact.py`: blurs the operator hostname and the
-  MAC column in every affected frame, writing publishable `*-redacted.png` copies
-  (`--check` validates the regions). The un-redacted originals are kept for the operator;
-  the paper references the redacted copies.
-- **OpenVAS/Nessus baselines — report-file adapters** in `evaluation/cve_baselines.py`:
-  `parse_gvm_xml` / `parse_nessus_xml` read an exported Greenbone/Nessus report, filter it
-  host-by-host, and score planted-CVE recall with the same comparison as the other tools.
-  Enable with `--tools openvas,nessus` (report path via `ENUMGRID_OPENVAS_REPORT` /
-  `ENUMGRID_NESSUS_REPORT`); **unavailable, never "found nothing"** when no report is
-  supplied. +15 CI-tested parser/runner tests (incl. a focused-review case: a Nessus
-  report that names the host by FQDN must still match by IP via the `host-ip` tag) →
-  evaluation suite **163 → 178**.
-- **Turnkey scaffolding for the operator-only gaps** (scaffolding, *not* fabricated data):
-  `evaluation/COLLECTING_NETWORKS.md` (three-command-per-network multi-network runbook +
-  authorisation checklist → `aggregate_runs.py`); `evaluation/nvd_corpus_heldout.json` (a
-  frozen, empty held-out CVE-corpus template carrying a blind-sampling protocol, scored
-  unchanged by `nvd_precision.py --corpus`); `docs/USER_STUDY_PROTOCOL.md` (a pre-registered
-  analyst study — hypotheses, within-subjects design, n ≈ 34 power analysis, analysis plan,
-  ethics — to be *run* with real participants, not simulated). Roadmap items in
-  `CONTRIBUTIONS.md` §8 updated to reference each.
-- **Totals:** repo **1292 → 1307 tests** (evaluation 163 → 178); ruff clean. Nothing
-  committed (the operator commits from VS Code).
+- **Two-tier engine.** A horizontal sweep, then on-demand `nmap -sV` depth per host or
+  across the whole network.
+- **11 Zenmap-style profiles.** Quick, Default, Intense, Recon, Aggressive, Stealth SYN,
+  Vulnerability, Safe, All-ports, Comprehensive and UDP, plus validated custom NSE
+  scripts and port ranges. Arguments are assembled as a fixed argv with no shell, and
+  targets pass an allowlist regex, so the profile surface is injection-safe by
+  construction.
+- **Privilege auto-adaptation.** The engine detects once, without prompting, whether it
+  can scan as root, via passwordless `sudo`, or unprivileged. In the last case it rewrites
+  root-only flags to safe equivalents (SYN and UDP become connect, `-O` and
+  `--source-port` are dropped, `-A` becomes `-sV -sC`) and records an honest `scan_note`,
+  so every profile runs without root. `GET /api/health` and `/api/profiles` expose the
+  tier.
+- **Adaptive all-ports sweep.** The default service scan covers the top 1000 ports with
+  `-sV`, then sweeps all 65,535 on only the hosts that already showed an open port:
+  thorough where it pays, cheap on firewalled or dead hosts.
+- **Filtered-state confirmation.** Ports left `filtered` are re-probed with a different
+  technique (patient TCP connect, or SYN from a DNS source port when privileged).
+- **Timeout recovery.** `nmap` discards every result for a host that exceeds
+  `--host-timeout` while still listing it as up, which previously surfaced as "no open
+  ports". The scanner now detects `timedout="true"` in the XML, retries once with a
+  lighter tuning profile, and reports a `Partial result` badge. A single time budget
+  (`ENUMGRID_HOST_DEADLINE`, 900 s) covers every stage, with each `nmap --host-timeout`
+  clamped to what remains so `nmap` always stops before Python gives up.
+- **IPv6 throughout.** A dual-stack `ScopeValidator`, NDP correlation by MAC, and
+  `nmap -6`.
 
-### Evaluation — publication-readiness pass (2026-07-10)
-- **CVE-detection baselines (the missing "compared to what?").** New
-  `evaluation/cve_baselines.py` runs EnumGrid, **nmap-`vulners`** (version-match) and
-  **Nuclei** (active-PoC) against the *same* pinned testbed and reports each tool's
-  planted-CVE recall, its unexpected CVEs (surfaced, not scored), and pairwise Jaccard
-  agreement. Parsers + comparison are pure and CI-tested (`test_cve_baselines.py`, +21
-  tests → evaluation suite **93 → 114**); the live runner is operator-run and reports an
-  uninstalled scanner as *unavailable*, never as "found nothing".
-- **Testbed broadened** `evaluation/docker-compose.yml` 6 → **9 pinned hosts**: a second
-  planted-CVE host (`httpd:2.4.50` → CVE-2021-42013, the incomplete-fix twin of 2.4.49's
-  41773) plus MySQL and MongoDB for relational/document-store service diversity.
-  `ground_truth.json` updated; new hosts are service-scored (versions asserted only where
-  nmap fingerprints reliably) with an explicit first-run **reconciliation** note — no
-  planted-CVE ground truth was invented from memory.
-- **Honest positioning doc** `docs/CONTRIBUTIONS.md`: the contribution/novelty framing
-  (systems + measurement, not a new algorithm), related work vs Fing/nmap/OpenVAS/Nessus/
-  Nuclei/masscan, **threats to validity** (construct/internal/external/statistical), an
-  **ethics & legal** statement, reproducibility, and a roadmap to a stronger paper. It
-  states plainly what the evaluation does and does not support.
-- **Cross-environment pooling (external validity).** New `evaluation/aggregate_runs.py`
-  combines several per-network `benchmark.py` results into per-tool recall **mean ± 95 % CI
-  *across environments*** (macro-average, each network = one sample) + a bar chart — the
-  generalisation figure. Accepts both benchmark JSON shapes; math is pure and unit-tested.
-- **Scalability harness.** New `evaluation/scalability_benchmark.py` measures discovery
-  time + best-effort peak memory vs address-space size over a widening CIDR sweep, with a
-  least-squares fit (ms/address, R²), throughput, and a time-vs-size plot. Pure fit math is
-  unit-tested; the live runner is operator-run on authorised networks.
-- **Live-NVD precision/recall (the *primary* CVE path).** New `evaluation/nvd_precision.py`
-  + `nvd_corpus.json` measure EnumGrid's live NVD API 2.0 pipeline (`cve.py`: version-scoped
-  CPE query → `parse_nvd` → top-N by CVSS) — the path the offline corpus never covered.
-  Reports documented-CVE **recall** (a lower bound; NVD extras are *not* scored as false
-  positives), **version-scoping precision** (a patched build / other-product CPE must come
-  back clean), and **top-N truncation-loss** (a documented CVE dropped by the CVSS cap). The
-  scorer + the REAL `parse_nvd` are unit-tested over hand-authored NVD-2.0 **schema fixtures**
-  (`test_nvd_precision.py`, +26 tests) — CI-safe, no network; `--live` hits the authoritative
-  feed (rate-limit-honouring, operator-run) for the published number, and a CPE that fails to
-  fetch is reported as an error, never as "found nothing". **Measured live (2026-07-11):**
-  recall **1.00 (8/8)**, version-scoping precision **1.00 (7/7)**, 0 truncation losses
-  (`evaluation/results/nvd_live.json`). The run surfaced a real **CPE-dictionary-drift**
-  finding (NVD indexes vsftpd as `vsftpd_project`, nmap emits `vsftpd`) — corpus label
-  corrected to NVD-canonical + documented as a construct-validity limitation, not hidden.
-- **Live testbed runs executed (2026-07-11)** — the 9-host testbed was brought up on a
-  **colima** VM (no Docker Desktop, no host sudo) and the previously operator-only harnesses
-  were run against it, with scans executed inside the VM where the container IPs are reachable:
-  - `detection_benchmark.py` → open-port **P/R 1.00/1.00**, service **0.89**, version **0.83**,
-    **planted-CVE recall 1.00 (3/3)**, 0 FP ports, 56 unexpected surfaced-not-scored.
-  - `cve_baselines.py` (3-way) → nmap-`vulners` **3/3** (133 unexpected), EnumGrid **2/3**
-    (13 unexpected), Nuclei **0/3** — a direct demonstration of the version-match vs
-    active-PoC (exploitability-gated) tradeoff on real hosts.
-  - `aggregate_runs.py` pooled the real `172.16.2.0/24` LAN with the testbed → EnumGrid
-    **0.99 ± 0.02** vs `nmap -sn` **0.53 ± 0.93** across environments (nmap's wide CI = its
-    environment dependence). Results in `evaluation/results/` + `docs/screenshots/pooled_recall.png`.
-- Evaluation suite **93 → 163** (+70 across the four new modules); repo total
-  **1222 → 1292**; docs (README badge/table, evaluation/README, CONTRIBUTIONS roadmap) synced.
+#### Vulnerability and threat intelligence
 
-### Docs — README redesign (2026-07-10)
-- Rebuilt `README.md` around a hand-crafted SVG hero banner (`docs/banner.svg`, cockpit/HUD
-  aesthetic, self-contained + theme-safe): an *"why it's different"* comparison vs Angry IP /
-  nmap, capability sections grouped by theme (discovery · fingerprinting · deep-scan ·
-  vuln-intel · monitoring · UX), and the real multi-run evaluation figure. Every in-page
-  anchor and image path was verified, and the accuracy figures were reconciled against
-  `docs/EVALUATION.md` (home `/24` recall **1.00** vs `nmap -sn` 0.27; busy `/24`
-  **0.98 ± 0.04** vs 0.07). No claims added beyond what the eval/coverage data already backs.
+- **Live NVD API 2.0 enrichment** (`backend/cve.py`). Every fingerprinted service is
+  matched by CPE against the authoritative NVD feed, so coverage is not a hardcoded list
+  and newly-published CVEs appear automatically. Results are cached in local SQLite
+  (instant on repeat scans, functional offline once seen), rate-limit aware, with an
+  optional API key.
+- **Three merged sources.** Live NVD, the NSE `vulners` script run in-scan, and a curated
+  offline reference (`backend/vulndb.py`) as a last resort, merged and de-duplicated.
+- **Backport-aware matching** (`backend/osv.py`). Credentialed package lists are checked
+  against OSV.dev's distro feeds (Ubuntu, Debian, Alpine) so a distro-backported fix is
+  not reported as vulnerable.
+- **Risk prioritisation** (`backend/threatintel.py`). Findings carry CISA KEV
+  (exploited-in-the-wild) status and FIRST EPSS exploit probability, and are ranked KEV,
+  then EPSS, then CVSS, so the few that matter surface first.
+- **False-positive transparency.** Every finding is banded `confirmed` (an NSE script
+  actively tested the host) or `version` (a version or CPE match to verify). Non-finding
+  script output is filtered out, and duplicates merge keeping the strongest confidence.
+- **Credentialed scanning** (`backend/credscan.py`), an authenticated SSH read of exact
+  distro, kernel and package inventory. Host keys are verified by default, and credentials
+  are never logged.
+- **Web posture audit** (`backend/webscan.py`), a safe passive review of security headers,
+  insecure cookies and the TLS certificate, parsed from the DER form with `cryptography`.
 
-### Hardened — full-repo audit (2026-07-10)
-- A line-by-line read of every backend module + the CLI + the non-line-gated React
-  views. Verdict: no reachable bugs — injection guards, SSRF surfaces (all fixed
-  HTTPS/local endpoints), the RBAC/scope/throttle layer, the raw-packet parsers
-  (NBNS/SNMP-BER/passive), and the XSS/PDF-markup sinks are all sound. Two minor
-  robustness items were fixed:
-  - **`report.py` — defensive numeric coercion.** `/api/report/pdf` accepts a raw
-    client dict (not a validated model), so a hand-crafted authenticated POST with a
-    string `cvss` or a mixed-type `port` would raise inside `build_pdf` (an unhandled
-    500), contradicting its documented "a partial snapshot still renders" contract.
-    Numeric fields are now coerced via a `_num()` helper (bad values are skipped, not
-    fatal). Unreachable from the real UI (`schema.js` coerces to numbers) — this is
-    defence-in-depth. Regression-guarded by `test_nonnumeric_cvss_and_port_still_render`.
-  - **`threatintel.py` — wired up the dead cache lock.** `_lock` was declared but never
-    acquired while `kev_set()` mutates the process-wide KEV memory cache — which the
-    scanner calls concurrently from its thread pool. Benign under the GIL (worst case: a
-    duplicate CISA-KEV download on a cold-cache burst), but the lock is now held around
-    the cache check/download as intended, so the first caller fetches and the rest reuse.
-- No behaviour change for the normal UI/CLI flow. Backend test count 725 → **726**;
-  repo total 1221 → **1222**, all suites green, all source modules still 100% line-covered.
+#### Web cockpit
 
-### Tested — 100% coverage on the frontend logic layer too (CI-gated)
-- **The whole frontend `src/lib/**` layer (the pure logic + security surface) is now
-  held at a full 100% line coverage** (statements + functions too), CI-gated per file
-  by a new Vitest step (`Unit tests + coverage gate (src/lib at 100%)`). This is the
-  browser-side peer of the CLI/backend 100% line gate and closes the last untested
-  Python-or-JS surface that was genuinely unit-testable. Newly covered: the
-  **view-preference store** (`preferences.js` — theme + column widths, corrupt-JSON /
-  unavailable-storage recovery), the **offline scan engine** (`mockScanEngine.js` —
-  driven by a fixed-seed PRNG so the randomized generator runs deterministically:
-  every host archetype, filtered/UDP ports, the legacy-telnet finding, mid-run stop),
-  the **toast provider** (`toast.jsx` — queueing, polite/assertive a11y roles,
-  auto-dismiss timing, keyed replace, unmount cleanup), the **focus-trap hook**
-  (`useFocusTrap.js` — real Tab/Shift-Tab wrapping + focus restoration), **auth-token
-  persistence** (`auth.js` — localStorage round-trip, `authFetch`, the `useApiToken`
-  hook), and the **blob-download** path in `exporters.js`.
-- Raised the honest way — real jsdom DOM, real timers, real `ThreadPoolExecutor`-free
-  async; only true I/O boundaries (`fetch`, `URL.createObjectURL`, a throwing
-  `localStorage`) are stubbed. The gate matches the Python **line-coverage** standard
-  (lines + functions + statements at 100 per file); branch coverage is reported but
-  not gated at 100, so genuinely-unreachable defensive `x || fallback` arms don't have
-  to be stripped from otherwise-robust code.
-- Removed two provably-dead guards while covering `mockScanEngine.js` (a redundant
-  `if (cancelled) return` in `emit`, and a `&& !cancelled` on a completion-only path)
-  and one dead updater-form in `preferences.js` — pure dead-code simplification,
-  behaviour-identical (verified in the running app: theme toggle persists/applies, and
-  the default **no-fake-data** path still fails honestly when the backend is down).
-- Frontend test tooling: added `@vitest/coverage-v8`, `jsdom`, `@testing-library/react`
-  (dev-only). A small in-memory `Storage` shim (`vitest.setup.js`) stands in for the
-  browser's `localStorage`, which jsdom leaves out on the default opaque origin.
-- The large stateful React views (`IndustrialDashboard`, `ScanContext`, `CopilotPanel`)
-  stay ESLint- + E2E-verified, **not** force-gated to 100% — a 3 000-line DOM view
-  driven to full line coverage in jsdom would be coverage theatre. Frontend test count
-  108 → **206**; repo total 1123 → **1221**, all green.
+- **Command-center shell.** A fixed sidebar (brand, scan pipeline, drift, sessions, engine
+  status), a frosted command bar, a SOC-style KPI strip, a collapsible *Nmap scan options*
+  drawer and a consolidated Settings menu. Responsive down to 375 px.
+- **Live device grid** with per-host and whole-network scanning, rich filters (quick
+  chips, device-type and OS-family dropdowns, search), resizable and persisted columns,
+  and a sticky per-host detail toolbar.
+- **Honest per-host status.** `Ready`, `Queued`, `Scanning`, `Done`, `No ports`, `Partial`
+  and `Failed` are distinguished, so a single host scan never looks like it ran against
+  the network.
+- **Zenmap-style topology map** that sizes its canvas to the data and distributes nodes
+  across circumference-proportional rings (verified from 11 to 150 hosts, every node in
+  bounds).
+- **Runtime privilege elevation.** A Privilege control raises the backend from
+  unprivileged to real raw-socket scans by validating a sudo password, with no restart and
+  nothing to configure at startup. The password is held only in backend process memory for
+  the session; *Drop*, a restart, or `ENUMGRID_AUTO_SUDO=0` clears or forbids it.
+- **One-click PDF report** (reportlab) with clickable NVD links, plus CSV and JSON export.
+- **SQLite history and drift** (*"What changed"*) and a continuous Monitor mode with
+  auto re-scan, drift alerts and desktop notification.
+- **Light and dark themes** driven by CSS custom properties, so one `<html data-theme>`
+  swap repaints the UI, plus a Cozy/Compact density toggle. Preferences apply before first
+  paint, so there is no theme flash.
+- **Keyboard and accessibility layer.** A ⌘K command palette with fuzzy ranking,
+  single-key shortcuts with a focus-trapped `?` help overlay, focus traps and focus
+  restoration on every modal, `aria-label`s and `focus-visible` rings on every command-bar
+  control, and polite and assertive toasts. There is deliberately no scan-triggering key,
+  so a stray keystroke cannot start a scan.
+- **Operations panel**, one modal surfacing Passive discovery, Schedules and Campaign.
+- **Honest failure.** If the backend is unreachable the dashboard shows a clear error and
+  zeroes its counters. The offline demo engine runs only under an explicit
+  `VITE_USE_MOCK=true`.
 
-### Tested — 100% coverage on the CLI too (CI-gated)
-- **`purple_recon.py` (the single-file CLI, 1 095 statements) is now held at a full
-  100% line coverage**, up from a 50% floor. The gate (`Run CLI test suite (100%
-  coverage gate, no regression)`) fails on any regression. This closes the last big
-  Python surface: the **threaded discovery engine** (ICMP/TCP sweep, RST-confidence
-  policy, ARP-proxy guard, MAC/vendor enrichment), the **enumeration engine** (nmap
-  service/OS parsing **and** the built-in socket-scan fallback + banner grab), the
-  **orchestrator** (both phases, discover-only, abort, fatal-error paths), **both
-  run-loops** (the `rich` cockpit and the headless fallback, including Ctrl-C), and
-  the whole **`main`/`cli`** argument-to-export flow. New file
-  `tests/test_purple_recon_coverage.py` (+105 tests); CLI count 92 → **197**, repo
-  total 1018 → **1123**.
-- Raised the honest way — the network, subprocess, nmap and DNS boundaries are
-  mocked (real `socket`/`ThreadPoolExecutor`/thread code runs), never coverage-gamed.
-  The only new `# pragma: no cover` is the optional `import nmap` guard.
-- **Fixed a genuine test-coverage gap masked by nondeterminism:** the `_mac_vendor`
-  non-hex-first-octet (`ValueError`) branch was only ever exercised by the
-  property-based fuzz test, so the coverage total flaked between 99% and 100% run to
-  run. Added a deterministic case; the gate is now stable at exactly 100%.
-- Small testability refactor: the IEEE OUI download URL is now a module constant
-  (`_OUI_REGISTRY_URL`) so the HTTPS-only defence-in-depth guard is exercisable.
+#### CLI cockpit
 
-### Tested — 100% coverage on the entire backend (CI-gated)
-- **Every one of the 30 backend modules is now held at a full 100% line coverage**
-  (3 990 statements) — up from a 20-module / ≥95%-critical gate. This now includes the
-  previously-hardest live-I/O modules: the **async scan engine** (`scanner`,
-  `discovery` — driven end-to-end through a stubbed `_run_scan` / signal-source
-  boundary), the **FastAPI service** (`app` — every endpoint, worker, and the
-  scheduler ticker exercised via the TestClient with internals mocked), the **AI
-  copilot** (`copilot` — streaming parsed against mocked Anthropic/OpenAI clients),
-  and the credentialed integrations (`credscan`/paramiko, `cloudscan`/boto3,
-  `adscan`/ldap3, `passive`/scapy, `mdns`/zeroconf, `osfp`). CI (`Coverage gate —
-  all backend modules`) fails on any regression. Backend test count 509 → **725**.
-- Coverage was raised with **real tests, never coverage-gaming**: I/O mocked at the
-  boundary (urlopen / sockets / http.client / SDK clients / `_run_scan`), real DER
-  certs via `cryptography`, real scapy/zeroconf packet objects, fault-injection to
-  prove untrusted-input parsers degrade gracefully, and small refactors
-  (`security`/`history`/`discovery._ensure_on_path`) that turned untestable
-  import-bootstrap branches into unit-testable helpers. The only `# pragma: no cover`
-  markers are on optional-dependency `import` guards and CLI `__main__` entrypoints.
-- The optional SDKs (`paramiko`, `boto3`, `ldap3`, `scapy`, `anthropic`, `openai`)
-  are added to `requirements-dev.txt` so CI installs them and the credentialed/live
-  code paths run under mocked network — making the 100% gate meaningful, not a stub.
+- **Single-file `rich` terminal dashboard** (`purple_recon.py`) sharing the engine
+  primitives: sweep, `nmap` deep-dive, JSON/HTML/CSV export and config-drift `--diff`.
+- **Headless fallback** for non-TTY environments, with Ctrl-C handled on both paths.
+- **`pip install`-able**, with an `enumgrid` console entry point.
 
-### Security — end-to-end audit pass
-- **Closed an authorization gap on `POST /api/report/pdf`** — every other read/write
-  endpoint enforced RBAC, but the PDF/report endpoint had **no token check**, so with
-  `ENUMGRID_ADMIN_TOKEN` configured an unauthenticated caller could render arbitrary
-  PDFs (CPU) and, via `include_ai_summary`, **spend the operator's own LLM key** and
-  trigger outbound provider calls (financial DoS). It is now **read-gated**
-  (`token_ok`, viewer/admin) exactly like `/api/copilot/summary`; the dashboard
-  already sent its bearer token, so the fix is transparent. Regression-tested
-  (`test_report_pdf_is_read_gated_in_token_mode`). Threat model **T18** updated.
-- **Patched vulnerable dependencies** — `pip-audit` flagged four advisories:
-  `starlette` 1.2.1 → **1.3.1** (PYSEC-2026-248/249; FastAPI's HTTP core, in the
-  request path), `msgpack` 1.1.2 → **1.2.1** (GHSA-6v7p-g79w-8964), and
-  `cryptography` 48.0.0 → **48.0.1** (GHSA-537c-gmf6-5ccf, pulled in via `paramiko`).
-  `requirements.lock` bumped, a `cryptography>=48.0.1` security floor added to
-  `backend/requirements.txt`, and `pip-audit` is **back to 0 known CVEs**.
-- **Least-privilege container (CWE-250)** — the Docker image ran `uvicorn` as **root**;
-  it now runs as a **non-root user** (`enumgrid`, uid 10001). The scanner is designed
-  to run unprivileged (raw-socket scans auto-downgrade to connect scans), so no default
-  functionality is lost while a web-tier compromise no longer implies host root. Threat
-  model **T22** added.
-- **Audit coverage** — reviewed command execution (fixed-argv nmap, no shell; strict
-  target allowlist), SSRF surfaces (copilot/NVD/OSV/KEV/EPSS use fixed HTTPS endpoints
-  with URL-encoded params), XSS (escape-first Markdown renderer, scheme allow-list),
-  PDF/reportlab markup escaping, SQLi (parameterized), and secret handling (0600,
-  gitignored, never logged) — no further defects found. Full suite **802 tests** green;
-  ruff, bandit (0 high/med), pip-audit and npm audit all clean.
+#### AI copilot
 
-### Changed — project layout & tooling
-- **Repository restructure** — moved the test suites out of the source
-  directories (`backend/test_*.py` → `backend/tests/`, root
-  `test_purple_recon.py` → `tests/`) and consolidated `pytest.ini` + `ruff.toml`
-  into `pyproject.toml` (one config source; `pythonpath` lets the relocated tests
-  resolve their flat imports from any CWD). Purged build/artifact clutter from the
-  working tree. CI, `Makefile`, `.dockerignore`, and docs updated in lockstep;
-  `uvicorn app:app` and `python purple_recon.py` entrypoints unchanged, all 582
-  tests green.
+- **Scan-grounded analyst chat** (`backend/copilot.py`, `/api/copilot*`) that answers
+  about your hosts, ports and CVEs, and says so when the context does not contain the
+  answer.
+- **Four providers, two of them free.** Ollama is the default (local, keyless, zero-cost,
+  and the scan never leaves the machine), alongside Google Gemini (free tier), Anthropic
+  Claude and OpenAI. Gemini and Ollama speak the OpenAI wire protocol and reuse that code
+  path. Each SDK is optional; a missing SDK, key or local server yields `ready: false`
+  with a reason, never a fabricated reply.
+- **Turnkey Ollama setup.** The dashboard probes the local server, reports which models
+  are actually installed, and offers a one-click model download with live streamed
+  progress. A provider is `ready` only once its chosen model is present.
+- **Agentic but human-in-the-loop.** The model may call a `propose_scan` tool. The backend
+  never executes it; it surfaces a confirmation button that launches the normal
+  scope-vetted scan. The tool is only armed when the operator actually asks to scan, which
+  stops small local models from emitting tool calls in place of analysis.
+- **Streaming replies over SSE**, rendered through a dependency-free, HTML-escaping
+  Markdown renderer that allow-lists link schemes and auto-links CVE ids to NVD.
+- **AI executive summary in the PDF report**, grounded and tool-disabled. A copilot failure
+  never blocks the report.
 
-### Fixed
-- **`POST /api/schedules` 500 on array `days`** — `schedule.parse_days` assumed a
-  comma-separated string and raised `AttributeError` when a client sent `days` as
-  a JSON array (e.g. `["mon","wed"]`). It now accepts both the array and the
-  comma-string (what the cockpit UI already sends), so the endpoint returns the
-  created rule instead of a 500. Found via live end-to-end testing; regression-tested.
+#### Automation, integrations and scale
 
-### Added — AI copilot (multi-provider incl. free local/cloud, scan-grounded, agentic)
-- **In-cockpit AI copilot** (`backend/copilot.py`, `frontend/src/CopilotPanel.jsx`,
-  `/api/copilot*`) — a security-analyst chatbot embedded in the dashboard that is
-  **grounded in the live scan** (it answers about *your* hosts / ports / CVEs, and
-  says so honestly when the context doesn't contain the answer — never fabricates).
-- **Four providers, switchable in the dashboard — two of them free.** Ollama
-  (**local, keyless, zero-cost** — the scan never leaves the machine; default), Google
-  Gemini (**free tier**), plus Anthropic Claude and OpenAI (paid). Gemini and Ollama
-  speak the OpenAI wire protocol, so they reuse the OpenAI code path with a different
-  base URL. Each SDK is optional; a missing SDK or key returns `ready:false` with a
-  reason instead of a fake reply — and if the local Ollama server is down, the chat
-  surfaces a real "start Ollama" message, never a fabricated answer. The operator
-  pastes any needed key **directly in the panel** (persisted `0600`, gitignored, never
-  logged), mirroring the NVD-key pattern — plus `POST /api/copilot/key` / `/provider`.
-- **Turnkey Ollama — no terminal required.** The dashboard probes the local Ollama
-  server (`/api/tags`) to report, honestly, whether it's running and which models are
-  installed; a provider is only `ready` once its chosen model is actually present.
-  When it isn't, the panel becomes a guided setup: download link + auto-detect polling
-  → **one-click model download with a live streamed progress bar** (`POST
-  /api/copilot/ollama/pull`) → a model picker (`POST /api/copilot/model`, persisted).
-  Model names are validated; the pull streams Ollama's real byte-level progress.
-- **Agentic, human-in-the-loop** — the model can call a `propose_scan` tool; the
-  backend never runs it, it surfaces the proposal as a confirm button that launches
-  the normal scope-vetted scan. A security tool never scans without the operator.
-- **Streaming** — replies stream token-by-token over SSE (`POST /api/copilot/chat`).
-  Opens from a floating launcher, the ⌘K palette, or the Settings menu.
-- **Readable replies + chat niceties** — copilot answers render as **Markdown**
-  (headings, lists, bold, inline/fenced code, links) via a dependency-free,
-  HTML-escaping renderer (`frontend/src/lib/markdown.js`) that allow-lists link
-  schemes and autolinks **CVE ids to NVD** — XSS-tested. A **Stop** button aborts a
-  streaming reply (partial text kept), the **conversation persists** across
-  panel close/reopen (local only), and a **New chat** button clears it.
-- **Grounded, factual by default** — the copilot runs at a low temperature (0.2) and
-  **only arms the `propose_scan` tool when the operator actually asks to scan**
-  (`wants_scan`). This fixed a real issue found in live testing: small local models
-  (Llama 3.2 3B) would otherwise call the tool — or emit fake tool-call JSON as text —
-  instead of answering an analytical question. Now analytical questions get clean
-  prose; "run a scan on X" still gets the agentic proposal.
-- **AI executive summary in the PDF report** — the export menu's *PDF + AI summary*
-  (or `include_ai_summary` on `POST /api/report/pdf`) prepends a grounded,
-  copilot-written executive summary (`copilot.summarize_scan`, tools disabled). The
-  model's text is HTML-escaped into the report; a copilot failure never blocks it.
-- **Copilot evaluation harness** (`evaluation/copilot_eval.py`) — measures the
-  copilot's **grounding** (fraction of answers that invent nothing — including *novel*
-  fabricated CVE ids, not just pre-listed traps) and **coverage** (expected facts hit)
-  over a fixed scan, in the style of `benchmark.py`. Deterministic, unit-tested scoring;
-  real numbers when a provider is configured, `--self-test` fixtures otherwise. It
-  never fabricates a score. A live run of the free Llama 3.2 scored perfect grounding
-  once temperature was lowered, and caught a real CVE hallucination before that fix.
-
-### Added — passive discovery, scheduling & campaigns
-- **Passive (zero-packet) discovery** (`backend/passive.py`, `POST /api/passive`,
-  runnable standalone) — a stealth discovery mode that **sends nothing on the
-  wire**: it listens for the broadcast/multicast chatter hosts emit on their own
-  (ARP, DHCP, mDNS, LLMNR, NetBIOS) and reports who is talking. Invisible to an
-  IDS watching for scans, and a clean research contrast to active discovery. scapy
-  is an optional dependency and capture needs raw-socket privilege; when either is
-  missing the endpoint returns `available:false` with a reason (never fabricates
-  hosts). The aggregation/classification core is pure + unit-tested.
-- **Cron-style scheduled scans** (`backend/schedule.py`, `/api/schedules` CRUD) —
-  unattended, time-of-day recurring scans ("sweep 192.168.0.0/24 every weekday at
-  02:00") that fire even with no browser open. A background ticker enqueues a
-  headless `network_scan` job (the same pipeline the UI drives), so results land
-  in history + drift automatically. Rules are scope-validated on creation, persist
-  across restarts, and the recurrence math (`due`/`next_run`) is pure + tested.
-- **Multi-subnet campaign view** (`backend/campaign.py`, `GET /api/campaign`) —
-  rolls the *latest* stored scan of several subnets into one estate-wide picture:
-  total unique hosts, open ports, a merged inventory, and mixed device / service /
-  severity rollups. Unscanned subnets are shown honestly rather than dropped.
-- **Operations panel** (web) — one accessible, focus-trapped modal (⌘K → "Operations",
-  or Settings ▸ Operations) with **Passive**, **Schedules** and **Campaign** tabs
-  surfacing all three capabilities in the cockpit.
-- **SMB share enumeration** — the Recon profile now includes the info-level
-  `smb-enum-shares` NSE script (lists shares; not brute/exploit), deepening
-  internal enumeration without changing the safe-by-construction posture.
-
-### Added — evaluation & reproducibility
-- **Multi-run benchmark statistics** (`evaluation/benchmark.py --runs N`) — repeats
-  each tool N times and reports **mean ± 95 % CI** for recall, precision and time
-  (previously single-run, no variance). Adds a field of real, install-gated
-  baselines — **arp-scan, netdiscover, masscan** — alongside `nmap -sn`
-  (`--baselines`), and an optional **recall/time bar chart** (`--plot`, matplotlib).
-  Baselines that aren't installed are reported as such, never counted as "found
-  nothing". (rustscan is intentionally excluded — it's a port scanner, not a
-  host-discovery tool, so a recall comparison would be unfair.)
-- **Reproducibility manifest** — every CLI JSON report (`build_report`) and the
-  backend (`/api/health` + exported PDF) now embed a provenance block: tool +
-  version, exact **git commit**, **nmap version**, Python runtime, OS, and
-  timestamp — so a result reproduces by itself. Best-effort and honest (unknowns
-  are labelled, never fabricated).
-
-### Added — discovery
-- **SSDP / UPnP discovery** (`backend/ssdp.py`) — a new unprivileged name source
-  that fills the hostname/model gap for devices that don't answer mDNS or NBNS
-  (home routers, smart TVs, media renderers, consoles, many IoT). Sends the
-  standard `M-SEARCH` multicast, then fetches each responder's UPnP device
-  description for its `friendlyName` / `manufacturer` / `modelName` / device type.
-  SSRF-guarded (only fetches a `LOCATION` whose host matches the responder; http/s
-  only) and XXE-safe (targeted regex scrape, no XML parser). Verified live: a
-  previously-nameless gateway now resolves to "Sagemcom F3896LG".
-- **Discover-mode port preview** (`backend/discovery.py`) — discovery now runs a
-  fast, parallel, unprivileged TCP connect-scan of the common service ports, so
-  the live grid shows open ports immediately (no nmap, no root). These ports also
-  feed the device-type classifier (port signatures are its strongest hint), so
-  DEVICE/OS sharpens for free. The full `-sV`/CVE pass stays on-demand per host.
-- **Adaptive port scanning** (`backend/scanner.py`) — the default service scan now
-  covers the **top 1000** ports with `-sV` (up from 200), and then sweeps **all
-  65 535** ports on *only* the hosts that already showed at least one open port
-  (`scan_single_host(adaptive=…)`, `_merge_scan_results`; `?adaptive=1`). Thorough
-  where it pays, fast where it doesn't (firewalled/dead hosts cost just the quick
-  pass) — and never a fabricated port.
-
-### Added — web cockpit
-- **Runtime privilege elevation from the dashboard** — a new **Privilege** control
-  in the command bar lets the operator raise the backend from *unprivileged* to
-  real raw-socket scans (`-sS` SYN / `-sU` UDP / `-O` OS detection) by entering a
-  sudo password — **no restart, nothing to configure at start-up**. New backend
-  endpoints (`GET /api/privilege`, `POST /api/privilege/elevate`,
-  `POST /api/privilege/drop`) validate the password against `sudo` and hold it
-  **only in process memory** for the session (never written to disk, never logged,
-  never returned); `scan_capability()` then reports `sudo` and every scan runs
-  under `sudo -S`. "Drop" (or a restart) forgets it. Gated to the local operator
-  (open-mode guard) or an admin token when RBAC is on. Honest by design: a wrong
-  password fails with a clear message and never fakes elevation.
-- **Complete command-center redesign** — the cockpit was rebuilt around a
-  professional app shell: a fixed left **sidebar** (brand · scan pipeline · drift ·
-  sessions · engine status), a frosted-glass **command bar**, a SOC-style **KPI
-  strip** (Hosts · Ports · Services · Vulnerabilities · Critical), a **collapsible
-  "Nmap scan options"** drawer (profile/command/NSE picker tucked away by default),
-  and a consolidated **Settings** menu (theme · density · API token · NVD key).
-  Fully responsive (sidebar collapses to a drawer on mobile) and theme-aware.
-- **Light theme** — a "paper" light theme alongside the dark cockpit, toggled from
-  the toolbar and persisted. Implemented with CSS variables (`index.css`) so a
-  single `<html data-theme>` swap repaints the whole UI; opacity modifiers keep
-  working via Tailwind's `<alpha-value>`. Signal accents are shared across themes.
-- **Density toggle** — Cozy ⇄ Compact row spacing (matrix header, host rows, port
-  rows), toggled from the toolbar and persisted.
-- **Resizable matrix columns** — drag the Hostname / Vendor / Device·OS / MAC
-  column edges to resize; double-click a grip to reset. Widths persist; header and
-  rows always share one grid template, so they stay aligned.
-- **Sticky per-host detail toolbar** — a host's IP + Re-scan controls stay pinned
-  below the matrix header while scrolling a long ports/vulns list.
-- View preferences (theme · density · column widths) persist in `localStorage`
-  (`frontend/src/lib/preferences.js`) and apply before first paint (no theme flash).
-- **Bigger NSE script menu** — the one-click "add NSE" chips are now a curated,
-  categorized set (HTTP · TLS · SSH · SMB/Windows · Naming/Services · CVE — ~30
-  scripts), all server-validated and non-intrusive, with a one-click "clear".
-- **Topology map scales to any host count** — the radial view now sizes its SVG
-  canvas to the data and distributes nodes across circumference-proportional rings,
-  so a large `/24` no longer collapses or overlaps (verified 11→150 hosts, every
-  node in-bounds with arc-gap > node diameter).
-- **Honest "no open ports" diagnostic** — when most fully-scanned hosts expose no
-  ports, the grid explains the likely *real* cause (host firewalls / Wi-Fi client
-  isolation — visible via ARP at L2, unreachable over TCP at L3) instead of leaving
-  it ambiguous. It never invents ports.
-- **Action-feedback toasts** (`frontend/src/lib/toast.jsx`) — every operation (scan
-  start/stop/complete, privilege elevate/drop, PDF/CSV/JSON export, and failures)
-  raises a concise, auto-dismissing toast. Errors use `role="alert"` (assertive),
-  the rest `role="status"` (polite); reduced-motion aware. Scan toasts key off state
-  transitions, so a scan restored from `localStorage` never fires a spurious
-  "complete" on page load.
-- **⌘K command palette** (`frontend/src/lib/commandFilter.js`) — a searchable
-  launcher for every top action (scan · deep · monitor · elevate · exports ·
-  theme/density · focus search · shortcuts) with fuzzy ranking, arrow-key navigation
-  and full focus management.
-- **Keyboard shortcuts + `?` help** (`frontend/src/lib/shortcuts.js`) — `/` focus
-  search · `t` theme · `d` density · `?` help · `Esc` close, plus ⌘K for the palette.
-  A focus-trapped help overlay lists them and the Settings menu links to it.
-  Deliberately no scan-triggering key, so a stray keystroke can never start a scan.
-- **First-run welcome** — a one-time toast points new operators at ⌘K and `?`.
-- **Accessibility pass** (WCAG 2.4.3 / 2.4.7 / 4.1.2) — every modal (Privilege,
-  shortcuts, command palette, token/NVD popovers) traps keyboard focus and restores
-  it to the trigger on close (`frontend/src/lib/useFocusTrap.js`); every command-bar
-  control gained a keyboard-only `focus-visible` ring and an `aria-label`, so
-  icon-only/label-collapsing buttons are named for screen readers.
-
-### Added — tooling & evaluation
-- **Frontend ESLint** (`frontend/eslint.config.js`) — flat config with `react`,
-  `react-hooks`, and `jsx-a11y`; wired into CI and `npm run lint`. Fixed the 27
-  findings it surfaced (unused imports/directives, a hooks `exhaustive-deps` bug,
-  static-element interactions).
-- **Privileged benchmark baseline** (`evaluation/benchmark.py --privileged`) — the
-  harness can now also run `sudo nmap -sn` (ARP) and report how closely root-nmap
-  agrees with EnumGrid, turning the "privileged nmap would tie" caveat into a
-  measured, reproducible result (see `docs/EVALUATION.md`).
-- **CI** now tests **Python 3.14** (matrix 3.10–3.14) and runs ESLint in the
-  frontend job; safe within-major frontend dep bumps (vite/vitest/plugin-react).
-
-### Changed
-- **NVD API key now persists across restarts** (`backend/cve.py`) — a key entered
-  in the dashboard is saved to a local, owner-only (`0600`), git-ignored file and
-  loaded on startup (`ENUMGRID_NVD_API_KEY` still takes precedence), so it no longer
-  has to be re-entered after every restart. The key is still never logged.
-
-### Fixed — classification accuracy (anti-hallucination)
-- **Device type mislabelled from the Wi-Fi-chip vendor** (`backend/fingerprint.py`)
-  — `guess_device_type` ranked the OUI vendor above the hostname, so a Windows
-  "DESKTOP-…"/"W11N-…" machine whose wireless module is made by an IoT-adjacent
-  vendor (e.g. AzureWave) was tagged "IoT / Embedded". Priority is now
-  ports > services > **hostname > vendor** — a device's self-assigned name beats
-  its sub-component's OUI. Verified: `DESKTOP-…`/`W11N-…` → Computer / Windows.
-- **Fabricated mobile OS for randomized MACs** (`backend/osfp.py`) — a private
-  ("locally-administered") MAC no longer asserts "Android / iOS"; it reports only
-  the honest TTL family (Linux/macOS/Unix · Windows · or nothing), since a private
-  MAC is just as likely a laptop. Windows "DESKTOP-…" hostnames resolve to Windows.
-
-### Fixed
-- **PDF report could crash / inject markup** (`backend/report.py`) — service/version
-  banners, hostnames, vuln output and the target string (device-/attacker-controlled)
-  were passed raw into reportlab's `Paragraph`, which parses a mini-XML markup; a
-  single `<`, `>` or `&` (e.g. `Apache/2.4 (Ubuntu) & mod_ssl`) broke generation.
-  All dynamic values are now escaped; CVE links use a quoted, scheme-checked URL.
-- **TLS certificate audit never fired** (`backend/webscan.py`) — under
-  `verify_mode = CERT_NONE`, `ssl.getpeercert()` returns `{}`, so the expired /
-  self-signed checks silently never ran. The cert is now read in DER form and
-  parsed with `cryptography`. Verified live against `expired.badssl.com` /
-  `self-signed.badssl.com`.
-- **Auth tokens compared in non-constant time** (`backend/security.py`) — admin /
-  viewer token checks now use `hmac.compare_digest` (timing-safe).
-- **CI security gate (bandit B406)** (`backend/report.py`) — importing
-  `xml.sax.saxutils` (used only for output *escaping*, not parsing) tripped
-  bandit's XML blacklist and failed the security job. Replaced with inline
-  escapers so no blacklisted module is imported; bandit is clean again.
-- **AWS security-group audit ignored IPv6** (`backend/cloudscan.py`) — ingress open
-  to `::/0` is now flagged like `0.0.0.0/0`.
-- **Discover-mode ports vs. "scanned"** (frontend) — now that discovery shows
-  preview ports, the auto-scan / "Scan All" / status logic keys off the real
-  `scanned` flag instead of `ports.length`, so hosts still get the full `-sV`/CVE
-  pass even when a preview port is already shown.
-- **Layout overlap in the matrix** — the expanded host-detail header no longer
-  collides with its Re-scan button; `truncate`d grid cells (hostname/vendor/MAC,
-  port service/version) now carry `min-w-0` so long values ellipsize instead of
-  expanding their column; the vuln-finding badge row wraps.
-
-### Security (audit)
-*Findings from a full white-box source audit (OWASP-aligned manual review +
-Bandit/pip-audit/npm-audit). No critical/RCE issues; the items below were fixed.*
-- **Unauthenticated LAN exposure of the zero-config API (High)** — with no token,
-  open mode granted admin to *every* caller; combined with the `0.0.0.0` Docker
-  `--network host` bind this exposed the scanner to the LAN. Open mode is now
-  **fail-closed to local clients**: a middleware refuses any `/api/*` request from
-  a non-loopback peer when no token is set (`app.py:_local_only_in_open_mode`,
-  `security.open_mode`/`client_is_local`).
-- **DNS-rebinding / drive-by scanning (Medium)** — the same middleware validates
-  the `Host` header is local in open mode, so a rebound origin can't drive the
-  local scanner (`security.host_header_local`).
-- **Inventory disclosure via history endpoints (Medium)** — `/api/history` and
-  `/api/history/diff` are now RBAC-gated (viewer/admin) like `/api/audit`, instead
-  of serving the device/port inventory unauthenticated.
-- **PDF endpoint memory exhaustion (Low)** — `build_pdf` caps the host list
-  (`MAX_REPORT_HOSTS`) before rendering.
-- Hardening guidance added (prefer `Authorization` header over `?token=`; TLS +
-  token before remote exposure; data-at-rest permissions) — see
-  [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md) (T15–T18) and `SECURITY.md`.
-
-### Configuration
-- New env vars: `ENUMGRID_DISCOVER_PORTS`, `ENUMGRID_PORT_TIMEOUT`,
-  `ENUMGRID_MDNS_SECS`, `ENUMGRID_SSDP_SECS`, `ENUMGRID_NVD_KEY_FILE`
-  (see `backend/README.md`). The default `NMAP_TOP_PORTS` is now `1000` (was `200`).
-
-### Quality
-- **446 tests** (CLI 84 · backend 336 · evaluation 7 · frontend 19) — new suites
-  `test_discovery.py`, `test_ssdp.py`; new regressions for report-escaping, SG-IPv6,
-  NVD-key persistence, device-type priority (hostname > vendor), honest
-  randomized-MAC OS, and the **open-mode locality guard + history RBAC** security
-  fixes. ruff 0; bandit 0; pip-audit 0; npm audit 0.
-
-## [1.0.0] — 2026-06-06
-
-First public release (**v1**): the Angry-IP + Zenmap + monitoring trio in one
-tool — CLI and web sharing one engine — with one-command launch, specific OS
-identity, automatic CVE intelligence, measured accuracy and a security self-audit.
-
-### Launch & UX
-- **`./start.sh` — one command runs everything.** Checks prerequisites (offers to
-  install nmap), creates the venv, installs backend + frontend deps, frees stuck
-  ports, starts both servers, waits for health, opens the browser. **Privileged by
-  default** (one password prompt → real `nmap -O` / SYN / UDP); falls back to
-  unprivileged automatically if sudo is declined/unavailable (never blocks the
-  start). `--no-sudo` opts out. Cleans up on Ctrl-C.
-- **Boot animation** — an on-brand startup splash in the dashboard and an animated
-  banner + spinner in `start.sh`.
-- **One-click full scan** — pressing *Start Scan* now runs discovery **and**
-  automatically port/service/OS-scans every up host (no second click).
-- **Survives reloads** — scan results persist to `sessionStorage`, so a refresh
-  (or a dev-server reload) restores the grid instead of wiping it to "standby".
-- **Advanced progress bar** — segmented Ping-Sweep/Nmap-Enum phase tags that
-  illuminate, a gradient fill with moving shimmer + pulsing leading edge, and a
-  live recolouring percentage.
-
-### Discovery & enumeration
-- Two-tier engine: fast horizontal sweep → on-demand `nmap -sV` deep-dive.
-- Multi-method, confidence-graded discovery: ICMP + TCP + **ARP** + **NDP (IPv6)**
-  + **mDNS/Bonjour** + **NBNS (NetBIOS names)**. Proxy-ARP guard; RST suppression.
-- MAC → IEEE OUI vendor (39k+), randomized-MAC detection, device-type fingerprint.
-- **Specific OS identity** — `osfp.refine_os` fuses TTL + vendor + hostname + type;
-  mDNS `model=`/`osxvers=` resolve the exact Apple product (iPhone/iPad/MacBook/
-  Mac/Apple Watch/HomePod) and macOS version. `sudo`/`--accurate-os` adds nmap `-O`.
-- **11 Zenmap-style scan profiles** (Quick · Default · Intense · Recon · Aggressive
-  · Stealth SYN · Vulnerability · Safe · All-ports · Comprehensive · UDP), plus
-  validated custom NSE scripts + port ranges — injection-safe by construction.
-- **Privilege auto-adaptation — every profile runs without root, no errors.**
-  Root-only scan types (`-sS` SYN, `-sU` UDP, `-O` OS detect) used to hard-fail
-  unprivileged (`requires root privileges. QUITTING!`). The engine now detects —
-  once, without ever prompting — whether it can scan as **root**, via passwordless
-  **sudo** (`-n`, auto-elevated per scan, XML parsed), or **unprivileged**; in the
-  last case it rewrites root-only flags to safe equivalents (SYN/UDP → connect,
-  `-O`/`--source-port` dropped, `-A` → `-sV -sC`) and records an honest
-  `scan_note` on the host. `GET /api/health` + `/api/profiles` expose
-  `capability` + `can_raw`; the dashboard shows the tier and any adaptation.
-- **Filtered-state confirmation** — ports left `filtered` are re-probed with a
-  different technique (patient TCP connect, or SYN from a DNS source port as root).
-- **IPv6-aware**: dual-stack `ScopeValidator`, NDP correlation by MAC, nmap `-6`.
-
-### Vulnerability intelligence (live, comprehensive, future-proof)
-- **Live NVD API enrichment** (`backend/cve.py`) — every fingerprinted service is
-  matched **by CPE** against the authoritative US-government NVD feed, so coverage
-  isn't a hardcoded list and **newly-published CVEs appear automatically**.
-  Results are cached in a local SQLite DB (grows over time, instant on repeat
-  scans, works offline once seen); rate-limit-aware with a per-scan budget and an
-  optional `ENUMGRID_NVD_API_KEY`. Verified live: OpenSSH `7.2p2` → 12 CVEs in ~2.6s.
-- **NSE `vulners`** runs automatically on every on-demand host scan (second
-  in-scan CVE source), plus a **curated offline reference** (`backend/vulndb.py`)
-  as a last-resort fallback. All three sources are merged + deduped.
-- **Clickable NVD links** on every finding (dashboard + PDF).
-- **Risk prioritization (CISA KEV + FIRST EPSS)** (`backend/threatintel.py`) —
-  findings are tagged with exploited-in-the-wild status + exploit probability and
-  **risk-ranked** (KEV → EPSS → CVSS), so the few that matter surface first.
-- **False-positive transparency** — each finding is tagged `confirmed` (an NSE
-  script actively tested the host) or `version` (version/CPE match — "verify");
-  non-finding output is filtered, and duplicates merge keeping the best confidence.
-- **Credentialed scanning** (`backend/credscan.py`, `POST /api/host/credscan`) —
-  authenticated SSH read of exact distro/kernel/package inventory (host-key
-  verified by default; credentials never logged).
-
-### Accuracy & access
-- **Backport-aware vulnerability matching** (`backend/osv.py`) — credentialed
-  package lists are checked against OSV.dev's distro feeds (Ubuntu/Debian/Alpine),
-  so a fix backported by the distro is *not* flagged. Verified live: 62
-  distro-accurate findings for an old Ubuntu openssl.
-- **Web-posture audit / DAST-lite** (`backend/webscan.py`, `GET /api/host/webscan`)
-  — safe passive check of security headers, insecure cookies, and the TLS cert.
-- **RBAC** (`security.py`) — admin (scan) vs viewer (read-only) tokens; open in
-  localhost dev. **TLS**: `./start.sh --tls` serves the backend over HTTPS.
-
-### Reach & scale
-- **Cloud (AWS) discovery** (`backend/cloudscan.py`, `GET /api/cloud/aws`) — EC2
-  + world-open security groups + public S3, via boto3 (optional) + your AWS
-  credential chain. Read-only.
-- **Active Directory enumeration** (`backend/adscan.py`, `POST /api/ad/enum`) —
-  computers + users over LDAP via ldap3 (optional). Read-only; creds never logged.
-- **Job queue** (`backend/jobs.py`, `/api/jobs/*`) — submit a scan, poll for the
-  result; a bounded worker pool drains a persistent SQLite queue (survives
-  restarts). Scales vertically; the queue is swappable for Redis (horizontal).
-- **SSO** documented via authenticating reverse proxy (Caddy + oauth2-proxy) on
-  top of the built-in RBAC. Responsive UI fixes (no more clipped target field /
-  overlapping inputs on small screens).
-
-### Operations
-- **SNMP device naming** (`backend/snmp.py`) — names switches/APs/printers with
-  no DNS/mDNS from SNMP sysName/sysDescr.
-- **Outbound alerting** (`backend/notify.py`) — webhook / Slack / syslog on
-  scan-complete (KEV hits highlighted).
-- **Audit trail** (`backend/audit.py`, `GET /api/audit`) — append-only JSONL of
+- **Cron-style scheduled scans** (`backend/schedule.py`, `/api/schedules`), unattended
+  recurring scans that fire with no browser open, enqueueing the same headless pipeline
+  the UI drives so results land in history and drift automatically.
+- **Multi-subnet campaign view** (`backend/campaign.py`), which rolls the latest stored
+  scan of several subnets into one estate-wide picture. Unscanned subnets are shown as
+  such instead of being dropped.
+- **Persistent job queue** (`backend/jobs.py`): submit and poll, with a bounded worker pool
+  draining a SQLite queue that survives restarts.
+- **Cloud and directory discovery.** Read-only AWS EC2, world-open security group and
+  public S3 audit (`backend/cloudscan.py`), and Active Directory computer and user
+  enumeration over LDAP (`backend/adscan.py`). Both are optional dependencies, and
+  credentials are never logged.
+- **Outbound alerting** (`backend/notify.py`): webhook, Slack and syslog on scan
+  completion, with KEV hits called out.
+- **Append-only audit trail** (`backend/audit.py`, `GET /api/audit`), a JSONL record of
   every scan, refusal and credentialed check.
-- **`.env` auto-loading** in `start.sh` for secrets like `ENUMGRID_NVD_API_KEY`.
+- **Reproducibility manifest.** Every CLI JSON report, plus the backend `/api/health` and
+  the exported PDF, embeds tool version, exact git commit, `nmap` version, Python runtime,
+  OS and timestamp. Unknowns are labelled, never invented.
 
-### Web cockpit
-- **Honest per-host scan status** — the grid badge now distinguishes **Ready**
-  (discovered, not yet scanned) · **Queued** (genuinely waiting in a *Scan All*
-  batch) · **Scanning** · **Done** · **No ports** (scanned, none open) · **Failed**.
-  Previously every un-scanned host showed a misleading "Queued", making a single
-  per-host scan look like it ran against the whole network. Scanning one host now
-  affects only that host.
-- **Per-host scan shows the real command** (the selected profile's nmap args for
-  that one IP), not a hardcoded `-sV`.
-- **NVD API key — set it from the dashboard.** A one-click panel in the nmap bar
-  shows the current CVE rate limit, lets you paste a free key (applied instantly,
-  in memory), links to where to get one, and shows the exact `.env` line to make
-  it permanent (`GET/POST /api/settings/nvd[-key]`).
-- **Real, never fake** — if the backend is unreachable the dashboard now fails
-  with a clear error banner (and surfaces the backend's own refusal reasons)
-  instead of silently substituting simulated data. The demo engine runs only with
-  an explicit `VITE_USE_MOCK=true`.
-- FastAPI SSE backend + React/Tailwind dashboard; live device grid.
-- Per-device **and** whole-network ("Scan All") nmap; start-with-no-target auto-sweep.
-- **Rich filters** — quick chips (Web/SSH/DB/Open Ports/Vulnerable/Critical/Has
-  Name), Device-type + OS-family dropdowns, search, and one-click Clear.
-- **SQLite history + drift** ("What Changed"); **continuous Monitor mode** with
-  auto-re-scan + drift alert + desktop notification.
-- **Zenmap-style topology map** (Matrix ⇄ Topology toggle).
-- **One-click PDF report** (reportlab) with clickable CVE links; CLI HTML/CSV/JSON
-  export + `--diff`.
+#### Access control and deployment
+
+- **RBAC** (`backend/security.py`): admin (scan) and viewer (read-only) tokens compared
+  in constant time, plus a per-IP throttle and a concurrency cap.
+- **Fail-closed zero-config mode.** With no token configured, `/api/*` is refused for any
+  non-loopback peer and for a non-local `Host` header (DNS-rebinding defence), so even a
+  `0.0.0.0` bind does not expose the scanner to the LAN.
+- **Scope guard.** Loopback, multicast, broadcast, link-local, reserved and oversized
+  ranges are refused for IPv4 and IPv6, and public or internet-routable targets are
+  refused unless `ENUMGRID_ALLOW_PUBLIC=1`.
+- **TLS** via `./start.sh --tls` or a reverse proxy, with SSO documented through an
+  authenticating proxy layered on the built-in RBAC.
+- **`./start.sh`, one command** that checks prerequisites, creates the venv, installs
+  dependencies, frees stuck ports, starts both servers, waits for health and opens the
+  browser. Unprivileged by default.
+- **Container.** A `Dockerfile` and `docker-compose.yml` with `nmap` baked in, a
+  digest-pinned base image, and `uvicorn` running as a non-root user (`enumgrid`, uid
+  10001).
+
+#### Evaluation and reproducibility
+
+- **Discovery benchmark** (`evaluation/benchmark.py`), which measures recall, precision and
+  time against `nmap -sn` and against installed field baselines (arp-scan, netdiscover,
+  masscan). `--runs N` reports mean ± 95% CI, and `--privileged` adds root `nmap -sn` so
+  the "privileged nmap would tie" objection is measured instead of argued. A baseline that
+  is not installed is reported as unavailable.
+- **Detection benchmark** against a pinned 9-host Docker testbed, scoring open ports,
+  service, version and planted-CVE recall, with accuracy banded by confidence and a
+  repeated-scan stability measure.
+- **Offline and live CVE precision and recall** (`evaluation/nvd_precision.py`). The live
+  NVD path is scored for documented-CVE recall, version-scoping precision and top-N
+  truncation loss, unit-tested against hand-authored NVD 2.0 schema fixtures so CI needs
+  no network, with `--live` producing the authoritative number.
+- **CVE-detection baselines** (`evaluation/cve_baselines.py`): EnumGrid against
+  nmap-`vulners` (version-match) and Nuclei (active-PoC) on the same testbed, plus
+  report-file adapters for OpenVAS and Nessus.
+- **Cross-environment pooling** (`evaluation/aggregate_runs.py`), macro-averaged recall
+  across networks with 95% CIs, the external-validity figure.
+- **Scalability harness.** Discovery time and peak memory against address-space size over
+  a widening CIDR sweep, with a least-squares fit.
+- **Copilot evaluation** (`evaluation/copilot_eval.py`), scoring grounding (the fraction of
+  answers inventing nothing, including novel fabricated CVE ids) and coverage over a fixed
+  scan.
+- **Screenshot redaction** (`docs/screenshots/redact.py`), which blurs the operator
+  hostname and MAC column to produce publishable copies. The paper references the redacted
+  set.
+
+#### Packaging, tooling and CI
+
+- `pyproject.toml` as the single source for packaging, pytest and ruff configuration;
+  pinned `requirements.lock` and `package-lock.json`.
+- Six-job CI (`.github/workflows/ci.yml`): lint, security (bandit, `pip-audit` including
+  `requirements.lock`, `npm audit`), CLI across Python 3.10 to 3.14, backend, frontend
+  (ESLint, Vitest, build), and a CycloneDX SBOM.
+- Coverage gates fail the build on any regression.
+- `make setup | dev | test | lint | clean` as the local entry points.
 
 ### Security
-- `ScopeValidator` reused by CLI **and** web (loopback/multicast/broadcast/
-  link-local/reserved/oversized refused, IPv4 + IPv6); anti-injection target regex.
-- Public-target refusal by default, concurrency cap, optional API token.
-- CI security gate: **bandit** (SAST) + **pip-audit** + **npm audit**.
-- **Zero dependency CVEs** — backend (`pip-audit`) and frontend (`npm audit`,
-  incl. dev tooling on vite 8 / vitest 4) both report 0 vulnerabilities.
-- [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md).
 
-### Robustness fixes
-- **SQLite handles no longer leak** — every cache/history/jobs connection now
-  commits *and* closes (sqlite3's own context manager only commits).
-- **Monitor mode never interrupts an in-flight port scan**; the session log is
-  capped so a long monitor run can't grow state without bound.
+- **No shell anywhere in the scan path.** `nmap` is invoked with a fixed argv, targets
+  pass an allowlist regex, and NSE scripts and port ranges are validated against
+  allowlists.
+- **SSRF-bounded outbound calls.** The copilot, NVD, OSV, KEV and EPSS clients use fixed
+  HTTPS endpoints with URL-encoded parameters. SSDP fetches only a `LOCATION` whose host
+  matches the responder, over http and https only, and scrapes it with a targeted regex
+  instead of an XML parser, which keeps it XXE-safe.
+- **Escape-first rendering.** The Markdown renderer escapes HTML before parsing and
+  allow-lists link schemes, reportlab's mini-XML markup is escaped for every dynamic value
+  in the PDF, and SQL is parameterised throughout.
+- **Secret handling.** SSH, AD and cloud credentials, and the sudo password, are held in
+  process memory only and never written to disk, logged, or returned. The NVD and copilot
+  keys are the single documented exception: they persist to owner-only (`0600`),
+  git-ignored files so they survive a restart, and are still never logged. The audit trail
+  records that an action happened, never the secret.
+- **Least privilege by default.** The scanner is designed to run unprivileged, the
+  container runs as a non-root user, and elevation is an explicit, reversible operator
+  action instead of a startup requirement.
+- **Supply chain.** `pip-audit` runs against the pinned lockfile as well as the open
+  ranges, a CycloneDX SBOM is produced per build, and the container base image is pinned
+  by `sha256` digest.
+- Reporting process and deployment guidance: [`SECURITY.md`](SECURITY.md). Assets, trust
+  boundaries and the STRIDE analysis: [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md).
 
-### Quality & reproducibility
-- **422 tests** (CLI 84 · backend 312 · evaluation 7 · frontend 19): unit,
-  **FastAPI TestClient integration**, **hypothesis fuzzing**. ruff 0,
-  **bandit 0 high/medium**, pip-audit 0 CVEs, npm audit 0.
-- **Measured evaluation** vs `nmap -sn` ([`docs/EVALUATION.md`](docs/EVALUATION.md)):
-  recall 1.00 vs 0.27 unprivileged, faster, zero false positives. Reproducible
-  docker testbed + benchmark harness.
-- `pip install`-able (`enumgrid` console command); `Dockerfile` + `docker-compose`
-  (nmap baked in); pinned `requirements.lock` + `package-lock.json`.
-- CI: lint · security · CLI matrix · backend · frontend.
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+### Known limitations
 
-[Unreleased]: https://example.com/enumgrid/compare/v1.0.0...HEAD
-[1.0.0]: https://example.com/enumgrid/releases/tag/v1.0.0
+These are the boundaries of what the release can support.
+
+- **Cross-environment generalisation rests on n = 2 networks.** The pooled recall figure
+  has a correspondingly wide interval. [`evaluation/COLLECTING_NETWORKS.md`](evaluation/COLLECTING_NETWORKS.md)
+  is the runbook for tightening it; the input must be networks you are authorised to scan.
+- **The offline CVE corpus is author-curated**, so its perfect precision and recall are
+  open to a fit-to-matcher objection. A frozen, empty held-out corpus template with a
+  blind sampling protocol ships at `evaluation/nvd_corpus_heldout.json` to answer it.
+- **CPE-dictionary drift is real and unfixed.** NVD indexes some products under a
+  different CPE vendor than `nmap` emits (observed: `vsftpd_project` against `vsftpd`),
+  which costs live-NVD recall for those services. It is documented as a construct-validity
+  limitation in [`docs/ACCURACY.md`](docs/ACCURACY.md) §10 instead of being corrected away.
+- **No analyst user study has been run.** A pre-registered protocol with a power analysis
+  exists at [`docs/USER_STUDY_PROTOCOL.md`](docs/USER_STUDY_PROTOCOL.md). It needs real
+  participants under ethics approval, and its results are not claimed until it is run.
+- **The large React views are not line-coverage gated.** `IndustrialDashboard`,
+  `ScanContext` and `CopilotPanel` are held by ESLint and the end-to-end path instead.
+  Driving a 3,000-line stateful DOM view to 100% in jsdom would mostly measure the test
+  harness.
+- **`.eg-glass` emits only `-webkit-backdrop-filter` in the production build**, so the
+  frosted surfaces do not blur on Firefox. This is cosmetic; the layout and contrast are
+  unaffected.
+- **Credentialed and cloud paths depend on optional SDKs** (`paramiko`, `boto3`, `ldap3`,
+  `scapy`, `zeroconf`). Without them the corresponding endpoints report themselves
+  unavailable instead of degrading silently.
+
+### Release verification
+
+Everything below was re-run against the released tree.
+
+Automated tests: 1,365, all green.
+
+| Suite | Tests | Coverage gate |
+| --- | ---: | --- |
+| CLI, `tests/` | 197 | `purple_recon.py` (1,095 statements) at 100% line |
+| Backend, `backend/tests/` | 776 | all 30 modules (3,990 statements) at 100% line |
+| Evaluation, `evaluation/` | 178 | scoring math pure and unit-tested |
+| Frontend, `frontend/src/**` | 214 | `src/lib/**` at 100% line, function and statement |
+
+**Static analysis.** `ruff` 0 · ESLint 0 (react-hooks + jsx-a11y) · `bandit` 0
+high/medium · `pip-audit` 0 known CVEs across `backend/requirements.txt`,
+`requirements-dev.txt` and `requirements.lock` · `npm audit` 0.
+
+**API robustness.** All 35 route declarations were driven with 463 malformed, hostile and
+out-of-range requests, giving 0 responses in the 5xx range (161 × 200, 167 × 400,
+97 × 422, 35 × 404).
+
+**Accessibility.** 0 WCAG 2.1 AA contrast failures on both themes, measured live with
+alpha compositing up the ancestor chain across every UI state. The only element flagged by
+the sweep is the brand wordmark, which reports a false 1.00 because `background-clip: text`
+makes its computed colour transparent, and which WCAG 1.4.3 exempts as a logotype.
+
+**Measured results.** Methodology in [`docs/ACCURACY.md`](docs/ACCURACY.md), raw artifacts
+in [`evaluation/results/`](evaluation/results/README.md).
+
+| Claim | Result | Artifact |
+| --- | --- | --- |
+| Offline CVE precision / recall | 1.00 / 1.00, 0 FP (33 cases) | `cve_precision.json` |
+| Live-NVD primary path | recall 8/8, version-scoping 7/7, 0 truncation loss | `nvd_live.json` |
+| Detection, 9-host testbed | ports 1.00/1.00 · service 0.89 · version 0.83 · planted CVE 3/3 | `detection_172-28.json` |
+| CVE baselines, two schools | nmap-`vulners` 3/3 (133 unexpected) · EnumGrid 2/3 (13) · Nuclei 0/3 | `cve_baselines_172-28.json` |
+| Discovery, pooled across environments (n = 2) | EnumGrid 0.99 ± 0.02 vs `nmap -sn` 0.53 ± 0.93 | `pooled_recall.json` |
+| Scalability | 46.5 ms/address + 9.1 s fixed, R² = 0.83 | `scalability_172-16-2.json` |
+| Copilot grounding | 1.000 ± 0.000 over 5 runs, 0 fabrications | `llama3.2_x5.json` |
+
+---
+
+## Appendix A: pre-release engineering log
+
+The dated record of the hardening passes that produced 1.0.0, retained for provenance and
+for the dissertation's audit trail. Entries are newest first. Test counts are cumulative
+repository totals at the time of each pass.
+
+### 2026-09-23: release preparation (layout, dependencies, documentation)
+
+**Security**
+
+- **`npm audit` reported 10 advisories (5 high, 4 moderate, 1 low) while the README badge
+  and the changelog both claimed zero.** All ten were in build and test tooling:
+  `postcss`, `browserslist`, `js-yaml`, `nanoid`, `brace-expansion`,
+  `postcss-selector-parser`, `baseline-browser-mapping` and the Vitest chain. None shipped
+  in the production bundle, but the published claim was still false. Cleared with a
+  non-breaking `npm audit fix` plus a `vitest` and `@vitest/coverage-v8` floor raise
+  4.1.8 → 4.1.11, which moves past the `@vitest/mocker` path-traversal advisory (affected
+  range `2.1.0-beta.1` to `4.1.10`). Only `package.json` devDependency floors and the
+  lockfile changed; `dependencies` is still just React. Re-verified afterwards: ESLint 0,
+  214/214 tests, `src/lib/**` still at 100% statements, functions and lines, and a
+  byte-identical build output. `npm audit`: 0.
+
+**Changed**
+
+- `make test` now runs the gate it documents. `test-backend` named two files and
+  `evaluation/` was never invoked at all, so the one command contributors are told to
+  trust reported success after roughly 200 of the 1,365 tests. It now runs the CLI,
+  backend, evaluation and frontend suites, and a `test-eval` target was added.
+- Documentation synchronised for release: the README's CI job count corrected (5 → 6,
+  because the CycloneDX SBOM job was unlisted), `CONTRIBUTING.md` given the correct gate
+  commands (invoked as `python -m <tool>`, which survives a moved or renamed checkout
+  where the console scripts' baked-in interpreter path does not) and a *Commit identity*
+  section, and the changelog's release links pointed at the real repository instead of the
+  `example.com` placeholders they had carried since 1.0.0.
+- A `.mailmap` collapses the four historical spellings of the maintainer's identity onto
+  one canonical author, so `git shortlog -sne` reports a single contributor across the
+  entire history.
+
+**Removed**
+
+- `docs/ENUMGRID_Paper.docx` and `docs/ENUMGRID_Paper.pdf` (5.6 MB of generated binaries).
+  Both were last built 2026-07-11 and had drifted from `docs/PAPER.md`, still quoting the
+  1,307-test figure against today's 1,365, so a stale rendering could have been submitted
+  by mistake. `docs/PUBLICATION.md` now carries the regeneration recipe, and the removed
+  copies stay reachable in the history preceding this removal.
+
+**Fixed**
+
+- The main column clipped the asset grid on short windows. `<main>` carried
+  `lg:overflow-hidden`, so once the viewport was too short for the KPI strip, the scan
+  options and the filter toolbar, the surplus was silently cut off with nothing to scroll.
+  At 1024 × 480 the toolbar ran 100.5 px below the fold and the grid pane collapsed to
+  0 px against 848 px of content, so the host table was not rendered at all. The chrome
+  (KPI strip, scan options, filter toolbar) is now `shrink-0`, the grid pane carries a
+  `lg:min-h-[8rem]` floor (its sticky column header plus about two rows), and `<main>`
+  falls back to `lg:overflow-y-auto` so a cockpit that genuinely does not fit scrolls
+  instead of being truncated. Verified across 1920 × 1080, 1280 × 700, 1280 × 400,
+  1024 × 600, 768 × 500 and 390 × 844 in 13 UI states each: 0 clipped text nodes, and 0
+  again with every scroll container driven to its end. Behaviour at normal sizes is
+  unchanged, with `<main>` still reporting no overflow and the grid pane still owning the
+  scroll.
+- The ⌘K command palette could not be closed with Escape unless focus was still inside its
+  search input, because Escape was handled only by that input's `onKeyDown`. Opening the
+  palette from the `eg:open-command-palette` event, or clicking a non-focusable part of
+  the card, left only the backdrop click. It now closes from the document like every other
+  overlay.
+
+### 2026-09-22: sidebar panel compression, and the last icon-toned link
+
+**Fixed**
+
+- The sidebar crushed its own panels instead of scrolling. The column is
+  `flex flex-col overflow-y-auto`, but flex items default to `flex-shrink: 1`, so on a
+  short viewport the panels were compressed to fit rather than overflowing: the
+  container's `scrollHeight` stayed equal to its height, no scrollbar was ever offered,
+  and each panel's own `overflow-hidden` sliced off the surplus. At 1280 × 700 the Scan
+  Pipeline card rendered 103.8 px against 155 px of content, its border cutting through
+  *"Service + version detection"*, and the Session Log lost 86 px, both unreachable.
+  Fixed with `[&>*]:shrink-0` on the container, so a panel added later inherits it.
+  Verified at 1000, 700, 560, 400 and 300 px: 0 clipped panels at every height.
+- `lib/markdown.js` painted every link in a rendered copilot answer with `text-sky-400`,
+  the icon tone, measuring 3.99:1 on the light theme at 12 px. Moved to `text-sky-300`
+  (5.78 light, 11.52 dark). The underline is the link's non-colour cue under WCAG 1.4.1
+  and so needs its own 3:1; at 40% alpha it was 1.86:1 on paper, so it moved to 70%, the
+  lowest that clears 3:1 on both themes, with hover taking it to full.
+
+### 2026-09-22: crimson text swept to AA on both themes
+
+**Fixed**
+
+- `text-crimson` measured 3.31 to 3.91:1 on every dark surface it actually sits on, below
+  the 4.5:1 that small text needs. 24 small-text sites moved to `text-crimson-glow`
+  (8.71 to 10.30:1). Eight sites deliberately keep the saturated tone because they are
+  icons or large text, which need 3:1 and measure 3.81. Both tokens are identical on the
+  light theme, so the swap is provably a no-op there. Verified by rendering all 25 strings
+  at their real size and surface, then re-sweeping the live app: 0 AA failures across 9 UI
+  states × 2 themes, roughly 4,400 text nodes.
+
+### 2026-09-22: launcher privilege default, and fixed-position containing blocks
+
+**Changed**
+
+- `./start.sh` is unprivileged by default and no longer prompts for sudo at launch.
+  Root-only techniques auto-adapt so every profile still runs, and full fidelity is one
+  click away in the app. `--accurate-os` opts back into the launch-time prompt. A default
+  run reaches *"Scan engine healthy: unprivileged"* in 8.4 s with no prompt.
+
+**Fixed**
+
+- Dialogs opened from the command bar rendered into a 1016 × 146 box instead of the
+  viewport. `.eg-glass` put `backdrop-filter` on the sticky header, and a `backdrop-filter`
+  makes an element the containing block for every `position: fixed` descendant, so the
+  privilege dialog and the Export and Settings menus resolved `fixed inset-0` against the
+  header's own box, putting the dialog's title and close button 65 px above the top of the
+  screen with nothing to scroll. The frost now paints on a `::before` layer, which is
+  pixel-identical on both themes and returns the viewport to those overlays.
+- The privilege and shortcuts dialogs now scroll instead of clipping at both ends in a
+  window shorter than the card.
+
+### 2026-09-22: verification pass (fuzzing and the last unthemed colours)
+
+Run as an A/B against the pre-fix tree rather than as a re-reading of the diff: every
+claimed defect was reproduced on the old code and re-probed on the new, then the API was
+fuzzed with 463 malformed, hostile and out-of-range requests.
+
+**Fixed**
+
+- `GET /api/jobs/{job_id}` returned 500 for an id beyond SQLite's 64-bit range. FastAPI's
+  `int` coercion accepts arbitrary precision, so a 21-digit path segment reached the driver
+  and raised `OverflowError`. Guarded in `jobs.get()` and the identical `history.get_scan()`
+  rather than at the route, so every caller benefits.
+- `::selection` hardcoded the cockpit amber wash and white text, which is white on pale
+  amber at 1.28:1 on the light theme, so selected text vanished. Now theme-driven: 10.5:1
+  on light, unchanged on dark.
+- Ten places painted from outside the theme, each invisible or near-invisible on paper: the
+  copilot user bubble (1.10:1 measured live), its error box and Stop button, the CVE and
+  NVD-key links (1.44:1), two `bg-black/40` surfaces, and the brand wordmark. All now
+  read theme tokens, and a new `crimson-glow` carries error text, which must invert across
+  themes where `crimson` cannot. After: bubble 5.1:1, error box 6.97:1, links 7.09:1.
+- A throttled host was labelled Failed. `/api/host/scan` answers 429 *"server busy"*
+  past `ENUMGRID_MAX_SCANS`, reachable from "Scan All" plus a row click, and the dashboard
+  collapsed it into the generic error path and showed a red badge for a host `nmap` had
+  never been pointed at. The client now honours the server's advice and retries at 750 ms,
+  1.5 s and 3 s, failing only if the server stays busy through all four attempts
+  (`lib/retry.js`). 504 stays non-retryable, because that scan really did run and time out.
+
+**Verified.** 0 5xx across 463 hostile requests. Tests 1,355 → 1,365.
+
+### 2026-09-22: full API and UI sweep
+
+Every one of the 35 route declarations driven across happy path, malformed input,
+out-of-range values and auth; every UI surface driven in both themes down to 375 px.
+Fifteen defects, the worst being two unhandled 500s and a light theme failing WCAG AA on 74
+elements.
+
+**Fixed: crashes and validation**
+
+- `POST /api/host/credscan` returned 500 on a non-numeric port (`int()` on free-form JSON);
+  now a 400 naming the problem. An explicit `0` is refused rather than silently becoming
+  22, which `int(x or 22)` had been doing, turning a bad value into a real SSH attempt on
+  a port the caller never asked for.
+- `POST /api/report/pdf` returned 500 on a malformed payload. A single `_normalise_hosts`
+  pass at the entry point now coerces the shape once and drops malformed entries instead of
+  rendering blanks, because a report must never show a host that was not in the scan.
+- `GET /api/host/webscan` accepted `port=0`, `-1` and `99999`, returning 200 with an
+  internal exception name standing in for "that is not a port". Bounded to 1 through 65535.
+- `POST /api/jobs/submit` queued out-of-scope network scans, because the scope guard checked
+  only the `host_scan` parameter and never `network_scan`. Both are now vetted at submit,
+  and a refusal is audited like any other.
+
+**Fixed: honesty**
+
+- The scan-options drawer printed a command that never ran. `/api/profiles` returned each
+  profile's declared arguments while `_adapt_args` rewrote them before execution, so an
+  unprivileged backend advertised `-sS` and ran `-sT`. The endpoint now also returns
+  `effective_args` and an `adapt_note` from a single source of truth.
+- `POST /api/settings/nvd-key` accepted any string as an API key and reported a rate limit
+  NVD would never grant, so a mistyped paste left every lookup silently falling back to the
+  anonymous limit. The runtime setter now validates NVD's documented UUID shape.
+- The grid showed a crimson "VULN SCAN" badge during ordinary service scans.
+
+**Fixed: accessibility and layout**
+
+- The light theme failed WCAG AA on 74 elements, worst at 1.39:1, including the primary
+  Start Scan button and every OS string in the grid. The chassis and neutral ramp were
+  themeable but the three signal accents were shared hex tuned for a near-black surface.
+  They are now theme tokens. Light went from 74 failures to 0; dark from 6 to 0.
+- The floating copilot launcher covered the Engine panel's honesty note at every desktop
+  size; the sidebar now reserves space.
+- The target input had no accessible label.
+
+**Fixed: maintenance**
+
+- Replaced deprecated `@app.on_event` handlers with a `lifespan` context manager that also
+  holds and awaits the worker and ticker task handles. An unreferenced `create_task` can
+  be garbage-collected mid-flight, and shutdown could return while a worker was still
+  inside a scan.
+- `/api/ad/enum` hung for about 75 s on an unreachable DC, because `ldap3` inherits the OS
+  TCP retry schedule. Bounded to 8 s connect and 30 s per operation; measured 75 s → 8 s.
+- `HEAD /` returned 405, though `/` is the natural container healthcheck URL.
+- The service banner advertised `?target=127.0.0.1`, a target the scope validator refuses,
+  so the API's own example was guaranteed to fail. Now a private-LAN example, with a test
+  asserting the advertised example passes `vet_target`.
+
+Tests 1,333 → 1,355.
+
+### 2026-09-22: end-to-end audit on a real LAN
+
+Every feature exercised against a real authorised `/24` rather than assumed. The scan
+pipeline held up: a deep `vuln` pass on the gateway identified dnsmasq 2.87 and correlated
+10 CVEs from both NSE `vulners` and live NVD, EPSS-ranked and confidence-banded, and the 0
+CVEs reported for that gateway's lighttpd 1.4.67 was confirmed correct against NVD
+directly.
+
+**Fixed**
+
+- **The test suite was writing into the operator's real audit trail.** Endpoint tests call
+  the same `audit.record()` the live API does, so every run appended fixture events to the
+  file `/api/audit` serves: 647 of 4,650 entries (14%) were synthetic. For a tool whose
+  contract is that every recorded result is real, that is a correctness bug. A
+  session-scoped fixture now repoints the log at a temp file, and a full backend run leaves
+  the real log byte-identical. Entries written before the fix remain and should be purged
+  if the trail matters.
+- **Pinned dependencies had rotted: 27 advisories** in `requirements.lock`. CI had audited
+  only the open ranges, which always resolve to something current, while the pinned set is
+  the one that rots silently. CI now audits the lockfile too.
+- The dashboard showed a green engine status while the backend was down.
+- The PDF inventory table wrapped IP addresses mid-octet at 26 mm; widened to 30 mm with no
+  change to total width.
+- `.env.example` documented only the legacy token, leaving the admin and viewer RBAC pair,
+  all three alerting channels and `ENUMGRID_SSH_AUTOADD` undiscoverable.
+- The `/api/settings/nvd-key` docstring claimed the key was held in memory only; it is
+  persisted to a `0600` git-ignored file.
+
+### 2026-09-16: startup and live-scan accuracy
+
+**Fixed**
+
+- The backend would not start: a stray leading space before the module docstring of
+  `backend/nbns.py` raised `IndentationError` on import.
+- Slow hosts read as "no open ports". See *Timeout recovery* above. On the router under
+  test this recovered MiniUPnP 2.3.1 on :5000 and a CVSS 9.1 finding.
+- Low-confidence `nmap -O` guesses are now labelled rather than asserted. Before this, a
+  smart bulb was reported as a "Garmin Virb Elite action camera".
+- MAC addresses hidden by macOS 27, where `arp -an` succeeds but lists nothing for some
+  unprivileged processes, are now explained by a scan note, and re-read under sudo when the
+  session is elevated, instead of silently appearing blank.
+- Discovery takes the operator's own hostname and addresses from the OS rather than waiting
+  for its own mDNS reply, which was often missed.
+
+### 2026-07-11: publication package
+
+**Added.** The paper draft (`docs/PAPER.md`), a one-page reproducibility map
+(`docs/REPRODUCE.md`), screenshot redaction tooling, OpenVAS and Nessus report-file
+adapters, and turnkey scaffolding for the operator-only evaluation gaps: a multi-network
+collection runbook, a frozen held-out CVE corpus template, and a pre-registered analyst
+study protocol. Evaluation suite 163 → 178.
+
+### 2026-07-10: evaluation, positioning and a full-repo audit
+
+**Added.** CVE-detection baselines against nmap-`vulners` and Nuclei, the testbed
+broadened from 6 to 9 pinned hosts, cross-environment pooling, the scalability harness, the
+live-NVD precision and recall harness, and `docs/CONTRIBUTIONS.md` (contribution framing,
+related work, threats to validity, ethics). The live-NVD run surfaced the CPE-drift finding
+now documented as a limitation. Evaluation suite 93 → 163; repository total 1,222 → 1,292.
+
+**Fixed.** `report.py` now coerces numeric fields defensively, so a hand-crafted
+authenticated POST with a string CVSS cannot raise inside `build_pdf`; `threatintel.py`
+actually acquires its declared cache lock around the KEV check and download.
+
+### 2026-07-09: coverage raised to 100% on the CLI and the frontend logic layer
+
+**Added.** `tests/test_purple_recon_coverage.py` (+105) takes `purple_recon.py` from a 50%
+floor to a CI-gated 100%, covering the threaded discovery engine, the enumeration engine
+and its socket fallback, the orchestrator, both run loops including Ctrl-C, and the whole
+`main` and `cli` flow. The frontend `src/lib/**` layer reaches a CI-gated 100% on lines,
+functions and statements. Both were raised by mocking only true I/O boundaries.
+
+**Fixed.** A genuine coverage gap masked by nondeterminism: the `_mac_vendor`
+non-hex-first-octet branch was exercised only by the property-based fuzz test, so the total
+flaked between 99% and 100%. A deterministic case makes the gate stable.
+
+CLI 92 → 197; frontend 108 → 206; repository total 1,018 → 1,221.
+
+### 2026-07-08: backend to 100%, and a security audit pass
+
+**Added.** All 30 backend modules (3,990 statements) reach a CI-gated 100% line coverage,
+including the async scan engine, the FastAPI service, the copilot and the credentialed
+integrations. Backend 509 → 725.
+
+**Security**
+
+- **Closed an authorization gap on `POST /api/report/pdf`.** Every other endpoint enforced
+  RBAC; this one had no token check, so with an admin token configured an unauthenticated
+  caller could render arbitrary PDFs and, via `include_ai_summary`, spend the operator's own
+  LLM key. Now read-gated like `/api/copilot/summary`.
+- **Patched four dependency advisories:** `starlette` 1.2.1 → 1.3.1 (in the request path),
+  `msgpack` 1.1.2 → 1.2.1 and `cryptography` 48.0.0 → 48.0.1, plus a security floor so
+  the fix cannot be resolved away.
+- **Least-privilege container (CWE-250).** The image ran `uvicorn` as root; it now runs as
+  uid 10001. No default functionality is lost, because the scanner is designed to run
+  unprivileged.
+
+### Earlier: capability build-out
+
+The AI copilot, passive discovery, cron scheduling, campaign aggregation, SSDP discovery,
+the adaptive all-ports sweep, the command-center redesign, the light theme, the ⌘K palette
+and the accessibility pass were all added across this period, together with the security
+audit that made zero-config mode fail-closed to local clients, added the DNS-rebinding
+`Host` check, RBAC-gated the history endpoints, capped the PDF host list, and moved token
+comparison to `hmac.compare_digest`. Anti-hallucination fixes landed in the same period:
+device type no longer inherits from a Wi-Fi chipset vendor, and a randomized MAC no longer
+asserts a mobile OS.
+
+---
+
+[kac]: https://keepachangelog.com/en/1.1.0/
+[semver]: https://semver.org/spec/v2.0.0.html
+[1.0.0]: https://github.com/SanthakumarParivallal/ENUMGRID/releases/tag/v1.0.0

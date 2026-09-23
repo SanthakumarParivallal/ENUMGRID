@@ -1,9 +1,9 @@
 """
-history.py — lightweight SQLite persistence for scan history + drift.
+history.py: lightweight SQLite persistence for scan history + drift.
 
 Every completed scan is stored as a row (with its full `ScanState` snapshot as
 JSON), so the dashboard can show a real timeline and answer "what changed since
-last time?" — new/gone devices and opened/closed ports — instead of treating
+last time?" (new/gone devices and opened/closed ports) instead of treating
 each scan as a blank slate.
 
 Drift is computed by reusing the CLI's already-tested `diff_reports()`
@@ -27,7 +27,7 @@ from contextlib import contextmanager
 
 # Reuse the CLI's diff engine (single source of truth for drift).
 def _ensure_on_path(root: str, path: list[str] | None = None) -> None:
-    """Put `root` at the front of the import path if absent — so the flat
+    """Put `root` at the front of the import path if absent, so the flat
     `import purple_recon` resolves when the backend is started from `backend/`.
     Factored out (mirrors security._ensure_on_path) so it is unit-testable."""
     target = sys.path if path is None else path
@@ -69,7 +69,7 @@ _SUMMARY_COLS = (
 @contextmanager
 def _connect():
     """Connection that commits on success / rolls back on error AND always
-    closes (sqlite3's own context manager commits but never closes — leaking the
+    closes (sqlite3's own context manager commits but never closes, leaking the
     handle until GC). Drop-in for the existing ``with _connect() as conn:`` sites."""
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -128,7 +128,7 @@ def list_scans(target: str | None = None, limit: int = 50) -> list[dict]:
     limit = max(1, min(int(limit), 500))
     with _connect() as conn:
         # NB: the only interpolated value (`_SUMMARY_COLS`) is a hardcoded module
-        # constant — never user input. All user-supplied values (target, limit)
+        # constant, never user input. All user-supplied values (target, limit)
         # are bound via `?` placeholders, so this is not an injection vector.
         if target:
             rows = conn.execute(
@@ -148,7 +148,7 @@ def get_scan(row_id: int) -> dict | None:
     init_db()
     # An id SQLite cannot represent (beyond 64 bits) matches no row, so it has to
     # read as "not found"; passing it through raises OverflowError from the driver.
-    # Same guard as `jobs.get` — today this is only ever called with an id that came
+    # Same guard as `jobs.get`: today this is only ever called with an id that came
     # out of the database, but it is one route away from taking caller input.
     try:
         scan_id = int(row_id)

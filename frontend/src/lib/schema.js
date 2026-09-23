@@ -1,5 +1,5 @@
 /**
- * schema.js — Pydantic-style model definitions for the Two-Tiered Scan Pipeline.
+ * schema.js: Pydantic-style model definitions for the Two-Tiered Scan Pipeline.
  * ---------------------------------------------------------------------------
  * This file is the single source of truth for the *shape* of scan data on the
  * client. It intentionally mirrors the FastAPI/Pydantic backend models:
@@ -161,7 +161,7 @@ function asObject(value) {
  * @property {'tcp'|'udp'} protocol
  * @property {string} service
  * @property {string} version
- * @property {number|null} conf   nmap service-detection confidence, 1–10 (null if absent)
+ * @property {number|null} conf   nmap service-detection confidence, 1 to 10 (null if absent)
  * @property {'open'|'filtered'|'closed'|'open|filtered'} state
  * @property {boolean} critical
  */
@@ -202,7 +202,7 @@ export function PortModel(data = {}) {
     protocol: oneOf(data.protocol, Object.values(Protocol), Protocol.TCP),
     service: data.service ? String(data.service) : 'unknown',
     version: data.version != null ? String(data.version) : '',
-    // nmap service-detection confidence 1–10; null when the backend didn't report it.
+    // nmap service-detection confidence 1 to 10; null when the backend didn't report it.
     conf: data.conf != null && Number.isFinite(Number(data.conf)) ? Number(data.conf) : null,
     state: oneOf(data.state, Object.values(PortState), PortState.OPEN),
     critical: Boolean(data.critical),
@@ -237,7 +237,7 @@ export function HostModel(data = {}) {
     discovered_via: data.discovered_via != null ? String(data.discovered_via) : '',
     scanning: Boolean(data.scanning),
     // Non-empty when an unprivileged scan auto-adapted root-only flags (e.g.
-    // "UDP scan needs root — ran TCP connect instead"); surfaced in the UI.
+    // "UDP scan needs root, so TCP connect ran instead"); surfaced in the UI.
     scan_note: data.scan_note != null ? String(data.scan_note) : '',
     // Non-empty when the port results are incomplete (nmap gave up on a slow
     // host at its --host-timeout, or they come from the faster timeout retry).

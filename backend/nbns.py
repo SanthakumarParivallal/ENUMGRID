@@ -1,14 +1,14 @@
 """
-nbns.py — NetBIOS Name Service (NBNS) node-status name resolution.
+nbns.py: NetBIOS Name Service (NBNS) node-status name resolution.
 
-Reverse-DNS and mDNS miss a whole class of devices — Windows PCs, many printers,
-NAS boxes and IoT gear — that nonetheless answer a NetBIOS "node status" query on
+Reverse-DNS and mDNS miss a whole class of devices (Windows PCs, many printers,
+NAS boxes and IoT gear) that nonetheless answer a NetBIOS "node status" query on
 UDP/137 with their own name (this is exactly what Angry IP Scanner / Fing use to
 fill the name column). We send the standard wildcard NBSTAT request and parse the
 unique workstation name from the reply.
 
 Pure stdlib (sockets), best-effort, and bounded: any error or timeout just yields
-no name for that host. Everything returned is the device's *own* announced name —
+no name for that host. Everything returned is the device's *own* announced name,
 never inferred or invented.
 """
 
@@ -27,7 +27,7 @@ _WILDCARD_ENCODED = b"CKAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"  # 32 bytes
 
 def _build_query() -> bytes:
     """Build an NBSTAT (node status) request packet for the wildcard name."""
-    txn_id = 0x4247  # arbitrary, fixed — we don't multiplex
+    txn_id = 0x4247  # arbitrary, fixed; we don't multiplex
     header = struct.pack(
         ">HHHHHH",
         txn_id,   # transaction id

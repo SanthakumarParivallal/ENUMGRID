@@ -146,7 +146,7 @@ def test_aggregate_no_labels_is_defined_as_one():
 
 
 # --------------------------------------------------------------------------- #
-# evaluate_response — the REAL parser (backend/cve.parse_nvd) over fixtures
+# evaluate_response: the REAL parser (backend/cve.parse_nvd) over fixtures
 # --------------------------------------------------------------------------- #
 def test_evaluate_response_recalls_documented_cve():
     fx = FIXTURES[0]
@@ -235,7 +235,7 @@ def test_corpus_scope_cases_pin_an_absent_id():
 
 
 # --------------------------------------------------------------------------- #
-# main() — the fixture self-check path (no network) + gate wiring
+# main(): the fixture self-check path (no network) + gate wiring
 # --------------------------------------------------------------------------- #
 def test_main_selfcheck_runs_without_network(capsys):
     rc = nv.main([])                       # no --live => fixture self-check

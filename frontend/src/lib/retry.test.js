@@ -8,7 +8,7 @@ describe('isRetryable', () => {
   });
 
   it('does not retry a scan that actually ran and failed', () => {
-    // 504 is the backend's "scan timed out" — repeating it just spends another
+    // 504 is the backend's "scan timed out"; repeating it just spends another
     // full deadline. 400/401/500 are equally final.
     for (const s of [400, 401, 403, 404, 500, 502, 503, 504]) {
       expect(isRetryable(s)).toBe(false);

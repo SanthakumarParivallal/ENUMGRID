@@ -1,5 +1,5 @@
 """
-test_campaign.py — multi-subnet aggregation (pure, no database).
+test_campaign.py: multi-subnet aggregation (pure, no database).
 
 Verifies cross-subnet totals, IP de-duplication across overlapping ranges,
 device/service/severity rollups, and honest handling of an unscanned subnet.

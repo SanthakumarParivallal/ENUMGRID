@@ -1,9 +1,9 @@
-# EnumGrid — Threat Model
+# EnumGrid threat model
 
-A security tool must be able to account for its own posture. This document states
+A security tool should be able to account for its own posture. This document states
 what EnumGrid protects, the trust boundaries it sits across, the threats that
-follow, and the controls that mitigate them. It is deliberately concise and is
-kept in sync with the code (`backend/security.py`, `purple_recon.ScopeValidator`,
+follow, and the controls that mitigate them. It is kept short, and in sync with the
+code (`backend/security.py`, `purple_recon.ScopeValidator`,
 the test suites, and the CI security jobs).
 
 ## 1. Assets
@@ -12,7 +12,7 @@ the test suites, and the CI security jobs).
 |---|---|
 | The host running EnumGrid | Must never be turned against itself (self-DoS) |
 | The target network's confidentiality | Scan results reveal hosts, services, vulns |
-| Scan reports / history DB | Operator data (devices, open ports, CVEs) — sensitive |
+| Scan reports and history DB | Sensitive operator data: devices, open ports, CVEs |
 | The operator's authorization scope | Scanning out of scope can be illegal |
 
 ## 2. Trust boundaries
@@ -26,16 +26,16 @@ the test suites, and the CI security jobs).
 ```
 
 The two boundaries that matter most:
-- **HTTP → backend** — anything that can reach `:8011` can request a scan.
-- **app → subprocess** — user-influenced values (the scan *target*) flow toward a
-  command line (`nmap`), so argument injection is the key risk.
+- **HTTP to backend.** Anything that can reach `:8011` can request a scan.
+- **App to subprocess.** User-influenced values, above all the scan target, flow
+  toward a command line (`nmap`), so argument injection is the key risk.
 
-## 3. Adversaries & assumptions
+## 3. Adversaries and assumptions
 
 - **Assumed trusted:** the operator running the tool, and `localhost`. The backend
   **binds to `127.0.0.1`** by default.
 - **Assumed hostile:** the scan *target* and any value derived from the network
-  (banners, ARP/NDP/mDNS replies), and — if the port is ever exposed — any client
+  (banners, ARP/NDP/mDNS replies), and, if the port is ever exposed, any client
   that can reach the API.
 - **Out of scope:** a fully compromised host (root on the box already), and the
   security of `nmap`/the OS themselves.
@@ -44,8 +44,8 @@ The two boundaries that matter most:
 
 | # | Threat | Control | Where |
 |---|---|---|---|
-| T1 | **Self-DoS** — scanning loopback / multicast / broadcast / a `/8` | `ScopeValidator` hard-refuses loopback/multicast/broadcast/link-local/reserved (IPv4 **and** IPv6) and caps host count; the **web API reuses the same validator** | `ScopeValidator`, `backend/security.py:vet_target` |
-| T2 | **nmap argument injection** — a target like `-oG /etc/x` or `--script=evil` | Strict allowlist regex (must start alnum/`:`, no whitespace) **+** `ScopeValidator`; nmap is invoked with list-form args, never a shell | `scanner._TARGET_RE`, `vet_target` |
+| T1 | **Self-DoS**: scanning loopback / multicast / broadcast / a `/8` | `ScopeValidator` hard-refuses loopback/multicast/broadcast/link-local/reserved (IPv4 **and** IPv6) and caps host count; the **web API reuses the same validator** | `ScopeValidator`, `backend/security.py:vet_target` |
+| T2 | **nmap argument injection**: a target like `-oG /etc/x` or `--script=evil` | Strict allowlist regex (must start alnum/`:`, no whitespace) **+** `ScopeValidator`; nmap is invoked with list-form args, never a shell | `scanner._TARGET_RE`, `vet_target` |
 | T3 | **Command injection via subprocess** | Every `ping`/`arp`/`ndp`/`nmap` call uses **list-form args** (`subprocess.run([...])`), never `shell=True`; inputs are validated first | `purple_recon.py`, `backend/osfp.py` |
 | T4 | **Scanning out of scope / public space** | Public/internet-routable targets are **refused by default**; opt-in via `ENUMGRID_ALLOW_PUBLIC=1`. CLI requires confirmation for public/large scopes | `vet_target`, `confirm_scope` |
 | T5 | **Scan-as-a-service abuse / resource exhaustion** | Per-process **concurrency cap** (`ENUMGRID_MAX_SCANS`, default 4 → excess gets `429`); host cap per request | `backend/security.scan_slot` |
@@ -54,24 +54,24 @@ The two boundaries that matter most:
 | T8 | **Report tampering / info leak at rest** | Reports + history are **operator-local**, `.gitignore`d; JSON/HTML/CSV written atomically with **mode 0600** | `write_report`, `.gitignore` |
 | T9 | **Malicious banner / ARP / NDP / mDNS / SSDP data crashing the parser** | Parsers are defensive and **fuzz-tested** (hypothesis); the UI's schema layer coerces every field and never throws | parser tests, `frontend/src/lib/schema.js` |
 | T10 | **Supply-chain (vulnerable / substituted deps)** | CI runs **`bandit`** (SAST), **`pip-audit`**, and **`npm audit --omit=dev`** on every push; shipped deps are 0-vuln. Deps are **locked** (`requirements.lock`, `package-lock.json`), the Docker base is **pinned by immutable `sha256` digest** (a retagged upstream image cannot change the build), and CI emits a **CycloneDX SBOM** artifact | `.github/workflows/ci.yml` (`security`, `sbom` jobs), `Dockerfile` |
-| T11 | **SSRF via SSDP `LOCATION`** — a rogue device advertises a UPnP description URL pointing at some *other* internal host | The description is fetched **only when its host matches the device that answered** and the scheme is http/https; the XML is scraped with targeted regexes (no XML parser → no XXE/entity expansion) | `backend/ssdp.py:_location_is_safe`, `discover_ssdp` |
-| T12 | **Report injection / DoS** — a device service banner (or hostname / vuln output) containing `<`, `>`, `&` breaks or injects into the PDF | Every device-/client-supplied value is **escaped** before reaching reportlab's `Paragraph`; CVE links use a quoted, scheme-checked URL | `backend/report.py:_esc` |
+| T11 | **SSRF via SSDP `LOCATION`**: a rogue device advertises a UPnP description URL pointing at some *other* internal host | The description is fetched **only when its host matches the device that answered** and the scheme is http/https; the XML is scraped with targeted regexes (no XML parser → no XXE/entity expansion) | `backend/ssdp.py:_location_is_safe`, `discover_ssdp` |
+| T12 | **Report injection / DoS**: a device service banner (or hostname / vuln output) containing `<`, `>`, `&` breaks or injects into the PDF | Every device-/client-supplied value is **escaped** before reaching reportlab's `Paragraph`; CVE links use a quoted, scheme-checked URL | `backend/report.py:_esc` |
 | T13 | **Auth-token recovery via timing** | Admin / viewer token comparison uses **`hmac.compare_digest`** (constant-time) | `backend/security.py:role_for` |
-| T14 | **Hostile TLS certificate during web audit** | The web audit connects with `CERT_NONE` (it *inspects*, doesn't trust-gate), reads the cert in **DER form** and parses it with `cryptography` — a malformed cert yields no findings, never a crash | `backend/webscan.py:_peercert_dict` |
-| T15 | **LAN exposure of the zero-config API** — binding to `0.0.0.0` (Docker `--network host`) with no token would let any LAN host drive the scanner (open mode grants admin to all) | The zero-config "open" mode is **fail-closed to local clients only**: a middleware refuses any `/api/*` call from a non-loopback peer when no token is set, so exposure requires an explicit `ENUMGRID_ADMIN_TOKEN` | `app.py:_local_only_in_open_mode`, `security.client_is_local`, `security.open_mode` |
-| T16 | **DNS-rebinding / drive-by scanning** — a malicious web page resolves its domain to `127.0.0.1` and issues `GET /api/scan/stream?...` to make the local browser drive the scanner | In open mode the middleware also validates the **`Host` header** is local (a rebind sends `Host: evil.com`); state-changing JSON `POST`s are additionally CORS-preflight-gated to the dev origin | `app.py:_local_only_in_open_mode`, `security.host_header_local` |
-| T17 | **Inventory disclosure via history endpoints** — `/api/history*` returned the device/port inventory without auth even when tokens were configured | Both endpoints are now **RBAC-gated** (viewer/admin) like `/api/audit`; open when no tokens are set | `app.py:history_list/history_diff`, `security.token_ok` |
-| T18 | **Unauthenticated / DoS use of the PDF endpoint** — `/api/report/pdf` was reachable without a token even when RBAC was configured (same gap class as T17); a caller could render arbitrary PDFs (CPU) and, via `include_ai_summary`, **spend the operator's own LLM key** and trigger outbound provider calls | The endpoint is now **read-gated** (`token_ok`, viewer/admin) exactly like `/api/copilot/summary` — both can spend the LLM key, so neither is drivable unauthenticated; open only when no tokens are set. The host list is additionally **capped** (`MAX_REPORT_HOSTS`, well above the scan host cap) so an oversized body can't exhaust reportlab | `app.py:report_pdf`, `security.token_ok`, `backend/report.py:build_pdf` |
-| T19 | **Sudo-password handling for runtime elevation** — `POST /api/privilege/elevate` accepts a sudo password to enable raw-socket scans without a restart; a mishandled secret could leak | The password is **admin-gated / local-only** (open-mode guard), validated via `sudo -k -S` (forced re-auth), then held **only in process memory** (`scanner._SUDO_PASSWORD`) — never persisted, logged, or echoed in a response; the audit records only that an attempt happened, never the secret. `POST /api/privilege/drop`, `ENUMGRID_AUTO_SUDO=0`, and process exit all clear it | `backend/scanner.py:elevate_sudo`, `app.py:privilege_elevate` |
-| T20 | **Auth brute-force / credential stuffing** — the token compare is constant-time (T13), but *unlimited* guesses could still brute-force a token on an exposed instance | Per-**remote-IP** throttle: after `ENUMGRID_AUTH_MAX_FAILURES` failed auths in a sliding window the IP is **locked out** (HTTP `429` + `Retry-After`) for a cooldown; a valid auth clears the streak. Loopback/same-machine peers are **exempt** (brute force is a network threat; this also keeps local dev/tests from self-locking). State keys on the real socket peer, times use a monotonic clock | `backend/security.py:register_auth_failure`/`is_locked_out`, `app.py:_auth_bruteforce_throttle` |
-| T21 | **Result integrity / non-reproducibility / non-repudiation** — a tampered or non-deterministic pipeline could yield a finding that can't be reproduced or traced to its source | Processing is **deterministic** (fixed nmap XML → identical host model; `build_pdf` byte-stable — golden-file tested); every report carries a **provenance manifest**; and **structured JSON logs** stamp a per-request correlation id (echoed as `X-Request-Id`) and per-scan id on every line, so a finding traces browser → request → scan. Query strings (which may hold `?token=`) are never logged | `backend/tests/test_golden.py`, `provenance.manifest`, `backend/obs.py`, `app.py:_request_context` |
-| T22 | **Excess container privilege (CWE-250)** — the Docker image ran `uvicorn` as **root**, so any RCE in the web tier would own the host, contradicting the scanner's own unprivileged-by-design model | The image now runs the service as a **non-root user** (`enumgrid`, uid 10001); nmap's raw-socket scan types auto-downgrade to unprivileged connect scans (`scanner._adapt_args`), so no functionality is lost by default and the blast radius shrinks. (For real SYN/OS scans, run the CLI with privilege or grant nmap `CAP_NET_RAW`.) | `Dockerfile` (`USER enumgrid`) |
+| T14 | **Hostile TLS certificate during web audit** | The web audit connects with `CERT_NONE` (it *inspects*, doesn't trust-gate), reads the cert in DER form and parses it with `cryptography`, so a malformed cert yields no findings rather than a crash | `backend/webscan.py:_peercert_dict` |
+| T15 | **LAN exposure of the zero-config API**: binding to `0.0.0.0` (Docker `--network host`) with no token would let any LAN host drive the scanner (open mode grants admin to all) | The zero-config "open" mode is **fail-closed to local clients only**: a middleware refuses any `/api/*` call from a non-loopback peer when no token is set, so exposure requires an explicit `ENUMGRID_ADMIN_TOKEN` | `app.py:_local_only_in_open_mode`, `security.client_is_local`, `security.open_mode` |
+| T16 | **DNS-rebinding / drive-by scanning**: a malicious web page resolves its domain to `127.0.0.1` and issues `GET /api/scan/stream?...` to make the local browser drive the scanner | In open mode the middleware also validates the **`Host` header** is local (a rebind sends `Host: evil.com`); state-changing JSON `POST`s are additionally CORS-preflight-gated to the dev origin | `app.py:_local_only_in_open_mode`, `security.host_header_local` |
+| T17 | **Inventory disclosure via history endpoints**: `/api/history*` returned the device/port inventory without auth even when tokens were configured | Both endpoints are now **RBAC-gated** (viewer/admin) like `/api/audit`; open when no tokens are set | `app.py:history_list/history_diff`, `security.token_ok` |
+| T18 | **Unauthenticated / DoS use of the PDF endpoint**: `/api/report/pdf` was reachable without a token even when RBAC was configured (same gap class as T17); a caller could render arbitrary PDFs (CPU) and, via `include_ai_summary`, **spend the operator's own LLM key** and trigger outbound provider calls | The endpoint is now **read-gated** (`token_ok`, viewer/admin) exactly like `/api/copilot/summary`, because both can spend the LLM key, so neither is drivable unauthenticated; open only when no tokens are set. The host list is additionally **capped** (`MAX_REPORT_HOSTS`, well above the scan host cap) so an oversized body can't exhaust reportlab | `app.py:report_pdf`, `security.token_ok`, `backend/report.py:build_pdf` |
+| T19 | **Sudo-password handling for runtime elevation**: `POST /api/privilege/elevate` accepts a sudo password to enable raw-socket scans without a restart; a mishandled secret could leak | The password is **admin-gated / local-only** (open-mode guard), validated via `sudo -k -S` (forced re-auth), then held **only in process memory** (`scanner._SUDO_PASSWORD`), never persisted, logged, or echoed in a response; the audit records only that an attempt happened, never the secret. `POST /api/privilege/drop`, `ENUMGRID_AUTO_SUDO=0`, and process exit all clear it | `backend/scanner.py:elevate_sudo`, `app.py:privilege_elevate` |
+| T20 | **Auth brute-force / credential stuffing**: the token compare is constant-time (T13), but *unlimited* guesses could still brute-force a token on an exposed instance | Per-**remote-IP** throttle: after `ENUMGRID_AUTH_MAX_FAILURES` failed auths in a sliding window the IP is **locked out** (HTTP `429` + `Retry-After`) for a cooldown; a valid auth clears the streak. Loopback/same-machine peers are **exempt** (brute force is a network threat; this also keeps local dev/tests from self-locking). State keys on the real socket peer, times use a monotonic clock | `backend/security.py:register_auth_failure`/`is_locked_out`, `app.py:_auth_bruteforce_throttle` |
+| T21 | **Result integrity / non-reproducibility / non-repudiation**: a tampered or non-deterministic pipeline could yield a finding that can't be reproduced or traced to its source | Processing is **deterministic** (fixed nmap XML gives an identical host model, and `build_pdf` is byte-stable and golden-file tested); every report carries a **provenance manifest**; and **structured JSON logs** stamp a per-request correlation id (echoed as `X-Request-Id`) and per-scan id on every line, so a finding traces browser → request → scan. Query strings (which may hold `?token=`) are never logged | `backend/tests/test_golden.py`, `provenance.manifest`, `backend/obs.py`, `app.py:_request_context` |
+| T22 | **Excess container privilege (CWE-250)**: the Docker image ran `uvicorn` as **root**, so any RCE in the web tier would own the host, contradicting the scanner's own unprivileged-by-design model | The image now runs the service as a **non-root user** (`enumgrid`, uid 10001); nmap's raw-socket scan types auto-downgrade to unprivileged connect scans (`scanner._adapt_args`), so no functionality is lost by default and the blast radius shrinks. (For real SYN/OS scans, run the CLI with privilege or grant nmap `CAP_NET_RAW`.) | `Dockerfile` (`USER enumgrid`) |
 
-## 5. Residual risk & guidance
+## 5. Residual risk and guidance
 
-- **TTL-based OS detection** is a *heuristic family* (not authoritative); run with
-  `sudo` for nmap `-O` — either at start-up (`./start.sh --accurate-os`) or on
-  demand via the dashboard's **Privilege → Elevate** control. The tool never
+- **TTL-based OS detection** gives a heuristic family, not an authoritative answer.
+  For nmap `-O`, run with `sudo`, either at start-up (`./start.sh --accurate-os`) or
+  on demand through the dashboard's Privilege and Elevate control. The tool never
   presents a fabricated OS.
 - **Runtime elevation on a shared host:** the sudo password primed via
   **Elevate** lives only in the backend process memory for the session. On a
@@ -92,8 +92,8 @@ The two boundaries that matter most:
   recommended channel, especially over a shared or proxied deployment.
 - **Credentialed inputs** (`/api/host/credscan` SSH, `/api/ad/enum` LDAP) are
   **admin-gated** and used in memory only (never logged/stored); a client-supplied
-  `key_filename` / `dc_host` is trusted *because the caller is already admin* —
-  these endpoints are for assets you administer, with your own credentials.
+  `key_filename` or `dc_host` is trusted because the caller is already admin. These
+  endpoints are for assets you administer, with your own credentials.
 - **Local data at rest** (history DB, CVE/KEV/EPSS caches, audit log) is
   operator data; on a shared host, restrict the working directory's permissions
   (the NVD key file is already written `0600`).
@@ -101,5 +101,5 @@ The two boundaries that matter most:
 ## 6. Authorization (legal)
 
 EnumGrid is for assets you **own or are explicitly authorized to test**.
-Unauthorized scanning may be illegal. The guardrails reduce *accidental* harm;
-they are not a substitute for authorization.
+Unauthorized scanning may be illegal. The guardrails reduce accidental harm; they
+are not a substitute for authorization.

@@ -1,5 +1,5 @@
 /**
- * operations.js — pure helpers for the Operations panel (passive / schedules /
+ * operations.js: pure helpers for the Operations panel (passive / schedules /
  * campaign). Kept free of React + fetch so the parsing/formatting/validation is
  * unit-testable in isolation, matching the rest of lib/.
  */

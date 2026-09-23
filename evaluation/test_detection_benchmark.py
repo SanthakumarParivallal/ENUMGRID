@@ -1,5 +1,5 @@
 """
-test_detection_benchmark.py — the detection benchmark's scoring math (no Docker,
+test_detection_benchmark.py: the detection benchmark's scoring math (no Docker,
 no network, no nmap). Locks precision/recall/F1 for ports, service-name accuracy,
 and planted-CVE recall so the published detection numbers are trustworthy.
 """

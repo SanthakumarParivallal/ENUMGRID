@@ -1,5 +1,5 @@
 """
-test_threatintel.py — KEV + EPSS prioritization (feeds mocked, caches isolated).
+test_threatintel.py: KEV + EPSS prioritization (feeds mocked, caches isolated).
 
 Pins the contract that makes triage trustworthy: KEV marks actively-exploited
 CVEs, EPSS attaches exploit probability, results are risk-ranked (KEV first), and
@@ -59,7 +59,7 @@ def test_kev_set_downloads_and_caches(tmp_path, monkeypatch):
 
     monkeypatch.setattr(ti, "_download_kev", fake_dl)
     assert "CVE-2021-44228" in ti.kev_set()
-    # second call served from the in-memory/file cache — no second download
+    # second call served from the in-memory/file cache, so no second download
     ti.kev_set()
     assert calls["n"] == 1
 
@@ -88,7 +88,7 @@ def test_enrich_marks_kev_and_sorts_exploited_first(tmp_path, monkeypatch):
     })
     out = ti.enrich([
         _v("CVE-2016-0001", Severity.CRITICAL, 9.8),  # high CVSS but not exploited
-        _v("CVE-2021-44228", Severity.HIGH, 7.5),     # KEV — must rank first
+        _v("CVE-2021-44228", Severity.HIGH, 7.5),     # KEV, so it must rank first
     ])
     assert out[0].id == "CVE-2021-44228"
     assert out[0].kev is True and out[0].epss == 0.97

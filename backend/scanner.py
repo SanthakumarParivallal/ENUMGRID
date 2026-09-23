@@ -1,5 +1,5 @@
 """
-scanner.py — the two-tiered Nmap pipeline.
+scanner.py: the two-tiered Nmap pipeline.
 
 Phase 1  Ping Sweep         (nmap -sn)      host discovery        progress 0..40
 Phase 2  Nmap Enumeration   (nmap -sV)      service/version scan  progress 40..100
@@ -55,7 +55,7 @@ _SCAN_EXECUTOR = ThreadPoolExecutor(
 # The total time budget for ONE per-host scan (every stage: profile pass, any
 # timeout fallback, the adaptive all-ports sweep, the filtered-port re-probe).
 # Each stage's nmap --host-timeout is clamped to what is left of this budget, so
-# nmap always stops (and reports) before Python gives up on it — a pathological
+# nmap always stops (and reports) before Python gives up on it. A pathological
 # target can never pin a worker. The dashboard reads it from /api/profiles so its
 # request timeout always outlasts the backend's.
 HOST_SCAN_DEADLINE = int(os.environ.get("ENUMGRID_HOST_DEADLINE", "900"))
@@ -75,7 +75,7 @@ FALLBACK_TIMEOUT = int(os.environ.get("ENUMGRID_FALLBACK_TIMEOUT", "180"))
 # --- tunables (overridable via environment) -------------------------------- #
 DISCOVERY_ARGS = os.environ.get("NMAP_DISCOVERY_ARGS", "-sn -T4")
 # Default service scan covers the top 1000 ports (nmap's default breadth) so the
-# out-of-the-box result is thorough — virtually every real-world listening service
+# out-of-the-box result is thorough: virtually every real-world listening service
 # is in this set. The adaptive pass (see scan_single_host) then sweeps ALL 65535
 # ports on just the hosts that already showed an open port.
 TOP_PORTS = os.environ.get("NMAP_TOP_PORTS", "1000")
@@ -88,12 +88,12 @@ SERVICE_ARGS = os.environ.get(
 VULN_ARGS = os.environ.get("NMAP_VULN_ARGS", "--script vuln,vulners --script-timeout 60s")
 
 # --------------------------------------------------------------------------- #
-# Nmap scan profiles (Zenmap-style). The args are SERVER-DEFINED constants — a
+# Nmap scan profiles (Zenmap-style). The args are SERVER-DEFINED constants. A
 # client only ever sends a profile *name*, an optional validated port spec, and
 # optional validated NSE script names. This is what keeps "full nmap power"
 # injection-safe: no user string is ever spliced into the nmap command line.
 # --------------------------------------------------------------------------- #
-# Curated, non-intrusive enumeration scripts for the "recon" profile — rich
+# Curated, non-intrusive enumeration scripts for the "recon" profile: rich
 # service intel (titles, headers, certs, host keys, SMB/DNS facts) with zero
 # brute/exploit/DoS risk. Server-defined, so they're trusted by construction.
 _RECON_SCRIPTS = (
@@ -129,7 +129,7 @@ PROFILE_META: dict[str, dict] = {
     "vuln":          {"label": "Vulnerability",    "desc": "-sV + NSE vuln/vulners (CVE + CVSS)", "needs_root": False},
     "safe":          {"label": "Safe scripts",     "desc": "-sV -sC + the 'safe' NSE category, top 500", "needs_root": False},
     "fullports":     {"label": "All 65535 ports",  "desc": "-sV -p- (thorough, slow)", "needs_root": False},
-    "comprehensive": {"label": "Comprehensive",    "desc": "-A -p- + default & vuln scripts — the works (very slow)", "needs_root": True},
+    "comprehensive": {"label": "Comprehensive",    "desc": "-A -p- + default & vuln scripts: the works (very slow)", "needs_root": True},
     "udp":           {"label": "UDP (top 50)",     "desc": "-sU UDP scan of the top 50 ports", "needs_root": True},
 }
 
@@ -138,7 +138,7 @@ PROFILE_META: dict[str, dict] = {
 _SCRIPT_RE = re.compile(r"^[a-z0-9][a-z0-9_\-*]{0,40}$", re.IGNORECASE)
 _PORTSPEC_RE = re.compile(r"^[0-9]{1,5}([,\-][0-9]{1,5}){0,256}$")
 # Scripts that could be intrusive/dangerous are refused even though they're valid
-# NSE — an enumeration tool should not brute-force or exploit by accident.
+# NSE: an enumeration tool should not brute-force or exploit by accident.
 _BLOCKED_SCRIPT_CATEGORIES = {"brute", "exploit", "dos", "malware"}
 
 
@@ -190,7 +190,7 @@ def build_host_scan_args(
     prof = _profile(profile)
     args = prof["args"]
 
-    # Explicit port override — only when the profile hasn't already fixed ports.
+    # Explicit port override, only when the profile hasn't already fixed ports.
     if ports and _PORTSPEC_RE.match(ports) and "-p-" not in args and "-F" not in args:
         args += f" -p {ports}"
 
@@ -209,7 +209,7 @@ def build_host_scan_args(
         args += f" --script {','.join(script_list)} --script-timeout 60s"
 
     # OS detection: -A already includes -O. For other profiles, add -O only when
-    # we actually have raw-socket privilege (root) — otherwise nmap just warns.
+    # we actually have raw-socket privilege (root). Otherwise nmap just warns.
     if privileged and "-A" not in args.split():
         args += " -O --osscan-guess"
 
@@ -297,7 +297,7 @@ _MAX_VULNERS = 8  # cap CVEs per port so the UI stays readable
 def _cve_url(vuln_id: str) -> str:
     """Authoritative reference link for a finding id.
 
-    For a real CVE we link to NVD (always valid, no API call needed) — this is
+    For a real CVE we link to NVD (always valid, no API call needed). This is
     what powers the dashboard's clickable "is this version vulnerable?" links.
     Non-CVE script ids link to nmap's NSE script documentation instead.
     """
@@ -311,7 +311,7 @@ CRITICAL_SERVICES = {"telnet", "ftp", "microsoft-ds", "ms-wbt-server", "rdp", "v
 
 # Strict target allowlist: IPv4 / IPv6 / CIDR / octet-range / hostname. Must
 # start with an alphanumeric or ':' (IPv6 "::"), block a leading '-' (flags),
-# and contain no whitespace — so no extra nmap args can ever be injected. Colon
+# and contain no whitespace, so no extra nmap args can ever be injected. Colon
 # and '%' (IPv6 + link-local scope) are allowed; they can't split an argument.
 _TARGET_RE = re.compile(r"^[A-Za-z0-9:][A-Za-z0-9._:\-/%]{0,90}$")
 
@@ -360,16 +360,16 @@ def nmap_available() -> bool:
 # Several nmap scan types need raw sockets (root): -sS (SYN), -sU (UDP), -O (OS
 # detection). Run unprivileged they HARD-FAIL ("requires root privileges.
 # QUITTING!"), so picking Stealth/UDP in the dashboard used to error out. We fix
-# that by detecting — once — how much privilege we can get WITHOUT ever blocking
+# that by detecting, once, how much privilege we can get WITHOUT ever blocking
 # on a password prompt, then either elevating transparently or rewriting the
 # command so it still runs. Three tiers:
 #
-#   "root"         — the backend itself runs as root (e.g. ./start.sh --accurate-os)
-#   "sudo"         — not root, but `sudo -n nmap` works (NOPASSWD or a cached
+#   "root":         the backend itself runs as root (e.g. ./start.sh --accurate-os)
+#   "sudo":         not root, but `sudo -n nmap` works (NOPASSWD or a cached
 #                    credential): we run the scan under sudo and parse its XML
-#   "unprivileged" — neither: root-only flags are auto-rewritten to equivalent
+#   "unprivileged": neither; root-only flags are auto-rewritten to equivalent
 #                    unprivileged techniques (SYN→connect, UDP→connect, drop -O),
-#                    so the scan always completes — with an honest note about it.
+#                    so the scan always completes, with an honest note about it.
 #
 # The net effect: every profile runs without error, however the server started.
 _AUTO_SUDO = os.environ.get("ENUMGRID_AUTO_SUDO", "1").lower() not in ("0", "false", "no")
@@ -383,7 +383,7 @@ _CAPABILITY: str | None = None
 #   • never written to disk, never logged, never echoed back to any response;
 #   • cleared by drop_privileges() and lost when the process exits;
 #   • only settable over the local-only / admin-gated /api/privilege/elevate.
-# This mirrors how a desktop GUI prompts for privilege — the password primes
+# This mirrors how a desktop GUI prompts for privilege: the password primes
 # elevation, then every nmap call runs under `sudo -S` (see _sudo_scan).
 _SUDO_PASSWORD: str | None = None
 
@@ -397,7 +397,7 @@ def can_elevate() -> bool:
     """True when the dashboard could elevate us: not already root, sudo present.
 
     (Auto-sudo can be disabled with ENUMGRID_AUTO_SUDO=0, which also disables
-    interactive elevation — the operator opted the process out of sudo entirely.)
+    interactive elevation, since the operator opted the process out of sudo entirely.)
     """
     return _AUTO_SUDO and not is_privileged() and sudo_available()
 
@@ -406,7 +406,7 @@ def _probe_sudo() -> bool:
     """True iff `sudo -n nmap --version` runs without prompting (NOPASSWD/cached).
 
     Uses `-n` (non-interactive), so this can never hang on or trigger a password
-    prompt — it returns immediately if a password would be required.
+    prompt. It returns immediately if a password would be required.
     """
     if not _AUTO_SUDO:
         return False
@@ -426,7 +426,7 @@ def _probe_sudo() -> bool:
 
 
 def scan_capability() -> str:
-    """How much scan privilege we can obtain *without* prompting — cached.
+    """How much scan privilege we can obtain *without* prompting. Cached.
 
     One of ``"root"`` / ``"sudo"`` / ``"unprivileged"``.
     """
@@ -435,7 +435,7 @@ def scan_capability() -> str:
         if hasattr(os, "geteuid") and os.geteuid() == 0:
             _CAPABILITY = "root"
         # A password primed at runtime (dashboard "Elevate") counts as sudo even
-        # if the OS timestamp cache wouldn't answer `sudo -n` — _sudo_scan feeds
+        # if the OS timestamp cache wouldn't answer `sudo -n`. _sudo_scan feeds
         # the password on stdin, so raw-socket scans genuinely run.
         elif _SUDO_PASSWORD is not None or _probe_sudo():
             _CAPABILITY = "sudo"
@@ -456,7 +456,7 @@ def is_privileged() -> bool:
 
 
 def can_raw_scan() -> bool:
-    """True when we can run raw-socket scans (-sS/-sU/-O) — via root *or* sudo."""
+    """True when we can run raw-socket scans (-sS/-sU/-O), via root *or* sudo."""
     return scan_capability() in ("root", "sudo")
 
 
@@ -496,7 +496,7 @@ def elevate_sudo(password: str) -> tuple[bool, str]:
         return False, "sudo rejected the password (or nmap is not permitted for this user)"
     _SUDO_PASSWORD = password
     _reset_capability_cache()
-    return True, "elevated — raw-socket scans (SYN/UDP/OS detection) are now available"
+    return True, "elevated: raw-socket scans (SYN/UDP/OS detection) are now available"
 
 
 def drop_privileges() -> None:
@@ -519,7 +519,7 @@ def sudo_output(argv: list[str], timeout: float = 10) -> str | None:
     For reads the OS only allows root (macOS can hide the ARP table from an
     unprivileged process). Uses the dashboard-primed password (`sudo -S`) or else
     the non-interactive `sudo -n`, so it never blocks on a prompt. `argv` must be
-    a server-defined command — never user input.
+    a server-defined command, never user input.
     """
     if _SUDO_PASSWORD is not None:
         cmd = ["sudo", "-S", "-p", "", *argv]
@@ -562,7 +562,7 @@ _RAW_SCAN_DOWNGRADE = {
     "-sX": "-sT",  # Xmas              → TCP connect
     "-sU": "-sT",  # UDP (needs root)  → TCP connect (best unprivileged effort)
 }
-# Root-only flags with no unprivileged equivalent — dropped entirely.
+# Root-only flags with no unprivileged equivalent, dropped entirely.
 _RAW_ONLY_DROP = {"-O", "--osscan-guess", "-sO", "-PR"}
 
 
@@ -570,7 +570,7 @@ def _adapt_args(args: str) -> tuple[str, str]:
     """Rewrite root-only nmap flags into unprivileged-safe equivalents.
 
     Guarantees the resulting command can run without root, so a scan never aborts
-    with "requires root privileges" — it trades a little fidelity (SYN→connect,
+    with "requires root privileges". It trades a little fidelity (SYN→connect,
     no OS detection) for the guarantee that *every* profile completes. Returns
     ``(adapted_args, note)`` where ``note`` is a short human explanation of what
     changed ("" when nothing did).
@@ -584,27 +584,27 @@ def _adapt_args(args: str) -> tuple[str, str]:
             continue
         if tok == "--source-port":
             skip_value = True  # also drop its value; connect scan can't set it
-            notes.append("custom source-port needs root — dropped")
+            notes.append("custom source-port needs root, so it was dropped")
             continue
         if tok in _RAW_ONLY_DROP:
             notes.append(
-                "OS detection (-O) needs root — skipped"
+                "OS detection (-O) needs root, so it was skipped"
                 if tok in ("-O", "--osscan-guess")
-                else f"{tok} needs root — skipped"
+                else f"{tok} needs root, so it was skipped"
             )
             continue
         if tok == "-A":
             # -A bundles OS detect + traceroute (root-only) with -sV + -sC; keep
             # the parts that work unprivileged and say so.
             out.extend(["-sV", "-sC"])
-            notes.append("-A: OS detect/traceroute need root — kept -sV -sC")
+            notes.append("-A: OS detect/traceroute need root, so only -sV -sC was kept")
             continue
         if tok in _RAW_SCAN_DOWNGRADE:
             repl = _RAW_SCAN_DOWNGRADE[tok]
             notes.append(
-                "UDP scan needs root — ran TCP connect instead"
+                "UDP scan needs root, so TCP connect ran instead"
                 if tok == "-sU"
-                else f"{tok} needs root — used {repl} (connect) instead"
+                else f"{tok} needs root, so {repl} (connect) ran instead"
             )
             out.append(repl)
             continue
@@ -629,7 +629,7 @@ def effective_args(args: str) -> tuple[str, str]:
     Public wrapper over the privilege adaptation so the dashboard can print the
     real command instead of the profile's declared one. Without this the scan
     options drawer shows ``nmap -sS …`` for the Stealth profile on an
-    unprivileged backend while ``-sT`` is what runs — exactly the kind of
+    unprivileged backend while ``-sT`` is what runs. That is exactly the kind of
     displayed-vs-actual gap this tool exists to eliminate. When raw scans *are*
     available the profile args are already the real ones, so nothing changes.
     """
@@ -726,7 +726,7 @@ def _ping_sweep(target: str) -> list[dict]:
 def _app_cpe(info: dict) -> str:
     """The application CPE (`cpe:/a:...`) nmap reported for a port, or "".
 
-    This is what drives the live NVD lookup — an exact product/version key, so
+    This is what drives the live NVD lookup: an exact product/version key, so
     the CVE match is version-scoped rather than a fuzzy keyword search.
     """
     cpe = info.get("cpe", "")
@@ -761,7 +761,7 @@ def _service_scan(
     args = build_host_scan_args(
         profile, scripts, ports, privileged, deep, auto_cve, host_timeout, tuning
     )
-    if ":" in ip:  # IPv6 target — nmap needs -6
+    if ":" in ip:  # IPv6 target: nmap needs -6
         args += " -6"
     # Single adaptive choke-point: runs under sudo when available, otherwise
     # rewrites root-only flags so the scan always completes (never QUITTING!).
@@ -788,7 +788,7 @@ def _service_scan(
                 for part in (info.get("product", ""), info.get("version", ""), info.get("extrainfo", ""))
                 if part
             ).strip()
-            # nmap service/version-detection confidence (1–10); None if absent.
+            # nmap service/version-detection confidence (1 to 10); None if absent.
             conf_raw = str(info.get("conf", "")).strip()
             conf = int(conf_raw) if conf_raw.isdigit() else None
             # CVEs from NSE scripts (online) + the curated offline version map.
@@ -813,7 +813,7 @@ def _service_scan(
 
     # Live NVD enrichment (on-demand per-host path only): match each service's
     # CPE against the authoritative, always-current NVD feed (cached locally), so
-    # coverage isn't limited to the curated table — and new CVEs appear by
+    # coverage isn't limited to the curated table, and new CVEs appear by
     # themselves. Best-effort: any failure leaves the vulners/offline results.
     if auto_cve:
         try:
@@ -830,7 +830,7 @@ def _service_scan(
     host_vulns = _parse_hostscript(node.get("hostscript", []))
 
     # Prioritize: annotate every CVE with CISA KEV (actively exploited) + FIRST
-    # EPSS (exploit probability), then risk-rank — so the worst, real-world-
+    # EPSS (exploit probability), then risk-rank, so the worst, real-world-
     # exploited issues float to the top instead of just sorting by CVSS.
     if auto_cve:
         _apply_threatintel(ports, host_vulns)
@@ -878,7 +878,7 @@ def _resilient_service_scan(
     if retry < _MIN_STAGE_SECS:
         result["warning"] = (
             f"nmap gave up on this host at its {first}s host-timeout and no time was left "
-            "to retry, so its ports are unknown — try the Quick profile or a narrower port range"
+            "to retry, so its ports are unknown. Try the Quick profile or a narrower port range"
         )
         return result
     fallback = _service_scan(
@@ -887,7 +887,7 @@ def _resilient_service_scan(
     if fallback["timed_out"]:
         fallback["warning"] = (
             f"nmap gave up on this host twice (full pass {first}s, fast retry {retry}s), so its "
-            "ports are unknown — try the Quick profile or a narrower port range"
+            "ports are unknown. Try the Quick profile or a narrower port range"
         )
     else:
         fallback["warning"] = (
@@ -964,15 +964,15 @@ def _parse_vulners(output: str) -> list[Vuln]:
             title="",  # the CVE id + CVSS badge speak for themselves in the UI
             severity=_severity_from_cvss(score),
             cvss=score,
-            output=f"{cve} — CVSS {score:.1f} (vulners, version-matched)",
+            output=f"{cve}: CVSS {score:.1f} (vulners, version-matched)",
             url=_cve_url(cve),
-            confidence="version",  # matched by version/CPE — verify against vendor
+            confidence="version",  # matched by version/CPE; verify against vendor
         )
         for cve, score in ranked
     ]
 
 
-# Phrases that mean "the script ran but found nothing" — guard against the
+# Phrases that mean "the script ran but found nothing". Guard against the
 # heuristic turning an informational/!error result into a false finding.
 _NON_FINDING_MARKERS = (
     "not vulnerable",
@@ -991,7 +991,7 @@ def _script_to_vuln(name: str, output: str) -> Vuln | None:
 
     Confidence is "confirmed" only when the script's own state machine reported
     VULNERABLE (it actively tested the host); a bare CVE reference with no state
-    is downgraded to "version" confidence (lower — could be a mention/backport).
+    is downgraded to "version" confidence (lower, since it could be a mention or a backport).
     """
     text = (output or "").strip()
     low = text.lower()
@@ -1017,7 +1017,7 @@ def _script_to_vuln(name: str, output: str) -> Vuln | None:
             else Severity.HIGH
         )
         confidence = "confirmed"
-    else:  # CVE referenced but no explicit VULNERABLE state — weaker evidence.
+    else:  # CVE referenced but no explicit VULNERABLE state, so weaker evidence.
         severity, confidence = Severity.MEDIUM, "version"
 
     vuln_id = cves[0].upper() if cves else name
@@ -1097,14 +1097,14 @@ def _friendly_os_cpe(cpe: str) -> str:
 
 
 # nmap -O matches below this accuracy are *guesses* (we pass --osscan-guess). On a
-# real LAN they misfire badly — a WiZ smart bulb came back as "Garmin Virb Elite
-# action camera" — so they rank below service-reported evidence and are labelled
+# real LAN they misfire badly: a WiZ smart bulb came back as "Garmin Virb Elite
+# action camera", so they rank below service-reported evidence and are labelled
 # with their confidence rather than shown as fact.
 OS_MATCH_MIN_ACCURACY = int(os.environ.get("ENUMGRID_OS_MIN_ACCURACY", "95"))
 
 
 def _os_accuracy(match: dict) -> int | None:
-    """nmap's accuracy (0–100) for an osmatch entry, or None if it gave none."""
+    """nmap's accuracy (0 to 100) for an osmatch entry, or None if it gave none."""
     try:
         return int(match.get("accuracy"))
     except (TypeError, ValueError):
@@ -1298,7 +1298,7 @@ async def scan_single_host(
     strategy: do the fast top-1000 `-sV` scan first, and **only if** that finds an
     open port, sweep ALL 65535 ports on this one host to catch services outside the
     top-1000. Hosts with nothing open (the common case for firewalled clients) cost
-    just the quick pass — no wasted full-port scan, and nothing is ever fabricated.
+    just the quick pass, with no wasted full-port scan, and nothing is ever fabricated.
     """
     loop = asyncio.get_running_loop()
     privileged = can_raw_scan()  # root OR passwordless sudo → real raw-socket scans
@@ -1322,7 +1322,7 @@ async def scan_single_host(
     )
     warnings = [result["warning"]] if result["warning"] else []
 
-    # Adaptive all-ports deep pass — only when the quick scan actually found an
+    # Adaptive all-ports deep pass, only when the quick scan actually found an
     # open port and the caller didn't pin a profile/port set. This is what makes
     # "default" both fast (skips dead/firewalled hosts) and thorough (full sweep of
     # live ones). Skipped for a host that already needed the timeout fallback: a

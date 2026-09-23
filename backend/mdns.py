@@ -1,16 +1,16 @@
 """
-mdns.py — Bonjour / mDNS device-name + service discovery (Fing-style).
+mdns.py: Bonjour / mDNS device-name + service discovery (Fing-style).
 
 Many LAN devices that have *no* reverse-DNS record still announce themselves over
 multicast DNS (printers, Apple devices, Chromecasts, Sonos, HomeKit accessories).
 Browsing a handful of well-known service types for a few seconds resolves real
 device names (e.g. "Living-Room-TV", "Brother-HL-L2350DW") and a confident
-device type from the advertised services — exactly what fills the "— no PTR —"
+device type from the advertised services, exactly what fills the "no PTR"
 gaps in the inventory.
 
 This is best-effort and dependency-optional: if `zeroconf` isn't installed it
 returns `{}` and discovery proceeds unchanged. Everything returned is observed
-from real announcements — never inferred or invented.
+from real announcements, never inferred or invented.
 """
 
 from __future__ import annotations
@@ -59,7 +59,7 @@ def device_type_from_mdns(services: set[str]) -> str:
 
 
 # Apple `model=` prefix → (specific product, OS). Deterministic and exact for
-# the device class — the prefix *is* the product line, so this is observed fact,
+# the device class: the prefix *is* the product line, so this is observed fact,
 # never a guess. Order matters: check longer prefixes first.
 _APPLE_MODEL_MAP: tuple[tuple[str, str, str], ...] = (
     ("macbookpro", "MacBook Pro", "macOS (Apple)"),
@@ -168,7 +168,7 @@ def discover_mdns(timeout: float = 4.0) -> dict[str, dict]:
                 return
             token = type_.split(".")[0]
             host = _clean_hostname(info.server)
-            # `_device-info` carries `model=` (+ sometimes `osxvers=`) TXT — an
+            # `_device-info` carries `model=` (+ sometimes `osxvers=`) TXT: an
             # authoritative product + OS signal the device announces about itself.
             props = getattr(info, "properties", None)
             model = _txt_get(props, "model")
