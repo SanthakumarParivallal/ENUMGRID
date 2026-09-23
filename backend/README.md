@@ -203,8 +203,12 @@ script, and a curated offline reference. Findings carry CVSS, an NVD link, and a
   `NMAP_TOP_PORTS`.
 - **Target safety.** `target` passes a strict character allowlist so it cannot inject
   extra flags into the nmap command line, and `ScopeValidator` then requires it to
-  parse as an IPv4 or IPv6 address, CIDR or range. Hostnames are refused, as the
-  security model above states.
+  parse as an IPv4 or IPv6 address, CIDR or range. Hostnames are refused
+  (`ScopeValidator(resolve_names=False)`): vetting and the scan resolve
+  separately, so a name that resolved to a permitted address at vet time could
+  resolve to loopback or a public host by the time nmap looked it up, which is
+  DNS rebinding through the scope policy. The CLI, where the operator types the
+  target locally and no such window exists, does accept hostnames.
 
 > **Authorization.** Only scan hosts and networks you own or are explicitly
 > authorized to test. Unauthorized scanning may be illegal where you live.

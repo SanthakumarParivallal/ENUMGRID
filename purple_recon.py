@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """EnumGrid: a two-tiered, single-terminal network enumeration cockpit.
 
-Author : santhakumarParivallal
+Author : Santhakumar Parivallal
 Project: Industrial-Level Network Enumeration Platform (Master's security project)
 License: Authorized / educational use only.
 
@@ -61,6 +61,7 @@ import threading
 import time
 from collections import Counter, deque
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from types import SimpleNamespace
@@ -110,7 +111,11 @@ except ImportError:  # pragma: no cover - optional dependency
 # --------------------------------------------------------------------------- #
 APP_NAME = "ENUMGRID"
 VERSION = "1.0.0"
-AUTHOR = "santhakumarParivallal"
+# The tool's author (fixed provenance). This is NOT the person running a scan:
+# that is the *operator*, resolved per-run by `resolve_operator()` and recorded
+# separately in every report, so a deliverable never misattributes the scan.
+AUTHOR = "Santhakumar Parivallal"
+TAGLINE = "Two-Tiered Network Enumeration Cockpit"
 
 # Industrial "cockpit" palette: restrained, signal-only accent colours.
 C_AMBER = "#FFB300"   # energised / in-progress
@@ -287,6 +292,104 @@ _OUI_FALLBACK: dict[str, str] = {
 # --------------------------------------------------------------------------- #
 # Custom exceptions
 # --------------------------------------------------------------------------- #
+# Hyphenated target ranges, the syntax nmap accepts and operators actually type:
+#   192.168.1.10-20            (last-octet shorthand)
+#   10.0.0.1-10.0.0.50         (fully qualified)
+_RANGE_RE = re.compile(
+    r"^(?P<start>\d{1,3}(?:\.\d{1,3}){3})\s*-\s*"
+    r"(?P<end>\d{1,3}(?:\.\d{1,3}){3}|\d{1,3})$"
+)
+# A hostname to resolve: letters/digits/hyphen/dot, containing at least one
+# letter so a malformed IP ("999.1.1.1") is reported as a bad address rather
+# than sent to DNS.
+_HOSTNAME_RE = re.compile(r"^(?=.*[A-Za-z])[A-Za-z0-9](?:[A-Za-z0-9.\-]{0,251}[A-Za-z0-9])?$")
+
+
+def _parse_ip_range(entry: str):
+    """Parse a hyphenated IPv4 range into ``(first, last)``, or None if not one.
+
+    Returns addresses, not a network, because a range like ``.10-.20`` is not
+    CIDR-aligned and must not be widened to one.
+    """
+    m = _RANGE_RE.match(entry.strip())
+    if not m:
+        return None
+    start_s, end_s = m.group("start"), m.group("end")
+    try:
+        first = ipaddress.IPv4Address(start_s)
+        if "." in end_s:
+            last = ipaddress.IPv4Address(end_s)
+        else:  # last-octet shorthand: inherit the first three octets
+            last = ipaddress.IPv4Address(".".join(start_s.split(".")[:3] + [end_s]))
+    except ipaddress.AddressValueError as exc:
+        raise ScopeError(f"Invalid range '{entry}': {exc}") from exc
+    return first, last
+
+
+def _iter_range(first: ipaddress.IPv4Address, last: ipaddress.IPv4Address):
+    """Yield every address from ``first`` to ``last`` inclusive."""
+    for value in range(int(first), int(last) + 1):
+        yield ipaddress.IPv4Address(value)
+
+
+def _looks_like_hostname(entry: str) -> bool:
+    """True if ``entry`` should be resolved through DNS rather than parsed.
+
+    An entry that already parses as an IP or CIDR is never treated as a name.
+    """
+    entry = entry.strip()
+    if not entry or "/" in entry:
+        return False
+    try:
+        ipaddress.ip_address(entry)
+        return False
+    except ValueError:
+        pass
+    return bool(_HOSTNAME_RE.match(entry))
+
+
+# How long scope validation will wait on the resolver for one name. Scope
+# validation runs before any packet is sent, so a slow or blackholed resolver
+# must not be able to stall the tool indefinitely.
+DNS_TIMEOUT_S = 5.0
+
+
+def _resolve_hostname(name: str, timeout: float | None = None) -> list[str]:
+    """Resolve ``name`` to every distinct A/AAAA address, or [] if it fails.
+
+    All records are returned (deduplicated, order preserved) because a name
+    genuinely serving several hosts must not be silently narrowed to one.
+
+    ``socket.getaddrinfo`` takes no timeout and can block for as long as the
+    system resolver does, so the lookup runs on a worker thread and is abandoned
+    after ``timeout`` seconds. A timed-out lookup returns ``[]``, which the
+    caller reports as an unresolvable name rather than an empty scope.
+    """
+    budget = DNS_TIMEOUT_S if timeout is None else timeout
+
+    def _lookup() -> list[str]:
+        try:
+            infos = socket.getaddrinfo(name, None, proto=socket.IPPROTO_TCP)
+        except (OSError, UnicodeError):
+            return []
+        out: list[str] = []
+        for info in infos:
+            # Strip any IPv6 scope suffix ("fe80::1%en0"), not part of the address.
+            addr = str(info[4][0]).split("%", 1)[0]
+            if addr not in out:
+                out.append(addr)
+        return out
+
+    # daemon=True so an abandoned lookup can never hold up interpreter exit.
+    pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="dns")
+    try:
+        return pool.submit(_lookup).result(timeout=budget)
+    except (TimeoutError, FuturesTimeoutError):
+        return []
+    finally:
+        pool.shutdown(wait=False)
+
+
 class ScopeError(ValueError):
     """Raised when a requested target is forbidden or otherwise unscannable."""
 
@@ -337,8 +440,20 @@ class ScopeValidator:
     so a fat-fingered CIDR cannot launch a runaway scan.
     """
 
-    def __init__(self, max_hosts: int = 4096) -> None:
+    def __init__(self, max_hosts: int = 4096, resolve_names: bool = True) -> None:
         self.max_hosts = max_hosts
+        # Whether a hostname target is resolved through DNS.
+        #
+        # True for the CLI, where the operator types the target locally and
+        # there is no adversary between validation and the scan.
+        #
+        # False for the web API. There, validation and the scan perform
+        # *separate* lookups (we vet the target, then hand the original string
+        # to nmap, which resolves it again), so a name that resolves to a
+        # permitted address at vet time can resolve to loopback or a public host
+        # moments later: DNS rebinding straight through the scope policy. The
+        # API therefore refuses names outright and takes addresses only.
+        self.resolve_names = resolve_names
 
     @staticmethod
     def _classify(
@@ -366,11 +481,16 @@ class ScopeValidator:
             return "limited broadcast (255.255.255.255)"
         return None
 
-    def validate(self, spec: str) -> SimpleNamespace:
-        """Parse ``spec`` (CIDR / IP / comma-list) into a vetted host list.
+    def validate(self, spec: str, exclude: str | None = None) -> SimpleNamespace:
+        """Parse ``spec`` into a vetted host list, minus anything in ``exclude``.
+
+        ``spec`` and ``exclude`` take the same forms: a comma-separated list of
+        CIDRs, single IPs, hyphenated ranges (``192.168.1.10-20``) and hostnames.
 
         Returns a namespace with ``hosts`` (list[str]), ``n_hosts``,
-        ``has_public`` and ``blocked`` (list of ``(entry, reason)``).
+        ``has_public``, ``blocked`` (list of ``(entry, reason)``) and
+        ``excluded`` (the sorted addresses dropped by ``exclude``, reported so
+        an operator can see exactly what was left out rather than trusting it).
         Raises :class:`ScopeError` on any explicitly forbidden entry, on
         unparseable input, on an empty result, or on an oversized scope.
         """
@@ -381,49 +501,54 @@ class ScopeValidator:
         if not entries:
             raise ScopeError("Target specification is empty after parsing.")
 
-        hosts: list[ipaddress.IPv4Address] = []
+        excluded = self._exclusion_set(exclude)
+        skipped_by_exclude: set[str] = set()
+
+        hosts: list[ipaddress.IPv4Address | ipaddress.IPv6Address] = []
         blocked: list[tuple[str, str]] = []
         seen: set[int] = set()
 
         for entry in entries:
-            network = self._parse_entry(entry)
-
-            # Refuse a whole forbidden network (e.g. 127.0.0.0/8, 224.0.0.0/4)
-            # or a single forbidden address, by inspecting its base address.
-            base_reason = self._classify(network.network_address)
-            if base_reason is not None:
-                blocked.append((entry, base_reason))
-                continue
-
-            # Expand to usable hosts *lazily*.  ``.hosts()`` already excludes the
-            # network and directed-broadcast addresses for prefixes shorter than
-            # /31.  Using a generator (not list()) means an oversized CIDR like a
-            # /8 trips the host cap below after a few thousand iterations instead
-            # of trying to materialise ~16M addresses first.
-            if network.num_addresses == 1:           # explicit single /32 host
-                candidates: object = iter([network.network_address])
-            elif network.prefixlen == 31:            # RFC 3021 point-to-point
-                candidates = iter(network)
-            else:
-                candidates = network.hosts()
-
-            for addr in candidates:
-                reason = self._classify(addr)
-                if reason is not None:
-                    blocked.append((str(addr), reason))
+            for network in self._entry_networks(entry):
+                # Refuse a whole forbidden network (e.g. 127.0.0.0/8,
+                # 224.0.0.0/4) or a single forbidden address, by its base.
+                base_reason = self._classify(network.network_address)
+                if base_reason is not None:
+                    blocked.append((entry, base_reason))
                     continue
-                key = int(addr)
-                if key not in seen:
-                    seen.add(key)
-                    hosts.append(addr)
 
-                # Fail fast on an oversized scope rather than building a huge
-                # list in memory.
-                if len(hosts) > self.max_hosts:
-                    raise ScopeError(
-                        f"Scope too large: more than {self.max_hosts} hosts. "
-                        f"Narrow the range or raise --max-hosts (use with care)."
-                    )
+                # Expand to usable hosts *lazily*.  ``.hosts()`` already excludes
+                # the network and directed-broadcast addresses for prefixes
+                # shorter than /31.  Using a generator (not list()) means an
+                # oversized CIDR like a /8 trips the host cap below after a few
+                # thousand iterations instead of materialising ~16M addresses.
+                if network.num_addresses == 1:       # explicit single /32 host
+                    candidates: object = iter([network.network_address])
+                elif network.prefixlen == 31:        # RFC 3021 point-to-point
+                    candidates = iter(network)
+                else:
+                    candidates = network.hosts()
+
+                for addr in candidates:
+                    reason = self._classify(addr)
+                    if reason is not None:
+                        blocked.append((str(addr), reason))
+                        continue
+                    key = int(addr)
+                    if key in excluded:
+                        skipped_by_exclude.add(str(addr))
+                        continue
+                    if key not in seen:
+                        seen.add(key)
+                        hosts.append(addr)
+
+                    # Fail fast on an oversized scope rather than building a
+                    # huge list in memory.
+                    if len(hosts) > self.max_hosts:
+                        raise ScopeError(
+                            f"Scope too large: more than {self.max_hosts} hosts. "
+                            f"Narrow the range or raise --max-hosts (use with care)."
+                        )
 
         # If the operator explicitly aimed *only* at forbidden space, stop hard.
         if not hosts:
@@ -442,7 +567,78 @@ class ScopeValidator:
             n_hosts=len(hosts),
             has_public=has_public,
             blocked=blocked,
+            excluded=sorted(skipped_by_exclude, key=_ip_key),
         )
+
+    def _exclusion_set(self, exclude: str | None) -> set[int]:
+        """Expand an ``--exclude`` spec into the integer addresses to skip.
+
+        Exclusions are *not* subject to the forbidden-space policy (excluding
+        loopback is meaningless but harmless), so they are expanded directly and
+        any unparseable entry is reported rather than silently ignored: an
+        exclusion that quietly fails to apply would scan a host the operator
+        believed was out of scope.
+        """
+        if not exclude or not exclude.strip():
+            return set()
+        out: set[int] = set()
+        for entry in (e.strip() for e in exclude.split(",") if e.strip()):
+            for network in self._entry_networks(entry):
+                if network.num_addresses > self.max_hosts:
+                    raise ScopeError(
+                        f"Exclusion '{entry}' covers {network.num_addresses} "
+                        f"addresses, more than --max-hosts ({self.max_hosts})."
+                    )
+                out.update(int(a) for a in network)
+        return out
+
+    def _entry_networks(
+        self, entry: str
+    ) -> list[ipaddress.IPv4Network | ipaddress.IPv6Network]:
+        """Expand one target entry into the networks it denotes.
+
+        Accepts everything an operator actually types, in this order:
+
+          * a hyphenated range, either last-octet shorthand (``192.168.1.10-20``)
+            or fully qualified (``10.0.0.1-10.0.0.50``), the syntax nmap uses;
+          * a hostname, resolved through DNS (every returned A/AAAA record is
+            scanned, because a name legitimately fans out to several hosts);
+          * a literal IP or CIDR, handled by :meth:`_parse_entry`.
+
+        A hostname that does not resolve raises :class:`ScopeError` naming the
+        entry, rather than being silently dropped from the scope.
+        """
+        rng = _parse_ip_range(entry)
+        if rng is not None:
+            first, last = rng
+            if int(last) < int(first):
+                raise ScopeError(
+                    f"Invalid range '{entry}': the end address is below the start."
+                )
+            span = int(last) - int(first) + 1
+            if span > self.max_hosts:
+                raise ScopeError(
+                    f"Scope too large: range '{entry}' spans {span} addresses, "
+                    f"more than {self.max_hosts}. Narrow it or raise --max-hosts."
+                )
+            return [ipaddress.ip_network(a) for a in _iter_range(first, last)]
+
+        if _looks_like_hostname(entry):
+            if not self.resolve_names:
+                raise ScopeError(
+                    f"Hostname '{entry}' refused: this entry point accepts only "
+                    f"IP addresses, CIDRs and ranges. Resolve the name yourself "
+                    f"and pass the address."
+                )
+            resolved = _resolve_hostname(entry)
+            if not resolved:
+                raise ScopeError(
+                    f"Cannot resolve hostname '{entry}'. Check the name, your DNS, "
+                    f"or pass an IP/CIDR instead."
+                )
+            return [ipaddress.ip_network(a) for a in resolved]
+
+        return [self._parse_entry(entry)]
 
     @staticmethod
     def _parse_entry(entry: str) -> ipaddress.IPv4Network | ipaddress.IPv6Network:
@@ -470,11 +666,21 @@ class SharedState:
     loop reads a consistent :meth:`snapshot` so it never tears a frame.
     """
 
-    def __init__(self, target: str, privileged: bool, engine_label: str) -> None:
+    def __init__(
+        self,
+        target: str,
+        privileged: bool,
+        engine_label: str,
+        operator: str = "",
+    ) -> None:
         self._lock = threading.Lock()
         self.target = target
         self.privileged = privileged
         self.engine_label = engine_label
+        # Who is running this scan (not the tool's author). Resolved once by
+        # `resolve_operator()` so the live header, the JSON report and the HTML
+        # deliverable all name the same person.
+        self.operator = operator or resolve_operator()
         self.started_dt = datetime.now(timezone.utc)
         self._t0 = time.monotonic()
         self.phase = "INITIALISING"
@@ -609,6 +815,7 @@ class SharedState:
                 target=self.target,
                 privileged=self.privileged,
                 engine_label=self.engine_label,
+                operator=self.operator,
                 phase=self.phase,
                 elapsed=time.monotonic() - self._t0,
                 sweep_total=self.sweep_total,
@@ -703,7 +910,7 @@ class DiscoveryEngine:
         saw_rst = False
         for port in SWEEP_PORTS:
             try:
-                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                with socket.socket(_af_for(ip), socket.SOCK_STREAM) as sock:
                     sock.settimeout(self.timeout)
                     rc = sock.connect_ex((ip, port))
             except OSError:
@@ -862,7 +1069,11 @@ class EnumerationEngine:
     # -- nmap-backed scan -------------------------------------------------- #
     def _nmap_scan(self, ip: str) -> HostRecord:
         scanner = nmap.PortScanner()  # type: ignore[union-attr]
-        scanner.scan(hosts=ip, arguments=self.nmap_args)
+        # nmap needs an explicit -6 for IPv6 targets; without it the address is
+        # rejected and the host is reported down. Added per host (the scope may
+        # legitimately mix families), matching backend/scanner.py.
+        args = f"-6 {self.nmap_args}" if ":" in ip else self.nmap_args
+        scanner.scan(hosts=ip, arguments=args)
 
         if ip not in scanner.all_hosts():
             return HostRecord(ip=ip, status="down", state="DONE", os="Unknown")
@@ -936,7 +1147,7 @@ class EnumerationEngine:
         ports: list[PortRecord] = []
         for port in targets:
             try:
-                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+                with socket.socket(_af_for(ip), socket.SOCK_STREAM) as sock:
                     sock.settimeout(self.connect_timeout)
                     if sock.connect_ex((ip, port)) != 0:
                         continue
@@ -1048,12 +1259,12 @@ def _phase_style(phase: str) -> str:
 def _render_header(snap: SimpleNamespace) -> Panel:
     """Fixed status header: brand, operator, target, phase and live counters."""
     brand = Text()
-    brand.append("⬢ PURPLE", style=f"bold {C_CRIMSON}")
-    brand.append("RECON", style=f"bold {C_GREEN}")
+    brand.append("⬢ ENUM", style=f"bold {C_CRIMSON}")
+    brand.append("GRID", style=f"bold {C_GREEN}")
     brand.append(f"  v{VERSION}\n", style="bold white")
-    brand.append("Two-Tiered Purple-Team Asset Mapper\n", style="dim")
+    brand.append(f"{TAGLINE}\n", style="dim")
     brand.append("Operator: ", style="dim")
-    brand.append(AUTHOR, style=C_AMBER)
+    brand.append(snap.operator, style=C_AMBER)
 
     mode = "ROOT" if snap.privileged else "UNPRIVILEGED"
     mode_style = C_GREEN if snap.privileged else C_AMBER
@@ -1358,7 +1569,13 @@ def build_report(
     return {
         "tool": APP_NAME,
         "version": VERSION,
-        "author": AUTHOR,
+        # `tool_author` is fixed provenance; `operator` is who ran THIS scan.
+        # They are different facts and a client deliverable must not conflate
+        # them, so both are recorded. "author" is retained as a deprecated
+        # alias of `operator` so existing report consumers keep working.
+        "tool_author": AUTHOR,
+        "operator": state.operator,
+        "author": state.operator,
         "target": state.target,
         "privileged": state.privileged,
         "engine": state.engine_label,
@@ -1473,6 +1690,158 @@ def write_csv_report(report: dict, output_dir: str) -> str:
     buffer = io.StringIO()
     csv.writer(buffer).writerows(csv_rows(report))
     _atomic_write_text(path, buffer.getvalue(), newline="")
+    return path
+
+
+def _xml_esc(value: object) -> str:
+    """Escape a value for an XML attribute (quotes included)."""
+    return html.escape(str(value if value is not None else ""), quote=True)
+
+
+def render_nmap_xml(report: dict) -> str:
+    """Render the report as Nmap-compatible XML for toolchain interop.
+
+    The point is to feed the results straight into the tools a pentester already
+    runs: Metasploit's ``db_import``, Faraday, DefectDojo, EyeWitness and the
+    rest all read Nmap's XML schema.
+
+    The ``scanner`` attribute is ``"enumgrid"``, not ``"nmap"``. The schema is
+    Nmap's, the data is ours, and saying otherwise would misrepresent where the
+    results came from (Masscan's XML output sets the same precedent).
+    """
+    started = report.get("started_at", "")
+    finished = report.get("finished_at", "")
+    args = f"enumgrid {report.get('target', '')}"
+    out = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<!DOCTYPE nmaprun>',
+        f'<nmaprun scanner="enumgrid" args="{_xml_esc(args)}" '
+        f'start="{_xml_esc(str(_epoch_of(started)))}" '
+        f'startstr="{_xml_esc(started)}" version="{_xml_esc(report.get("version", ""))}" '
+        f'xmloutputversion="1.05">',
+        f'<scaninfo type="connect" protocol="tcp" numservices="0" services=""/>',
+    ]
+    for host in report.get("hosts", []):
+        if host.get("status") != "up":
+            continue
+        out.append("<host>")
+        out.append('<status state="up" reason="enumgrid-probe"/>')
+        out.append(f'<address addr="{_xml_esc(host.get("ip", ""))}" '
+                   f'addrtype="{"ipv6" if ":" in host.get("ip", "") else "ipv4"}"/>')
+        if host.get("mac"):
+            vendor = f' vendor="{_xml_esc(host["vendor"])}"' if host.get("vendor") else ""
+            out.append(f'<address addr="{_xml_esc(host["mac"])}" addrtype="mac"{vendor}/>')
+        if host.get("hostname"):
+            out.append("<hostnames>"
+                       f'<hostname name="{_xml_esc(host["hostname"])}" type="PTR"/>'
+                       "</hostnames>")
+        else:
+            out.append("<hostnames/>")
+        out.append("<ports>")
+        for port in host.get("ports", []):
+            svc_attrs = f'name="{_xml_esc(port.get("service", "unknown"))}"'
+            if port.get("product"):
+                svc_attrs += f' product="{_xml_esc(port["product"])}"'
+            if port.get("version"):
+                svc_attrs += f' version="{_xml_esc(port["version"])}"'
+            out.append(
+                f'<port protocol="{_xml_esc(port.get("protocol", "tcp"))}" '
+                f'portid="{port.get("port", 0)}">'
+                f'<state state="{_xml_esc(port.get("state", "open"))}" '
+                f'reason="syn-ack" reason_ttl="0"/>'
+                f'<service {svc_attrs} method="probed" conf="10"/></port>'
+            )
+        out.append("</ports>")
+        if host.get("os") and host["os"] != "Unknown":
+            out.append("<os><osmatch "
+                       f'name="{_xml_esc(host["os"])}" accuracy="0" line="0"/></os>')
+        out.append("</host>")
+    live = report.get("summary", {}).get("live_hosts", 0)
+    out.append(
+        f'<runstats><finished time="{_xml_esc(str(_epoch_of(finished)))}" '
+        f'timestr="{_xml_esc(finished)}" '
+        f'elapsed="{report.get("duration_seconds", 0)}" exit="success"/>'
+        f'<hosts up="{live}" down="0" total="{live}"/></runstats>'
+    )
+    out.append("</nmaprun>")
+    return "\n".join(out)
+
+
+def _epoch_of(iso: str) -> int:
+    """ISO-8601 timestamp to a Unix epoch int; 0 when absent or unparseable."""
+    if not iso:
+        return 0
+    try:
+        return int(datetime.fromisoformat(iso).timestamp())
+    except (ValueError, TypeError):
+        return 0
+
+
+def write_nmap_xml_report(report: dict, output_dir: str) -> str:
+    """Write the Nmap-compatible XML export; returns the path."""
+    os.makedirs(output_dir, exist_ok=True)
+    path = _timestamped_path(report, output_dir, "xml")
+    _atomic_write_text(path, render_nmap_xml(report) + "\n")
+    return path
+
+
+def render_markdown_report(report: dict) -> str:
+    """Render the report as Markdown, for pasting into an engagement write-up."""
+    summary = report.get("summary", {})
+    lines = [
+        f"# {report.get('tool', 'ENUMGRID')} scan report",
+        "",
+        f"- **Target:** `{report.get('target', '')}`",
+        f"- **Operator:** {report.get('operator') or report.get('author', '')}",
+        f"- **Engine:** {report.get('engine', '')}",
+        f"- **Started:** {report.get('started_at', '')}",
+        f"- **Finished:** {report.get('finished_at', '')} "
+        f"({report.get('duration_seconds', 0)}s)",
+        f"- **Live hosts:** {summary.get('live_hosts', 0)} of "
+        f"{summary.get('candidates', 0)} candidates",
+        f"- **Open ports:** {summary.get('total_open_ports', 0)}",
+        "",
+        "## Hosts",
+        "",
+    ]
+    hosts = [h for h in report.get("hosts", []) if h.get("status") == "up"]
+    if not hosts:
+        lines.append("_No live hosts found._")
+        return "\n".join(lines) + "\n"
+
+    lines += ["| IP | Hostname | MAC | Vendor | OS | Open |",
+              "| --- | --- | --- | --- | --- | --- |"]
+    for host in hosts:
+        lines.append(
+            f"| `{host.get('ip', '')}` | {host.get('hostname') or '-'} "
+            f"| `{host.get('mac') or '-'}` | {host.get('vendor') or '-'} "
+            f"| {host.get('os') or '-'} | {host.get('open_count', 0)} |"
+        )
+    lines.append("")
+    for host in hosts:
+        ports = host.get("ports", [])
+        if not ports:
+            continue
+        label = f" ({host['hostname']})" if host.get("hostname") else ""
+        lines += [f"### {host.get('ip', '')}{label}",
+                  "",
+                  "| Port | Proto | State | Service | Product | Version |",
+                  "| --- | --- | --- | --- | --- | --- |"]
+        for port in ports:
+            lines.append(
+                f"| {port.get('port', '')} | {port.get('protocol', 'tcp')} "
+                f"| {port.get('state', '')} | {port.get('service', '')} "
+                f"| {port.get('product') or '-'} | {port.get('version') or '-'} |"
+            )
+        lines.append("")
+    return "\n".join(lines) + "\n"
+
+
+def write_markdown_report(report: dict, output_dir: str) -> str:
+    """Write the Markdown export; returns the path."""
+    os.makedirs(output_dir, exist_ok=True)
+    path = _timestamped_path(report, output_dir, "md")
+    _atomic_write_text(path, render_markdown_report(report))
     return path
 
 
@@ -1597,10 +1966,10 @@ def render_html_report(report: dict) -> str:
 </style></head>
 <body><div class="wrap">
   <header>
-    <h1><span class="p">⬢ PURPLE</span><span class="r">RECON</span> · Network Report</h1>
+    <h1><span class="p">⬢ ENUM</span><span class="r">GRID</span> · Network Report</h1>
     <div class="meta">Target <span class="mono">{esc(report.get('target', ''))}</span>
       &nbsp;·&nbsp; Engine {esc(report.get('engine', '—'))}
-      &nbsp;·&nbsp; Operator {esc(report.get('author', ''))}
+      &nbsp;·&nbsp; Operator {esc(report.get('operator') or report.get('author', ''))}
       &nbsp;·&nbsp; {esc(report.get('finished_at', ''))}</div>
   </header>
   <section>
@@ -1759,6 +2128,12 @@ def print_summary(
         grid.add_row("  unconfirmed", f"[{C_AMBER}]{weak} (RST-only)[/]")
     grid.add_row("Open ports", f"[{C_AMBER}]{total_open}[/]")
     grid.add_row("Duration", f"{duration:.1f}s")
+    if getattr(scope, "excluded", None):
+        console.print(
+            f"[{C_AMBER}]» Excluded {len(scope.excluded)} address(es) on operator "
+            f"request.[/]"
+        )
+
     if scope.blocked:
         grid.add_row("Blocked", f"[{C_CRIMSON}]{len(scope.blocked)} entr(y/ies)[/]")
 
@@ -1776,6 +2151,26 @@ def print_summary(
 # --------------------------------------------------------------------------- #
 # Small helpers (privilege, ping portability, dns, sanitising)
 # --------------------------------------------------------------------------- #
+def resolve_operator(explicit: str | None = None) -> str:
+    """Resolve who is running this scan, for the report's ``operator`` field.
+
+    Order: an explicit ``--operator`` value, then ``ENUMGRID_OPERATOR``, then the
+    OS login name. Falls back to ``"unknown"`` rather than inventing a name, and
+    never returns the tool's author: a deliverable must record the human who ran
+    the scan, not who wrote the software.
+    """
+    for candidate in (explicit, os.environ.get("ENUMGRID_OPERATOR")):
+        if candidate and candidate.strip():
+            return candidate.strip()
+    try:
+        # getlogin() reads the controlling terminal and raises when there is
+        # none (cron, a container, a pipe), so fall back to the env/pwd view.
+        name = os.getlogin()
+    except OSError:
+        name = os.environ.get("USER") or os.environ.get("USERNAME") or ""
+    return name.strip() or "unknown"
+
+
 def is_privileged() -> bool:
     """True only when we have raw-socket capability (root on POSIX)."""
     if hasattr(os, "geteuid"):
@@ -1793,6 +2188,17 @@ def _ping_available() -> bool:
     return which("ping") is not None
 
 
+def _af_for(ip: str) -> int:
+    """Socket address family for ``ip``: ``AF_INET6`` for IPv6, else ``AF_INET``.
+
+    Every TCP probe must open a socket of the target's own family. Probing an
+    IPv6 address through an ``AF_INET`` socket raises ``OSError`` on every port,
+    which the sweep treats as "no response" and silently reports the host as
+    **down**: a false negative, the worst failure mode for an enumeration tool.
+    """
+    return socket.AF_INET6 if ":" in ip else socket.AF_INET
+
+
 def _ping_command(ip: str, timeout_s: float) -> list[str]:
     """Build a portable, single-echo ping command with a per-OS timeout.
 
@@ -1802,11 +2208,20 @@ def _ping_command(ip: str, timeout_s: float) -> list[str]:
     """
     secs = max(1, int(math.ceil(timeout_s)))
     system = platform.system().lower()
+    v6 = ":" in ip
     if system == "darwin":
+        if v6:
+            # macOS `ping` rejects -6 and its `ping6` has no total-timeout flag
+            # (-t is a boolean there), so the bound is the caller's subprocess
+            # timeout, which `_ping` already applies.
+            return ["ping6", "-c", "1", ip]
         return ["ping", "-c", "1", "-t", str(secs), ip]         # macOS: -t = total timeout (s)
     if system == "windows":
-        return ["ping", "-n", "1", "-w", str(int(timeout_s * 1000)), ip]  # Windows: -w = wait (ms)
-    return ["ping", "-c", "1", "-W", str(secs), ip]             # Linux/BSD: -W = reply wait (s)
+        wait = str(int(timeout_s * 1000))
+        base = ["ping", "-6"] if v6 else ["ping"]
+        return base + ["-n", "1", "-w", wait, ip]               # Windows: -w = wait (ms)
+    base = ["ping", "-6"] if v6 else ["ping"]                   # Linux/BSD: -W = reply wait (s)
+    return base + ["-c", "1", "-W", str(secs), ip]
 
 
 # Matches "... (192.168.1.108) at a4:83:e7:.. on en0" from `arp -a`; the strict
@@ -2096,6 +2511,56 @@ def _ip_key(ip: str) -> tuple[int, ...]:
         return (0,)
 
 
+# nmap accepts "120s", "2m", "1h" (and a bare number = seconds) for --host-timeout.
+_HOST_TIMEOUT_RE = re.compile(r"^\d{1,6}(?:\.\d+)?(?:ms|s|m|h)?$", re.IGNORECASE)
+# A port spec: comma-separated ports and ranges, optionally protocol-prefixed
+# ("T:80,U:53"), which is what nmap's -p takes.
+_PORTSPEC_RE = re.compile(r"^(?:[TUS]:)?\d{1,5}(?:-\d{1,5})?(?:,(?:[TUS]:)?\d{1,5}(?:-\d{1,5})?)*$",
+                          re.IGNORECASE)
+
+
+def validate_scan_options(args: argparse.Namespace) -> None:
+    """Reject nonsensical scan options before any packet is sent.
+
+    These values are composed into the nmap argument string. They are not a
+    shell-injection vector (python-nmap splits the string with ``shlex`` and
+    execs a list, never a shell), but an unvalidated ``--top-ports 0`` or
+    ``-p '1-99999'`` reaches nmap as a per-host failure with an opaque message,
+    after the scan has already started. Failing here instead turns a silent
+    late error into an actionable one.
+
+    Raises :class:`ScopeError` so ``main`` reports it through the same panel as
+    a bad target.
+    """
+    if not 1 <= args.top_ports <= 65535:
+        raise ScopeError(
+            f"--top-ports must be between 1 and 65535 (got {args.top_ports})."
+        )
+    if args.ports is not None:
+        spec = args.ports.strip()
+        if not _PORTSPEC_RE.match(spec):
+            raise ScopeError(
+                f"Invalid --ports spec '{args.ports}'. Use ports and ranges such "
+                f"as '22,80,443' or '1-1024' (optionally 'T:'/'U:' prefixed)."
+            )
+        for number in re.findall(r"\d{1,5}", spec):
+            if not 0 <= int(number) <= 65535:
+                raise ScopeError(
+                    f"Invalid --ports spec '{args.ports}': port {number} is "
+                    f"outside 0-65535."
+                )
+    if not _HOST_TIMEOUT_RE.match(args.host_timeout.strip()):
+        raise ScopeError(
+            f"Invalid --host-timeout '{args.host_timeout}'. Use a duration such "
+            f"as '120s', '2m' or '1h'."
+        )
+    for name, value in (("--sweep-workers", args.sweep_workers),
+                        ("--scan-workers", args.scan_workers),
+                        ("--max-hosts", args.max_hosts)):
+        if value < 1:
+            raise ScopeError(f"{name} must be at least 1 (got {value}).")
+
+
 def build_nmap_args(args: argparse.Namespace, privileged: bool) -> str:
     """Compose the nmap argument string from CLI options + privilege level."""
     parts = ["-sV", "-Pn", "-T4", "--host-timeout", args.host_timeout]
@@ -2137,11 +2602,24 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="enumgrid",
         description=f"{APP_NAME} v{VERSION}: two-tiered network enumeration "
-        f"cockpit by {AUTHOR}.",
+        f"cockpit by {AUTHOR}.",  # tool author, not the scan operator
         epilog="Authorized use only. Example: enumgrid 192.168.1.0/24 -y",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
-    parser.add_argument("target", help="CIDR / IP / comma-list, e.g. 192.168.1.0/24")
+    parser.add_argument("--version", action="version",
+                        version=f"{APP_NAME} {VERSION}")
+    parser.add_argument("target", nargs="?",
+                        help="CIDR / IP / hostname / range / comma-list, e.g. "
+                             "192.168.1.0/24, 10.0.0.1-50, host.example.com "
+                             "(optional when -iL is given)")
+    parser.add_argument("-iL", "--target-file", metavar="FILE",
+                        help="read targets from FILE (one per line, '#' comments "
+                             "ignored); combined with any target given on the CLI")
+    parser.add_argument("--exclude", metavar="SPEC",
+                        help="comma-separated hosts/CIDRs/ranges to leave out of "
+                             "the scope (out-of-scope or fragile assets)")
+    parser.add_argument("--exclude-file", metavar="FILE",
+                        help="read exclusions from FILE (same format as -iL)")
     parser.add_argument("-p", "--ports", help="explicit nmap port spec (e.g. 1-1024)")
     parser.add_argument("--top-ports", type=int, default=100,
                         help="number of most-common ports to scan")
@@ -2181,24 +2659,57 @@ def build_parser() -> argparse.ArgumentParser:
                         help="also write a self-contained HTML report (great for write-ups)")
     parser.add_argument("--csv", action="store_true",
                         help="also write a flat per-port CSV inventory (spreadsheet-friendly)")
+    parser.add_argument("--xml", action="store_true",
+                        help="also write Nmap-compatible XML (imports into Metasploit, "
+                             "Faraday, DefectDojo and other nmap-XML consumers)")
+    parser.add_argument("--markdown", "--md", action="store_true", dest="markdown",
+                        help="also write a Markdown report (for engagement write-ups)")
     parser.add_argument("--diff", metavar="REPORT.json",
                         help="compare this scan against a previous JSON report")
     parser.add_argument("--no-ui", action="store_true",
                         help="force the non-interactive (headless) renderer")
+    parser.add_argument("--operator", metavar="NAME",
+                        help="name recorded as the scan operator in reports "
+                             "(default: $ENUMGRID_OPERATOR or the OS login name)")
     parser.add_argument("-y", "--yes", action="store_true",
                         help="skip the confirmation prompt for risky scopes")
     return parser
 
 
-def print_banner(console: Console) -> None:
+def read_target_file(path: str) -> str:
+    """Read a target/exclusion list file into a comma-separated spec.
+
+    One entry per line; blank lines and ``#`` comments are ignored, and an
+    inline ``#`` comment is trimmed. Engagement scopes arrive as files, so this
+    is how a real scope list gets in without hand-editing a command line.
+
+    Raises :class:`ScopeError` when the file is missing, unreadable or yields no
+    entries, so a typo'd path fails loudly instead of scanning nothing.
+    """
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            raw = handle.read()
+    except OSError as exc:
+        raise ScopeError(f"Cannot read target file '{path}': {exc}") from exc
+    entries: list[str] = []
+    for line in raw.splitlines():
+        line = line.split("#", 1)[0].strip()
+        if line:
+            entries.extend(part.strip() for part in line.split(",") if part.strip())
+    if not entries:
+        raise ScopeError(f"Target file '{path}' contains no entries.")
+    return ",".join(entries)
+
+
+def print_banner(console: Console, operator: str = "") -> None:
     """Pre-scan brand + authorization banner."""
     title = Text()
-    title.append("⬢ PURPLE", style=f"bold {C_CRIMSON}")
-    title.append("RECON ", style=f"bold {C_GREEN}")
+    title.append("⬢ ENUM", style=f"bold {C_CRIMSON}")
+    title.append("GRID ", style=f"bold {C_GREEN}")
     title.append(f"v{VERSION}", style="bold white")
     body = Text()
-    body.append("Two-Tiered Purple-Team Network Enumeration Cockpit\n", style="white")
-    body.append(f"Operator: {AUTHOR}\n\n", style="dim")
+    body.append(f"{TAGLINE}\n", style="white")
+    body.append(f"Operator: {operator or resolve_operator()}\n\n", style="dim")
     body.append("Authorized use only. You are responsible for ensuring you have\n", style=C_AMBER)
     body.append("explicit permission to scan the specified targets.", style=C_AMBER)
     console.print(Panel(Group(title, body), border_style=C_STEEL, box=box.HEAVY))
@@ -2230,8 +2741,9 @@ def main(argv: list[str] | None = None) -> int:
     """Program entry point. Returns a POSIX-style exit code."""
     console = Console()
     args = build_parser().parse_args(argv)
+    operator = resolve_operator(args.operator)
 
-    print_banner(console)
+    print_banner(console, operator)
 
     # --- environment & dependency probing (graceful) ---------------------- #
     privileged = is_privileged()
@@ -2240,7 +2752,29 @@ def main(argv: list[str] | None = None) -> int:
 
     # --- guardrails: validate the scope BEFORE touching the network ------- #
     try:
-        scope = ScopeValidator(max_hosts=args.max_hosts).validate(args.target)
+        # Assemble the scope from the CLI target and/or -iL file, then subtract
+        # the exclusions. Both files are read here so a bad path is reported by
+        # the same SCOPE REJECTED panel as a bad address.
+        parts = [args.target] if args.target else []
+        if args.target_file:
+            parts.append(read_target_file(args.target_file))
+        if not parts:
+            raise ScopeError(
+                "No target supplied. Give a target, or a list with -iL FILE."
+            )
+        target_spec = ",".join(parts)
+        validate_scan_options(args)
+
+        exclusions = [args.exclude] if args.exclude else []
+        if args.exclude_file:
+            exclusions.append(read_target_file(args.exclude_file))
+        exclude_spec = ",".join(exclusions) or None
+
+        scope = ScopeValidator(max_hosts=args.max_hosts).validate(
+            target_spec, exclude=exclude_spec
+        )
+        # The report must record the scope actually scanned, not the raw input.
+        args.target = target_spec
     except ScopeError as exc:
         console.print(
             Panel(str(exc), title="[bold]SCOPE REJECTED[/]", border_style=C_CRIMSON,
@@ -2267,7 +2801,12 @@ def main(argv: list[str] | None = None) -> int:
         console.print(f"[dim]» MAC-vendor: {len(oui_table)} OUIs from {oui_path}[/]")
 
     # --- assemble the pipeline ------------------------------------------- #
-    state = SharedState(target=args.target, privileged=privileged, engine_label=engine_label)
+    state = SharedState(
+        target=args.target,
+        privileged=privileged,
+        engine_label=engine_label,
+        operator=operator,
+    )
     discovery = DiscoveryEngine(
         timeout=args.sweep_timeout,
         workers=args.sweep_workers,
@@ -2331,6 +2870,8 @@ def main(argv: list[str] | None = None) -> int:
     for enabled, writer, label in (
         (args.html, write_html_report, "HTML report"),
         (args.csv, write_csv_report, "CSV inventory"),
+        (args.xml, write_nmap_xml_report, "Nmap-XML export"),
+        (args.markdown, write_markdown_report, "Markdown report"),
     ):
         if not enabled:
             continue

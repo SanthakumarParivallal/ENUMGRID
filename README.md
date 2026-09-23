@@ -4,7 +4,7 @@
 
 <!-- badges -->
 [![CI](https://github.com/SanthakumarParivallal/ENUMGRID/actions/workflows/ci.yml/badge.svg)](https://github.com/SanthakumarParivallal/ENUMGRID/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-1365%20passing-brightgreen.svg)](#testing-and-quality-gates)
+[![Tests](https://img.shields.io/badge/tests-1420%20passing-brightgreen.svg)](#testing-and-quality-gates)
 [![Coverage](https://img.shields.io/badge/coverage-100%25%20line-brightgreen.svg)](#testing-and-quality-gates)
 [![SAST: bandit](https://img.shields.io/badge/SAST-bandit%200%20high%2Fmed-1f6feb.svg)](#security-model)
 [![Deps: 0 CVEs](https://img.shields.io/badge/deps-0%20known%20CVEs-brightgreen.svg)](#security-model)
@@ -98,7 +98,7 @@ is held in memory only.
 
 ### Tested
 
-1365 tests. The CLI, all 30 backend modules and the frontend logic layer are held at a
+1420 tests. The CLI, all 30 backend modules and the frontend logic layer are held at a
 CI-gated 100% line coverage, so a regression anywhere fails the build.
 
 </td>
@@ -170,7 +170,22 @@ runs live.
 
 # Two-tiered deep scan of one host, with HTML + CSV reports
 ./.venv/bin/python purple_recon.py 192.168.0.10 --top-ports 1000 --html --csv
+
+# Engagement scope from a file, minus the assets you must not touch
+./.venv/bin/python purple_recon.py -iL scope.txt --exclude-file out-of-scope.txt \
+    --operator "Your Name" --xml --markdown
 ```
+
+**Target forms.** A target is a CIDR (`192.168.0.0/24`), a single address, a hyphenated
+range (`192.168.0.10-40`, `10.0.0.1-10.0.0.50`), a hostname, or any comma-separated mix.
+`-iL FILE` reads a scope list (one entry per line, `#` comments ignored) and `--exclude` /
+`--exclude-file` subtract hosts from it. Excluded addresses are reported so you can verify
+what was left out.
+
+**Report formats.** JSON by default, plus `--html`, `--csv`, `--markdown` for a write-up,
+and `--xml` for Nmap-compatible XML that imports into Metasploit, Faraday and DefectDojo.
+Every report records the **operator** (`--operator`, `$ENUMGRID_OPERATOR`, or your login
+name) separately from the tool's author, so a deliverable never misattributes the scan.
 
 Install it as a command ([`pyproject.toml`](pyproject.toml), single-file module):
 
@@ -204,10 +219,12 @@ how confident it is, and stays silent when it doesn't know.
   LLMNR, NetBIOS) and reports who's talking. Invisible to an IDS watching for scans, and a
   clean active-versus-passive contrast. `POST /api/passive`, or run `backend/passive.py`
   standalone (needs `scapy` and raw-socket privilege).
-- **IPv6-aware.** `ScopeValidator` is dual-stack: it accepts IPv6 targets and refuses
-  `::1`, multicast, link-local and oversized ranges. The NDP neighbour cache correlates
-  each device's IPv6 address to its IPv4 entry by MAC (a "v6" badge in the grid), and
-  per-host nmap uses `-6` for IPv6 targets.
+- **IPv6, end to end.** `ScopeValidator` is dual-stack: it accepts IPv6 targets and
+  refuses `::1`, multicast, link-local and oversized ranges. Probes then open a socket of
+  the target's own family, ICMP uses the platform's v6 invocation (`ping6` on macOS, `-6`
+  on Linux and Windows), and per-host nmap adds `-6`, so a v6 host is actually reached
+  rather than silently reported down. The NDP neighbour cache correlates each device's
+  IPv6 address to its IPv4 entry by MAC (a "v6" badge in the grid).
 
 > **Measured:** on a real home `/24`, ENUMGRID found all 11 live hosts (recall 1.00)
 > against unprivileged `nmap -sn`'s 3 (recall 0.27), faster and with zero false positives.
@@ -477,14 +494,14 @@ make test      # ruff lint + CLI pytest + backend pytest + evaluation pytest + f
 
 <div align="center">
 
-1365 tests, all green.
+1420 tests, all green.
 
 </div>
 
 | Suite | Count | Scope |
 |---|:---:|---|
-| CLI, `tests/test_purple_recon*.py` | **197** | Guardrails (IPv6 scope, empty and delimiter specs), NDP/ARP/OUI parsing, discovery policy, reports, export, renderers, reproducibility manifest and fuzzing. Plus the full threaded engines (sweep/ICMP/TCP/ARP-proxy, nmap and socket enumeration), the orchestrator, both run-loops (cockpit and headless, including Ctrl-C) and the `main`/`cli` entrypoints, driven through mocked boundaries to 100% line coverage |
-| Backend, `backend/tests/test_*.py` | **776** | Scope, RBAC (constant-time tokens), per-IP throttle and the read-gated PDF endpoint; the full async scan-pipeline and FastAPI drive-through (nmap, SSH, AWS, LDAP and LLM boundaries mocked to 100%); 11 scan profiles with injection safety and adaptive all-ports; privilege auto-adaptation and runtime sudo elevation; live NVD and the offline CVE DB (whole-token match) plus backport-aware OSV; KEV and EPSS; confidence propagation; credentialed SSH; web-DAST (TLS parse); the SNMP BER codec; AWS and LDAP parsers; the job queue; passive discovery; cron scheduling; campaign aggregation; the provenance manifest; golden-file determinism (XML to model, and byte-stable PDF); structured JSON logging; alerting and audit; multi-signal OS fingerprinting; mDNS, NBNS and SSDP; history and drift; PDF escaping; the AI copilot (4 providers including free Ollama and Gemini, scan-grounding, intent-gated tools, grounded PDF summary); and hypothesis fuzzing |
+| CLI, `tests/test_purple_recon*.py`, `tests/test_enumgrid_targeting.py` | **249** | Guardrails (IPv6 scope, empty and delimiter specs), NDP/ARP/OUI parsing, discovery policy, reports, export, renderers, reproducibility manifest and fuzzing. Plus the full threaded engines (sweep/ICMP/TCP/ARP-proxy, nmap and socket enumeration), the orchestrator, both run-loops (cockpit and headless, including Ctrl-C) and the `main`/`cli` entrypoints, driven through mocked boundaries to 100% line coverage |
+| Backend, `backend/tests/test_*.py` | **779** | Scope, RBAC (constant-time tokens), per-IP throttle and the read-gated PDF endpoint; the full async scan-pipeline and FastAPI drive-through (nmap, SSH, AWS, LDAP and LLM boundaries mocked to 100%); 11 scan profiles with injection safety and adaptive all-ports; privilege auto-adaptation and runtime sudo elevation; live NVD and the offline CVE DB (whole-token match) plus backport-aware OSV; KEV and EPSS; confidence propagation; credentialed SSH; web-DAST (TLS parse); the SNMP BER codec; AWS and LDAP parsers; the job queue; passive discovery; cron scheduling; campaign aggregation; the provenance manifest; golden-file determinism (XML to model, and byte-stable PDF); structured JSON logging; alerting and audit; multi-signal OS fingerprinting; mDNS, NBNS and SSDP; history and drift; PDF escaping; the AI copilot (4 providers including free Ollama and Gemini, scan-grounding, intent-gated tools, grounded PDF summary); and hypothesis fuzzing |
 | Frontend, `frontend/src/**/*.test.{js,jsx}` | **214** | The whole `src/lib/**` layer at 100% line coverage under jsdom: schema coercion and null-safety, CVE link, confidence and KEV/EPSS rank, API-token persistence, CSV/JSON export (formula-injection-safe), the view-preference store, the offline scan engine (seeded), the modal focus-trap, the toast provider, ⌘K palette ranking, copilot helpers (SSE parsing, Ollama setup), the safe Markdown renderer (HTML-escaped, scheme-allow-listed, XSS-tested), and the busy-retry policy |
 | Evaluation, `evaluation/test_*.py` | **178** | Discovery-benchmark metric math (precision, recall, Jaccard), multi-run stats (mean ± 95% CI), cross-environment pooling (macro-average recall across networks), scalability fit (ms per address, R², throughput), arp-scan/netdiscover/masscan baseline parsers, detection-benchmark scoring against a pinned 9-host testbed (accuracy-by-confidence, repeated-scan stability), offline CVE precision and recall (33-case corpus, Wilson CIs), live-NVD pipeline precision and recall (documented-CVE recall, version-scoping, top-N truncation loss, real `parse_nvd` on schema fixtures, and `--live` for the authoritative number), CVE-detection baselines (EnumGrid against nmap-`vulners` and Nuclei: parsers, planted-CVE recall and agreement, plus OpenVAS and Nessus report-file adapters for the heavyweight scanners), and AI-copilot eval (grounding, hallucination detection) |
 

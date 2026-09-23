@@ -20,6 +20,96 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project versions accord
 
 ---
 
+## [Unreleased]
+
+A correctness and operator-workflow pass. The headline fix is IPv6: a v6 target passed
+scope validation and was then reported **down**, because every probe opened an IPv4
+socket. A silent false negative is the worst failure mode for an enumeration tool, so it
+is treated as a correctness bug, not a missing feature.
+
+### Fixed
+
+- **IPv6 targets are now actually probed.** `DiscoveryEngine.is_alive` and
+  `EnumerationEngine._socket_scan` opened a hardcoded `AF_INET` socket, so every port
+  probe against an IPv6 address raised `OSError` and the host was recorded as down.
+  Probes now open a socket of the target's own family (`_af_for`), ICMP uses the
+  platform's v6 invocation (`ping6` on macOS, where `ping` rejects `-6`; `-6` on Linux
+  and Windows), and per-host nmap adds `-6`. Verified against a live IPv6 listener:
+  the sweep completes a handshake and returns a `strong` signal where it previously
+  returned "down".
+- **Reports no longer misattribute the scan.** Every JSON and HTML report recorded
+  `author` as the *tool's* author, and the HTML rendered it under the label **Operator**,
+  so a client deliverable named the wrong person. Reports now carry `tool_author` and
+  `operator` as separate fields, with `operator` resolved from `--operator`,
+  `$ENUMGRID_OPERATOR` or the OS login name. `author` is retained as a deprecated alias
+  of `operator` so existing report consumers keep working.
+- **The product prints its own name.** The pre-scan banner, the live dashboard header and
+  the HTML report heading rendered the pre-release name `PURPLERECON`, including in the
+  client-facing report. All three now render `ENUMGRID`, and the two conflicting taglines
+  are replaced by a single `TAGLINE` constant.
+- **Author name.** `AUTHOR` was `santhakumarParivallal`, which reached `--help`, the
+  banner and every exported report. Corrected to `Santhakumar Parivallal`, matching
+  `CITATION.cff` and `pyproject.toml`.
+- **Invalid scan options fail before the scan, not during it.** `--top-ports`, `--ports`
+  and `--host-timeout` were passed to nmap unchecked, so `--top-ports 0` or a malformed
+  port spec surfaced as an opaque per-host nmap failure after the scan had started.
+  `validate_scan_options` now rejects them up front with an actionable message. These
+  values were never a shell-injection vector: python-nmap splits the argument string with
+  `shlex` and execs a list, never a shell.
+- **DNS lookups during scope validation are bounded.** `socket.getaddrinfo` takes no
+  timeout and blocks for as long as the system resolver does. Hostname resolution now
+  runs on a worker thread with a `DNS_TIMEOUT_S` (5 s) budget, so a blackholed resolver
+  cannot stall validation.
+
+### Added
+
+- **Target forms an operator actually types.** Hyphenated ranges in both nmap spellings
+  (`192.168.1.10-20` last-octet shorthand and `10.0.0.1-10.0.0.50` fully qualified) and
+  hostnames, resolved through DNS. A name with several A/AAAA records expands to all of
+  them rather than being silently narrowed to one, and a name that does not resolve is an
+  error rather than an empty scope. A range is never widened to a CIDR.
+- **Scope files and exclusions.** `-iL/--target-file` reads an engagement scope list (one
+  entry per line, `#` comments and inline comments stripped); `--exclude` and
+  `--exclude-file` subtract out-of-scope or fragile assets. Excluded addresses are
+  reported, so an operator can verify what was left out instead of trusting it. A missing
+  or empty scope file is an error, never a silently empty scan.
+- **Nmap-compatible XML export** (`--xml`), so results import into Metasploit's
+  `db_import`, Faraday, DefectDojo and other nmap-XML consumers. The `scanner` attribute
+  is `enumgrid`, not `nmap`: the schema is nmap's, the data is ours, and claiming
+  otherwise would misrepresent where the results came from.
+- **Markdown export** (`--markdown`) for engagement write-ups.
+- **`--version`**, which previously exited 2 as an unrecognized option.
+- **`--operator NAME`** to record who ran the scan.
+
+### Security
+
+- **The web API refuses hostname targets** (`ScopeValidator(resolve_names=False)`).
+  Adding hostname support to the shared validator would have extended it to the HTTP API,
+  where `vet_target` and the scan resolve the name **separately**: the API vets the
+  string, then hands the original string to nmap, which resolves it again. A name
+  resolving to a permitted private address at vet time could resolve to loopback or a
+  public host moments later, which is DNS rebinding straight through the scope policy
+  (threat T1). Resolution is therefore enabled only for the CLI, where the operator types
+  the target locally and no such window exists. Covered by a regression test that fails if
+  the API attempts a lookup at all.
+
+### Changed
+
+- The CLI test suite no longer performs DNS lookups. Because `validate()` resolves
+  hostnames, the property-based fuzz test was sending random strings such as `"Xsv"` to
+  the system resolver, making the suite network-dependent and flaky. An autouse fixture
+  stubs resolution, restoring the suite's no-network-I/O contract.
+- Dependabot no longer raises scheduled version-bump pull requests. All five ecosystems
+  in `.github/dependabot.yml` are set to `open-pull-requests-limit: 0`, and the 17 open
+  bot branches were deleted, so the repository presents a single `main` branch. Security
+  updates are unaffected: GitHub raises those through a separate mechanism that this
+  limit does not apply to, so a published advisory still opens a pull request. The groups
+  and schedules are retained, so version updates can be restored by raising the limits.
+- Test count: **1420** (249 CLI, 779 backend, 178 evaluation, 214 frontend), up from
+  1365.
+
+---
+
 ## [1.0.0] - 2026-09-23
 
 Initial public release. ENUMGRID is a two-tiered, purple-team network enumeration

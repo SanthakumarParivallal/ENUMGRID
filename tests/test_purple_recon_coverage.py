@@ -1160,7 +1160,7 @@ def test_build_parser_defaults_and_flags():
 def test_print_banner_emits_brand():
     console = _term_console()
     pr.print_banner(console)
-    assert "PURPLE" in console.file.getvalue()
+    assert "ENUM" in console.file.getvalue()
 
 
 def test_confirm_scope_not_risky_returns_true():

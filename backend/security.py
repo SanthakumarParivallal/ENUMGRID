@@ -101,7 +101,13 @@ def vet_target(target: str) -> None:
         raise ScopeRejected("target contains invalid characters")
 
     try:
-        scope = pr.ScopeValidator(max_hosts=MAX_HOSTS).validate(target)
+        # resolve_names=False: the web API must not accept hostnames. Vetting
+        # and the scan resolve separately, so a name could pass the policy here
+        # and point at loopback or a public host by the time nmap resolves it
+        # (DNS rebinding). Addresses only, as documented in backend/README.md.
+        scope = pr.ScopeValidator(
+            max_hosts=MAX_HOSTS, resolve_names=False
+        ).validate(target)
     except pr.ScopeError as exc:
         # Loopback / multicast / broadcast / reserved / oversized: same policy
         # as the CLI, which raises ScopeError for these.

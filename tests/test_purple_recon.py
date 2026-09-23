@@ -288,7 +288,12 @@ def test_build_report_structure():
     now = datetime.now(timezone.utc)
     report = pr.build_report(_sample_state(), _sample_scope(), now, now)
     assert report["tool"] == pr.APP_NAME
-    assert report["author"] == pr.AUTHOR
+    # The tool's author and the person running the scan are different facts: a
+    # client deliverable must record the operator, never the tool's author.
+    assert report["tool_author"] == pr.AUTHOR
+    assert report["operator"] == _sample_state().operator
+    assert report["operator"] != pr.AUTHOR
+    assert report["author"] == report["operator"]   # deprecated alias
     assert report["summary"]["live_hosts"] == 1
     assert report["summary"]["total_open_ports"] == 1
     assert report["hosts"][0]["ip"] == "192.168.1.1"
@@ -436,10 +441,11 @@ def _render(renderable, width=120):
 
 def test_dashboard_renders_with_content():
     out = _render(pr.render_dashboard(_sample_state().snapshot()))
-    assert "RECON" in out
+    assert "ENUM" in out and "GRID" in out
     assert "LIVE ASSET MATRIX" in out
     assert "192.168.1.1" in out
-    assert pr.AUTHOR in out
+    # The header names the operator of this scan, not the tool's author.
+    assert _sample_state().operator in out
 
 
 def test_dashboard_empty_state_renders():
@@ -514,7 +520,7 @@ def test_html_report_is_self_contained_and_escapes():
     assert "</html>" in out
     assert "192.168.1.1" in out
     assert "Icotera" in out
-    assert "PURPLE" in out
+    assert "ENUM" in out and "GRID" in out
     # User-controlled hostname must be escaped, never emitted as a live tag.
     assert "<script>evil" not in out
     assert "&lt;script&gt;evil" in out
@@ -610,10 +616,26 @@ def test_fuzz_mac_vendor(s):
     assert out is None or isinstance(out, str)
 
 
+@pytest.fixture(autouse=True)
+def _no_real_dns(monkeypatch):
+    """Keep the suite offline: no test may hit the system resolver.
+
+    `validate()` resolves hostnames, so without this a fuzzed string like "Xsv"
+    would become a live DNS query (slow, flaky and network-dependent in CI).
+    """
+    monkeypatch.setattr(
+        pr, "_resolve_hostname", lambda name, timeout=None: []
+    )
+
+
 @given(st.text(alphabet=string.printable, max_size=48))
 def test_fuzz_scope_validate_only_scopeerror(s):
     # validate() either returns a vetted namespace or raises *ScopeError*,
     # never any other exception, regardless of the input string.
+    #
+    # DNS is stubbed out: since validate() resolves hostnames, a random string
+    # such as "Xsv" is a syntactically valid name, and a real lookup would make
+    # this suite do network I/O and inherit resolver latency.
     try:
         pr.ScopeValidator(max_hosts=4096).validate(s)
     except pr.ScopeError:

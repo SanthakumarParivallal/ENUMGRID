@@ -4,9 +4,19 @@
 # own right. The CI gate already runs pip-audit, bandit and npm audit on every push;
 # Dependabot is what keeps those gates from going red in the first place.
 #
-# Updates are grouped so a solo maintainer gets a few reviewable pull requests each
-# week instead of one per package. Security updates are never grouped away: GitHub
-# raises those separately and immediately, regardless of the schedule below.
+# Routine version updates are switched off: every ecosystem below sets
+# `open-pull-requests-limit: 0`, which tells Dependabot not to raise scheduled
+# version-bump pull requests. The repository is kept to a single branch, and
+# dependency currency is handled by the maintainer running the audit gates.
+#
+# Security updates are deliberately left alone. GitHub raises those through a
+# separate mechanism that this limit does not apply to, so a dependency with a
+# published advisory still opens a pull request immediately. That is the one
+# case where a second branch is wanted: it means pip-audit or npm audit is
+# about to go red.
+#
+# The groups and schedules below are retained so version updates can be turned
+# back on by restoring the limits (5 for pip and npm, 3 for actions and docker).
 version: 2
 
 updates:
@@ -16,7 +26,7 @@ updates:
     schedule:
       interval: weekly
       day: monday
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 0
     labels: [dependencies, backend]
     commit-message:
       prefix: "deps(backend)"
@@ -31,7 +41,7 @@ updates:
     schedule:
       interval: weekly
       day: monday
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 0
     labels: [dependencies, tooling]
     commit-message:
       prefix: "deps(python)"
@@ -45,7 +55,7 @@ updates:
     schedule:
       interval: weekly
       day: monday
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 0
     labels: [dependencies, frontend]
     commit-message:
       prefix: "deps(frontend)"
@@ -59,7 +69,7 @@ updates:
     schedule:
       interval: weekly
       day: monday
-    open-pull-requests-limit: 3
+    open-pull-requests-limit: 0
     labels: [dependencies, ci]
     commit-message:
       prefix: "deps(actions)"
@@ -73,7 +83,7 @@ updates:
     schedule:
       interval: weekly
       day: monday
-    open-pull-requests-limit: 3
+    open-pull-requests-limit: 0
     labels: [dependencies, docker]
     commit-message:
       prefix: "deps(docker)"

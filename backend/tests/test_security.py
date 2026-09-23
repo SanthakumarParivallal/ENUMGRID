@@ -198,3 +198,37 @@ def test_ensure_on_path_inserts_once():
     assert path == ["/root", "/existing"]   # inserted at the front
     security._ensure_on_path("/root", path)  # already present
     assert path == ["/root", "/existing"]   # → no duplicate
+
+
+# --------------------------------------------------------------------------- #
+# DNS rebinding: the web API must never resolve a hostname target.
+#
+# `vet_target` and the scan itself resolve *separately*: we vet the string, then
+# hand the original string to nmap, which resolves it again. If a name were
+# accepted, it could resolve to a permitted private address at vet time and to
+# loopback or a public host by the time nmap looked it up, walking straight
+# through the scope policy that is the project's headline guarantee.
+# --------------------------------------------------------------------------- #
+def test_web_api_refuses_hostname_targets(monkeypatch):
+    """A name is refused, and no DNS lookup is attempted at all."""
+    import purple_recon as pr
+
+    def _must_not_resolve(*_a, **_kw):
+        raise AssertionError("the web API must never resolve a hostname target")
+
+    monkeypatch.setattr(pr, "_resolve_hostname", _must_not_resolve)
+    for name in ("rebind.attacker.com", "target.example.org", "localhost"):
+        with pytest.raises(security.ScopeRejected):
+            security.vet_target(name)
+
+
+def test_web_api_still_accepts_addresses_cidrs_and_ranges():
+    """Refusing names must not narrow the legitimate target forms."""
+    for target in ("192.168.1.5", "192.168.1.0/28", "192.168.1.10-20"):
+        security.vet_target(target)          # must not raise
+
+
+def test_web_api_still_refuses_loopback_and_public():
+    for target in ("127.0.0.1", "8.8.8.8"):
+        with pytest.raises(security.ScopeRejected):
+            security.vet_target(target)
