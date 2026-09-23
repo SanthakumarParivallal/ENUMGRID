@@ -9,7 +9,7 @@ fabricated.
 | Artifact | Files | Notes |
 | --- | --- | --- |
 | Paper (source of truth) | [`PAPER.md`](PAPER.md) | Engineering and measurement paper; every quantitative claim cites an `evaluation/results/*.json` |
-| Paper (Word / PDF) | generated on demand, not checked in | The `.docx` and `.pdf` renderings were last built 2026-07-11 and had drifted from `PAPER.md`; they still quoted the 1,307-test figure against today's 1,365, so a stale binary could be submitted by mistake. Regenerate from the Markdown when you submit, as below |
+| Paper (Word / PDF) | generated on demand, not checked in | The `.docx` and `.pdf` renderings were last built 2026-07-11 and had drifted from `PAPER.md`; they still quoted the 1,307-test figure against today's 1,501, so a stale binary could be submitted by mistake. Regenerate from the Markdown when you submit, as below |
 | Defense deck | not currently checked in | 16 slides, speaker notes, visually QA'd. The `.pptx` and `.pdf` were removed from `docs/`, so this index no longer links them |
 | Reproducibility map | [`REPRODUCE.md`](REPRODUCE.md) | Every headline number → its command → its artifact |
 
@@ -54,7 +54,7 @@ Full table and methodology in [`ACCURACY.md`](ACCURACY.md); raw artifacts in
 
 ## Quality status
 
-- 1,480 automated tests: Python 1,266 (CLI 294, backend 794, evaluation 178) plus
+- 1,501 automated tests: Python 1,287 (CLI 315, backend 794, evaluation 178) plus
   frontend 214. All green.
 - ruff clean; SAST (bandit) and dependency audit (pip-audit) clean; SBOM; digest-pinned
   non-root Docker image.

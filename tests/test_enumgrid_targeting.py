@@ -10,6 +10,7 @@ Like the rest of the suite these perform **no network I/O**: DNS is mocked at
 deterministic in CI.
 """
 
+import json
 import socket
 import xml.etree.ElementTree as ET
 
@@ -442,6 +443,87 @@ def test_exports_write_files(tmp_path):
     assert xml_path.endswith(".xml") and md_path.endswith(".md")
     ET.parse(xml_path)                                   # parses from disk
     assert "ENUMGRID scan report" in open(md_path).read()
+
+
+# --------------------------------------------------------------------------- #
+# Greppable (-oG) and SARIF exports.
+#
+# The greppable format drops results into an operator's grep/awk pipelines; the
+# SARIF format ingests into code scanning (e.g. GitHub). SARIF reports exposure
+# only, at level "note" - the CLI pipeline has no CVE data, so inventing a
+# severity would be fabrication.
+# --------------------------------------------------------------------------- #
+_MIXED_REPORT = {
+    "tool": "ENUMGRID",
+    "version": "1.0.0",
+    "target": "10.0.0.0/24",
+    "started_at": "2026-09-23T10:00:00",
+    "finished_at": "2026-09-23T10:05:00",
+    "summary": {"live_hosts": 2},
+    "hosts": [
+        {
+            "ip": "10.0.0.1", "hostname": "host-a", "status": "up",
+            "ports": [
+                {"port": 22, "protocol": "tcp", "state": "open",
+                 "service": "ssh", "product": "OpenSSH", "version": "9.6"},
+                {"port": 8080, "protocol": "tcp", "state": "open",
+                 "service": "", "product": "", "version": ""},
+            ],
+        },
+        {"ip": "10.0.0.2", "hostname": None, "status": "up", "ports": []},
+        {"ip": "10.0.0.9", "hostname": "down-host", "status": "down", "ports": []},
+    ],
+}
+
+
+def test_greppable_covers_every_host_shape():
+    out = pr.render_greppable(_MIXED_REPORT)
+    assert out.startswith("# ENUMGRID 1.0.0 greppable output")
+    assert "# Target: 10.0.0.0/24" in out
+    # host with a hostname and ports: version tuple and empty service/version tuple
+    assert "Host: 10.0.0.1 (host-a)\tStatus: Up" in out
+    assert "22/open/tcp//ssh//OpenSSH 9.6/" in out
+    assert "8080/open/tcp//" in out                       # empty service and version
+    # host without a hostname renders "()" and, with no ports, emits no Ports line
+    assert "Host: 10.0.0.2 ()\tStatus: Up" in out
+    assert "Host: 10.0.0.2 ()\tPorts:" not in out
+    # a host that is down never appears
+    assert "10.0.0.9" not in out and "down-host" not in out
+    assert out.rstrip().endswith("2 host(s) up")
+
+
+def test_greppable_writes_a_gnmap_file(tmp_path):
+    path = pr.write_greppable_report(_MIXED_REPORT, str(tmp_path))
+    assert path.endswith(".gnmap")
+    assert "Host: 10.0.0.1 (host-a)" in open(path, encoding="utf-8").read()
+
+
+def test_sarif_is_valid_and_reports_exposure_only():
+    doc = json.loads(pr.render_sarif(_MIXED_REPORT))
+    assert doc["version"] == "2.1.0"
+    driver = doc["runs"][0]["tool"]["driver"]
+    assert driver["name"] == "ENUMGRID"
+    assert driver["informationUri"].endswith("/ENUMGRID")
+    results = doc["runs"][0]["results"]
+    # two open ports on the one host that has ports; empty and down hosts add none
+    assert len(results) == 2
+    assert {r["level"] for r in results} == {"note"}      # never a fabricated severity
+    ssh = next(r for r in results if r["properties"]["port"] == 22)
+    assert ssh["ruleId"] == "enumgrid/open-port"
+    assert ssh["message"]["text"] == "ssh (OpenSSH 9.6) reachable on 10.0.0.1:22/tcp."
+    loc = ssh["locations"][0]["logicalLocations"][0]
+    assert loc["fullyQualifiedName"] == "10.0.0.1:22/tcp"
+    # an empty service name is reported as "unknown", with no version parenthetical
+    unknown = next(r for r in results if r["properties"]["port"] == 8080)
+    assert unknown["properties"]["service"] == "unknown"
+    assert unknown["message"]["text"] == "unknown reachable on 10.0.0.1:8080/tcp."
+
+
+def test_sarif_writes_a_parseable_file(tmp_path):
+    path = pr.write_sarif_report(_MIXED_REPORT, str(tmp_path))
+    assert path.endswith(".sarif")
+    doc = json.loads(open(path, encoding="utf-8").read())
+    assert doc["runs"][0]["tool"]["driver"]["rules"][0]["id"] == "enumgrid/open-port"
 
 
 # --------------------------------------------------------------------------- #

@@ -73,7 +73,8 @@ def test_rate_limiter_thread_safe():
 # --------------------------------------------------------------------------- #
 def _args(**kw):
     base = dict(full=False, ports=None, top_ports=100, host_timeout="120s",
-                timing=4, max_rate=None, min_rate=None)
+                timing=4, max_rate=None, min_rate=None,
+                interface=None, source_port=None)
     base.update(kw)
     return SimpleNamespace(**base)
 
@@ -101,7 +102,8 @@ def test_build_nmap_args_no_rate_flags_by_default():
 # --------------------------------------------------------------------------- #
 def _full_args(**kw):
     base = dict(top_ports=100, ports=None, host_timeout="120s", sweep_workers=128,
-                scan_workers=8, max_hosts=4096, timing=4, max_rate=None, min_rate=None)
+                scan_workers=8, max_hosts=4096, timing=4, max_rate=None, min_rate=None,
+                interface=None, source_port=None)
     base.update(kw)
     return SimpleNamespace(**base)
 
@@ -130,6 +132,41 @@ def test_validate_rejects_min_rate_above_max_rate():
 
 def test_validate_accepts_min_le_max():
     pr.validate_scan_options(_full_args(max_rate=100, min_rate=10))  # no raise
+
+
+# --------------------------------------------------------------------------- #
+# build_nmap_args + validate: --interface / --source-port (nmap-engine controls)
+# --------------------------------------------------------------------------- #
+def test_build_nmap_args_interface_and_source_port():
+    a = pr.build_nmap_args(_args(interface="eth0", source_port=53), privileged=False)
+    assert "-e eth0" in a and "--source-port 53" in a
+
+
+def test_build_nmap_args_omits_interface_and_source_port_by_default():
+    a = pr.build_nmap_args(_args(), privileged=False)
+    assert "-e " not in a and "--source-port" not in a
+
+
+@pytest.mark.parametrize("port", [0, -1, 70000, 65536])
+def test_validate_rejects_bad_source_port(port):
+    with pytest.raises(pr.ScopeError):
+        pr.validate_scan_options(_full_args(source_port=port))
+
+
+@pytest.mark.parametrize("port", [1, 53, 65535])
+def test_validate_accepts_good_source_port(port):
+    pr.validate_scan_options(_full_args(source_port=port))  # no raise
+
+
+@pytest.mark.parametrize("iface", ["eth0; rm -rf /", "en0 && id", "", "a" * 40])
+def test_validate_rejects_bad_interface(iface):
+    with pytest.raises(pr.ScopeError):
+        pr.validate_scan_options(_full_args(interface=iface))
+
+
+@pytest.mark.parametrize("iface", ["eth0", "en0", "wlan0", "br-lan.100"])
+def test_validate_accepts_good_interface(iface):
+    pr.validate_scan_options(_full_args(interface=iface))  # no raise
 
 
 # --------------------------------------------------------------------------- #

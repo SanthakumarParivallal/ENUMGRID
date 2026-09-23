@@ -1124,7 +1124,8 @@ def test_ip_key_handles_garbage():
 
 def test_build_nmap_args_explicit_ports():
     ns = SimpleNamespace(full=False, ports="1-1024", top_ports=100, host_timeout="120s",
-                         timing=4, max_rate=None, min_rate=None)
+                         timing=4, max_rate=None, min_rate=None,
+                         interface=None, source_port=None)
     args = pr.build_nmap_args(ns, privileged=False)
     assert "-p 1-1024" in args
 

@@ -81,7 +81,7 @@
   <rect x="68" y="200" width="132" height="4" rx="2" fill="#FFB300"/>
 
   <text class="tag" x="68" y="238">Angry-IP discovery &#183; nmap service &amp; vuln depth &#183; live CVE intelligence</text>
-  <text class="sub" x="68" y="264">one engine &#8212; a terminal cockpit <tspan fill="#8595ab">and</tspan> a web cockpit</text>
+  <text class="sub" x="68" y="264">one engine: a terminal cockpit <tspan fill="#8595ab">and</tspan> a web cockpit</text>
 
   <!-- capability chips -->
   <g transform="translate(0 294)">
@@ -98,7 +98,7 @@
     <g>
       <rect x="306" y="0" width="150" height="26" rx="7" fill="#0e1a30" stroke="#24344f"/>
       <circle cx="322" cy="13" r="3.5" fill="#34d399"/>
-      <text class="chip" x="334" y="17">1480 TESTS &#10003;</text>
+      <text class="chip" x="334" y="17">1501 TESTS &#10003;</text>
     </g>
     <g>
       <rect x="466" y="0" width="152" height="26" rx="7" fill="#0e1a30" stroke="#24344f"/>

@@ -203,7 +203,7 @@ The backend is Python/FastAPI (~30 modules: scanner, CVE correlation across
 NVD/`vulners`/OSV, KEV/EPSS triage, report/PDF, auth with per-IP throttling,
 structured logging). The frontend is React/Vite/TypeScript. Engineering rigour is
 part of the credibility argument rather than the research claim: the repository
-carries 1,480 automated tests (Python 1,266, being CLI 294, backend 794 and
+carries 1,501 automated tests (Python 1,287, being CLI 315, backend 794 and
 evaluation 178, plus frontend 214), CI-gated line-coverage floors (100% on
 load-bearing modules), clean
 SAST (`bandit`) and dependency audit (`pip-audit`), an SBOM, and a digest-pinned

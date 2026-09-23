@@ -117,6 +117,7 @@ VERSION = "1.0.0"
 # separately in every report, so a deliverable never misattributes the scan.
 AUTHOR = "Santhakumar Parivallal"
 TAGLINE = "Two-Tiered Network Enumeration Cockpit"
+HOMEPAGE = "https://github.com/SanthakumarParivallal/ENUMGRID"  # project home; SARIF informationUri
 
 # Industrial "cockpit" palette: restrained, signal-only accent colours.
 C_AMBER = "#FFB300"   # energised / in-progress
@@ -2073,6 +2074,136 @@ def write_markdown_report(report: dict, output_dir: str) -> str:
     return path
 
 
+def render_greppable(report: dict) -> str:
+    """Render the report in Nmap's greppable (``-oG``) format.
+
+    One ``Host:`` line per live host so the results drop straight into the
+    ``grep``/``awk``/``cut`` pipelines an operator already runs. The port tuple
+    keeps Nmap's ``port/state/protocol/owner/service/rpc/version/`` shape, with
+    owner and rpc left empty (this tool does not collect them), so existing
+    greppable parsers read it unchanged.
+    """
+    started = report.get("started_at", "")
+    finished = report.get("finished_at", "")
+    tool = report.get("tool", APP_NAME)
+    version = report.get("version", "")
+    lines = [
+        f"# {tool} {version} greppable output; scan initiated {started}",
+        f"# Target: {report.get('target', '')}",
+    ]
+    for host in report.get("hosts", []):
+        if host.get("status") != "up":
+            continue
+        ip = host.get("ip", "")
+        hostname = host.get("hostname") or ""
+        label = f"{ip} ({hostname})" if hostname else f"{ip} ()"
+        lines.append(f"Host: {label}\tStatus: Up")
+        ports = host.get("ports") or []
+        if not ports:
+            continue
+        tuples = []
+        for port in ports:
+            svc_version = " ".join(
+                x for x in (port.get("product", ""), port.get("version", "")) if x
+            ).strip()
+            tuples.append(
+                f"{port.get('port', '')}/{port.get('state', 'open')}/"
+                f"{port.get('protocol', 'tcp')}//{port.get('service', '')}//"
+                f"{svc_version}/"
+            )
+        lines.append(f"Host: {label}\tPorts: {', '.join(tuples)}")
+    live = report.get("summary", {}).get("live_hosts", 0)
+    lines.append(f"# {tool} done at {finished}; {live} host(s) up")
+    return "\n".join(lines) + "\n"
+
+
+def write_greppable_report(report: dict, output_dir: str) -> str:
+    """Write the greppable (``.gnmap``) export; returns the path."""
+    os.makedirs(output_dir, exist_ok=True)
+    path = _timestamped_path(report, output_dir, "gnmap")
+    _atomic_write_text(path, render_greppable(report))
+    return path
+
+
+def render_sarif(report: dict) -> str:
+    """Render the report as SARIF 2.1.0, for code-scanning ingestion (e.g. GitHub).
+
+    Each reachable service becomes one SARIF result at level ``note``: the CLI
+    pipeline surfaces *exposure*, not vulnerabilities, so no severity or CVSS is
+    invented here. A host with no open ports produces no result, because a SARIF
+    result is a finding and an empty host is not one.
+    """
+    rule = {
+        "id": "enumgrid/open-port",
+        "name": "OpenService",
+        "shortDescription": {"text": "A reachable network service was found."},
+        "fullDescription": {
+            "text": (
+                "ENUMGRID observed an open port answering on this host. This "
+                "records exposure only; it does not assert a vulnerability."
+            )
+        },
+        "defaultConfiguration": {"level": "note"},
+    }
+    results = []
+    for host in report.get("hosts", []):
+        if host.get("status") != "up":
+            continue
+        ip = host.get("ip", "")
+        for port in host.get("ports") or []:
+            proto = port.get("protocol", "tcp")
+            portid = port.get("port", "")
+            service = port.get("service", "") or "unknown"
+            svc_version = " ".join(
+                x for x in (port.get("product", ""), port.get("version", "")) if x
+            ).strip()
+            detail = f" ({svc_version})" if svc_version else ""
+            results.append({
+                "ruleId": "enumgrid/open-port",
+                "level": "note",
+                "message": {
+                    "text": f"{service}{detail} reachable on {ip}:{portid}/{proto}."
+                },
+                "locations": [{
+                    "logicalLocations": [{
+                        "fullyQualifiedName": f"{ip}:{portid}/{proto}",
+                        "kind": "resource",
+                    }]
+                }],
+                "properties": {
+                    "ip": ip,
+                    "port": portid,
+                    "protocol": proto,
+                    "service": service,
+                    "version": svc_version,
+                },
+            })
+    doc = {
+        "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+        "version": "2.1.0",
+        "runs": [{
+            "tool": {
+                "driver": {
+                    "name": APP_NAME,
+                    "version": str(report.get("version", VERSION)),
+                    "informationUri": HOMEPAGE,
+                    "rules": [rule],
+                }
+            },
+            "results": results,
+        }],
+    }
+    return json.dumps(doc, indent=2, ensure_ascii=False)
+
+
+def write_sarif_report(report: dict, output_dir: str) -> str:
+    """Write the SARIF export; returns the path."""
+    os.makedirs(output_dir, exist_ok=True)
+    path = _timestamped_path(report, output_dir, "sarif")
+    _atomic_write_text(path, render_sarif(report) + "\n")
+    return path
+
+
 def render_html_report(report: dict) -> str:
     """Render a self-contained, dark-themed HTML report (no external assets).
 
@@ -2741,6 +2872,7 @@ def _ip_key(ip: str) -> tuple[int, ...]:
 
 # nmap accepts "120s", "2m", "1h" (and a bare number = seconds) for --host-timeout.
 _HOST_TIMEOUT_RE = re.compile(r"^\d{1,6}(?:\.\d+)?(?:ms|s|m|h)?$", re.IGNORECASE)
+_INTERFACE_RE = re.compile(r"^[A-Za-z0-9._:-]{1,32}$")  # sane iface name (en0, eth0, wlan0)
 # A port spec: comma-separated ports and ranges, optionally protocol-prefixed
 # ("T:80,U:53"), which is what nmap's -p takes.
 _PORTSPEC_RE = re.compile(r"^(?:[TUS]:)?\d{1,5}(?:-\d{1,5})?(?:,(?:[TUS]:)?\d{1,5}(?:-\d{1,5})?)*$",
@@ -2797,6 +2929,15 @@ def validate_scan_options(args: argparse.Namespace) -> None:
         raise ScopeError(
             f"--min-rate ({args.min_rate}) cannot exceed --max-rate ({args.max_rate})."
         )
+    if args.source_port is not None and not 1 <= args.source_port <= 65535:
+        raise ScopeError(
+            f"--source-port must be between 1 and 65535 (got {args.source_port})."
+        )
+    if args.interface is not None and not _INTERFACE_RE.match(args.interface):
+        raise ScopeError(
+            f"Invalid --interface '{args.interface}'. Use an interface name such "
+            f"as 'eth0', 'en0' or 'wlan0'."
+        )
 
 
 def build_nmap_args(args: argparse.Namespace, privileged: bool) -> str:
@@ -2815,6 +2956,12 @@ def build_nmap_args(args: argparse.Namespace, privileged: bool) -> str:
         parts += ["--max-rate", str(args.max_rate)]
     if args.min_rate:
         parts += ["--min-rate", str(args.min_rate)]
+    # Interface and source-port are raw-packet controls, so they route to the
+    # nmap engine only; the built-in socket scanner cannot honour them.
+    if args.interface:
+        parts += ["-e", args.interface]
+    if args.source_port:
+        parts += ["--source-port", str(args.source_port)]
     if privileged:
         # OS fingerprinting needs raw sockets; only attempt it as root.
         parts += ["-O", "--osscan-guess"]
@@ -2879,6 +3026,13 @@ def build_parser() -> argparse.ArgumentParser:
                              "built-in socket scanner) for fragile networks")
     parser.add_argument("--min-rate", type=int, default=None, metavar="PPS",
                         help="nmap minimum packets/second (nmap engine only)")
+    parser.add_argument("--interface", metavar="IFACE", default=None,
+                        help="send scans from this network interface (nmap -e; "
+                             "nmap engine only)")
+    parser.add_argument("--source-port", type=int, default=None, metavar="PORT",
+                        dest="source_port",
+                        help="use this TCP source port (nmap --source-port; nmap "
+                             "engine only)")
     parser.add_argument("--host-timeout", default="120s",
                         help="per-host nmap timeout")
     parser.add_argument("--sweep-workers", type=int, default=128,
@@ -2916,6 +3070,12 @@ def build_parser() -> argparse.ArgumentParser:
                              "Faraday, DefectDojo and other nmap-XML consumers)")
     parser.add_argument("--markdown", "--md", action="store_true", dest="markdown",
                         help="also write a Markdown report (for engagement write-ups)")
+    parser.add_argument("--sarif", action="store_true",
+                        help="also write SARIF 2.1.0 (each reachable service as an "
+                             "informational result; ingests into GitHub code scanning)")
+    parser.add_argument("--greppable", "--grep", action="store_true", dest="greppable",
+                        help="also write Nmap greppable output (.gnmap) for "
+                             "grep/awk/cut pipelines")
     parser.add_argument("--resume", metavar="FILE",
                         help="resume an interrupted scan: pass a path; the first run "
                              "journals progress there and re-running the same command "
@@ -3183,6 +3343,8 @@ def main(argv: list[str] | None = None) -> int:
         (args.csv, write_csv_report, "CSV inventory"),
         (args.xml, write_nmap_xml_report, "Nmap-XML export"),
         (args.markdown, write_markdown_report, "Markdown report"),
+        (args.sarif, write_sarif_report, "SARIF export"),
+        (args.greppable, write_greppable_report, "greppable output"),
     ):
         if not enabled:
             continue

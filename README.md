@@ -4,7 +4,7 @@
 
 <!-- badges -->
 [![CI](https://github.com/SanthakumarParivallal/ENUMGRID/actions/workflows/ci.yml/badge.svg)](https://github.com/SanthakumarParivallal/ENUMGRID/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-1480%20passing-brightgreen.svg)](#testing-and-quality-gates)
+[![Tests](https://img.shields.io/badge/tests-1501%20passing-brightgreen.svg)](#testing-and-quality-gates)
 [![Coverage](https://img.shields.io/badge/coverage-100%25%20line-brightgreen.svg)](#testing-and-quality-gates)
 [![SAST: bandit](https://img.shields.io/badge/SAST-bandit%200%20high%2Fmed-1f6feb.svg)](#security-model)
 [![Deps: 0 CVEs](https://img.shields.io/badge/deps-0%20known%20CVEs-brightgreen.svg)](#security-model)
@@ -98,7 +98,7 @@ is held in memory only.
 
 ### Tested
 
-1480 tests. The CLI, all 31 backend modules and the frontend logic layer are held at a
+1501 tests. The CLI, all 31 backend modules and the frontend logic layer are held at a
 CI-gated 100% line coverage, so a regression anywhere fails the build.
 
 </td>
@@ -187,7 +187,10 @@ range (`192.168.0.10-40`, `10.0.0.1-10.0.0.50`), a hostname, or any comma-separa
 what was left out.
 
 **Report formats.** JSON by default, plus `--html`, `--csv`, `--markdown` for a write-up,
-and `--xml` for Nmap-compatible XML that imports into Metasploit, Faraday and DefectDojo.
+`--xml` for Nmap-compatible XML that imports into Metasploit, Faraday and DefectDojo,
+`--greppable` for Nmap `.gnmap` lines that feed `grep`/`awk` pipelines, and `--sarif` for
+SARIF 2.1.0 that surfaces each reachable service as an informational result in a
+code-scanning view (no severity is invented, because the CLI path measures none).
 Every report records the **operator** (`--operator`, `$ENUMGRID_OPERATOR`, or your login
 name) separately from the tool's author, so a deliverable never misattributes the scan.
 
@@ -196,7 +199,9 @@ figure a fragile-network owner asks for), enforced in both the nmap engine and t
 built-in socket scanner, and `--timing 0-5` selects the nmap timing template. `--resume
 FILE` journals progress to `FILE` as the scan runs and, re-run with the same command,
 skips discovery and re-enumerates only the hosts still pending, so a `/16` that dies part
-way does not start over.
+way does not start over. `--interface IFACE` and `--source-port PORT` send probes from a
+chosen interface (nmap `-e`) or a fixed TCP source port (nmap `--source-port`), which a
+firewall allowlist sometimes requires; both apply to the nmap engine.
 
 Install it as a command ([`pyproject.toml`](pyproject.toml), single-file module):
 
@@ -505,13 +510,13 @@ make test      # ruff lint + CLI pytest + backend pytest + evaluation pytest + f
 
 <div align="center">
 
-1480 tests, all green.
+1501 tests, all green.
 
 </div>
 
 | Suite | Count | Scope |
 |---|:---:|---|
-| CLI, `tests/test_purple_recon*.py`, `tests/test_enumgrid_targeting.py`, `tests/test_enumgrid_pacing_resume.py` | **294** | Guardrails (IPv6 scope, empty and delimiter specs), NDP/ARP/OUI parsing, discovery policy, reports, export, renderers, reproducibility manifest and fuzzing. Plus the packet-rate limiter and `--resume` checkpointing, the full threaded engines (sweep/ICMP/TCP/ARP-proxy, nmap and socket enumeration), the orchestrator, both run-loops (cockpit and headless, including Ctrl-C) and the `main`/`cli` entrypoints, driven through mocked boundaries to 100% line coverage |
+| CLI, `tests/test_purple_recon*.py`, `tests/test_enumgrid_targeting.py`, `tests/test_enumgrid_pacing_resume.py` | **315** | Guardrails (IPv6 scope, empty and delimiter specs), NDP/ARP/OUI parsing, discovery policy, reports, export, renderers, reproducibility manifest and fuzzing. Plus the packet-rate limiter and `--resume` checkpointing, the full threaded engines (sweep/ICMP/TCP/ARP-proxy, nmap and socket enumeration), the orchestrator, both run-loops (cockpit and headless, including Ctrl-C) and the `main`/`cli` entrypoints, driven through mocked boundaries to 100% line coverage |
 | Backend, `backend/tests/test_*.py` | **794** | Scope, RBAC (constant-time tokens), per-IP throttle and the read-gated PDF endpoint; the full async scan-pipeline and FastAPI drive-through (nmap, SSH, AWS, LDAP and LLM boundaries mocked to 100%); 11 scan profiles with injection safety and adaptive all-ports; privilege auto-adaptation and runtime sudo elevation; live NVD and the offline CVE DB (whole-token match) plus backport-aware OSV; KEV and EPSS; confidence propagation; credentialed SSH; authenticated SMB share enumeration; web-DAST (TLS parse); the SNMP BER codec; AWS and LDAP parsers; the job queue; passive discovery; cron scheduling; campaign aggregation; the provenance manifest; golden-file determinism (XML to model, and byte-stable PDF); structured JSON logging; alerting and audit; multi-signal OS fingerprinting; mDNS, NBNS and SSDP; history and drift; PDF escaping; the AI copilot (4 providers including free Ollama and Gemini, scan-grounding, intent-gated tools, grounded PDF summary); and hypothesis fuzzing |
 | Frontend, `frontend/src/**/*.test.{js,jsx}` | **214** | The whole `src/lib/**` layer at 100% line coverage under jsdom: schema coercion and null-safety, CVE link, confidence and KEV/EPSS rank, API-token persistence, CSV/JSON export (formula-injection-safe), the view-preference store, the offline scan engine (seeded), the modal focus-trap, the toast provider, ⌘K palette ranking, copilot helpers (SSE parsing, Ollama setup), the safe Markdown renderer (HTML-escaped, scheme-allow-listed, XSS-tested), and the busy-retry policy |
 | Evaluation, `evaluation/test_*.py` | **178** | Discovery-benchmark metric math (precision, recall, Jaccard), multi-run stats (mean ± 95% CI), cross-environment pooling (macro-average recall across networks), scalability fit (ms per address, R², throughput), arp-scan/netdiscover/masscan baseline parsers, detection-benchmark scoring against a pinned 9-host testbed (accuracy-by-confidence, repeated-scan stability), offline CVE precision and recall (33-case corpus, Wilson CIs), live-NVD pipeline precision and recall (documented-CVE recall, version-scoping, top-N truncation loss, real `parse_nvd` on schema fixtures, and `--live` for the authoritative number), CVE-detection baselines (EnumGrid against nmap-`vulners` and Nuclei: parsers, planted-CVE recall and agreement, plus OpenVAS and Nessus report-file adapters for the heavyweight scanners), and AI-copilot eval (grounding, hallucination detection) |
@@ -526,7 +531,7 @@ at release, so that a build-tool advisory cannot block a security fix. CI
 backend, frontend (ESLint, Vitest, build) and a CycloneDX SBOM, with coverage gates on
 every push.
 
-> The CLI (`purple_recon.py`, 1 467 statements), every one of the 31 backend modules
+> The CLI (`purple_recon.py`, 1 531 statements), every one of the 31 backend modules
 > (4 283 statements), and the whole frontend `src/lib/**` logic layer are held at a full
 > 100% line coverage, raised the honest way by mocking only true I/O boundaries. A
 > regression anywhere in the CLI, backend, or frontend logic fails the build. The big React

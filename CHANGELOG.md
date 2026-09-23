@@ -98,6 +98,21 @@ is treated as a correctness bug, not a missing feature.
   share root, no writes, no password guessing). Reaching an administrative share such as
   `C$`/`ADMIN$` is the classic local-admin signal. Optional `smbprotocol` dependency,
   credential-gated, credentials in memory only, mirroring the SSH and LDAP modules.
+- **SARIF 2.1.0 export** (`--sarif`). Each reachable service is emitted as one
+  SARIF result at level `note`, so exposure surfaces in a code-scanning view (GitHub
+  and other SARIF consumers) beside the usual reports. The CLI pipeline carries no CVE
+  data, so no severity or CVSS is invented: the export records what is reachable, never
+  a vulnerability it did not measure.
+- **Greppable output** (`--greppable`/`--grep`, written as `.gnmap`). Nmap's greppable
+  line format, one `Host:` line per live host, so results drop straight into the
+  `grep`/`awk`/`cut` pipelines an operator already runs. The port tuple keeps Nmap's
+  `port/state/protocol/owner/service/rpc/version/` shape, so existing parsers read it
+  unchanged.
+- **Source interface and source port** (`--interface`, `--source-port`). Route probes
+  out of a chosen interface (nmap `-e`) or from a fixed TCP source port (nmap
+  `--source-port`), which a firewall allowlist sometimes requires. Both are raw-packet
+  controls, so they apply to the nmap engine only and are validated up front; the
+  built-in socket scanner cannot honour them.
 
 ### Security
 
@@ -135,8 +150,14 @@ is treated as a correctness bug, not a missing feature.
   0.49 ± 0.54. The paper, accuracy and publication docs and the pooled plot were
   re-derived from the regenerated `pooled_recall.json`; n = 3 is still small and reported
   as such.
-- Test count: **1480** (294 CLI, 794 backend, 178 evaluation, 214 frontend), up from
+- Test count: **1501** (315 CLI, 794 backend, 178 evaluation, 214 frontend), up from
   1365. `backend/smbscan.py` is covered to the same CI-gated 100% as the other modules.
+- Both SVG diagrams are re-synced with the codebase. `docs/architecture.svg` still
+  advertised **422 tests**, a stale count from when the diagram was first added; it now
+  reads **1501**, matching the banner, the README and the count above. The em dashes in
+  the `architecture.svg` and `banner.svg` captions are replaced with the middot the
+  diagrams already use as a separator, so the rendered docs hold to the no-em-dash house
+  style. Both files still parse as well-formed XML.
 
 ---
 
