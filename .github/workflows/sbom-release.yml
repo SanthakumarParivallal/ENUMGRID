@@ -1,0 +1,58 @@
+name: Attach SBOM to release
+
+# When a GitHub release is published, build the same comprehensive CycloneDX SBOM
+# that CI generates and attach it to the release, so the release asset always
+# matches the pipeline (identical tool, version and settings). Can also be run
+# manually against an existing tag via workflow_dispatch.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to (re)build and attach the SBOM to (e.g. v1.0.0)"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  sbom:
+    name: Build and attach CycloneDX SBOM
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - name: Resolve version
+        run: echo "VERSION=${TAG#v}" >> "$GITHUB_ENV"
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      # Same install-then-scan as ci.yml's sbom job, so the attached asset is
+      # byte-for-byte reproducible from the tagged tree (modulo Syft's serial
+      # number and timestamp, which are unique per run by design).
+      - name: Install dependency surface
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/python -m pip install -r backend/requirements.txt -r requirements-dev.txt smbprotocol
+      - name: Generate CycloneDX SBOM
+        uses: anchore/sbom-action@v0
+        with:
+          path: .
+          format: cyclonedx-json
+          output-file: enumgrid-${{ env.VERSION }}.sbom.cyclonedx.json
+          syft-version: v1.52.0
+        env:
+          SYFT_JAVASCRIPT_INCLUDE_DEV_DEPENDENCIES: "true"
+          SYFT_FILE_METADATA_SELECTION: "none"
+          SYFT_SELECT_CATALOGERS: "-pe-binary-package-cataloger,-binary-classifier-cataloger"
+          SYFT_SOURCE_NAME: "ENUMGRID"
+          SYFT_SOURCE_VERSION: ${{ env.VERSION }}
+      - name: Attach to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$TAG" "enumgrid-${VERSION}.sbom.cyclonedx.json" --clobber

@@ -149,13 +149,29 @@ jobs:
         run: npm run build
 
   sbom:
-    name: SBOM (CycloneDX, Python + npm dependencies)
+    name: SBOM (CycloneDX, comprehensive - Python + npm, exact versions)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
-      # Syft scans the repo (backend/requirements.txt + frontend/package-lock.json)
-      # and emits one CycloneDX SBOM, the software bill of materials reviewers now
-      # expect. Uploaded as a build artifact for release attach / vuln scanning.
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      # Install the full dependency surface so Syft's installed-package cataloger
+      # records EXACT, transitive Python versions. A bare checkout only exposes
+      # ">=" ranges, which Syft skips, so install-then-scan is required for real
+      # versions. npm is read from frontend/package-lock.json (dev deps included
+      # via the env var below), so no npm install is needed. Keep this install
+      # list identical to how the release SBOM is generated (sbom-release.yml).
+      - name: Install dependency surface
+        run: |
+          python -m venv .venv
+          .venv/bin/python -m pip install --upgrade pip
+          .venv/bin/python -m pip install -r backend/requirements.txt -r requirements-dev.txt smbprotocol
+          echo "SYFT_SOURCE_VERSION=$(.venv/bin/python -c 'import tomllib;print(tomllib.load(open("pyproject.toml","rb"))["project"]["version"])')" >> "$GITHUB_ENV"
+      # Syft (pinned) scans the workspace: the installed .venv (exact Python) plus
+      # the npm lockfile. File components are disabled (packages only, no absolute
+      # paths) and pip's vendored Windows launcher stubs are excluded, so the
+      # result is reproducible and matches the release asset.
       - name: Generate CycloneDX SBOM
         uses: anchore/sbom-action@v0
         with:
@@ -163,3 +179,9 @@ jobs:
           format: cyclonedx-json
           output-file: enumgrid.sbom.cyclonedx.json
           artifact-name: enumgrid-sbom.cyclonedx.json
+          syft-version: v1.52.0
+        env:
+          SYFT_JAVASCRIPT_INCLUDE_DEV_DEPENDENCIES: "true"
+          SYFT_FILE_METADATA_SELECTION: "none"
+          SYFT_SELECT_CATALOGERS: "-pe-binary-package-cataloger,-binary-classifier-cataloger"
+          SYFT_SOURCE_NAME: "ENUMGRID"
