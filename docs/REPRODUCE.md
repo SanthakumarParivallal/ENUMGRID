@@ -18,7 +18,7 @@ stale shebangs after a folder rename.
 | Detection accuracy ⚡ (§6.3) | ports 1.00/1.00, service 0.89, version 0.83, CVE 3/3 | `python evaluation/detection_benchmark.py --json evaluation/results/detection_172-28.json` | `detection_172-28.json` |
 | CVE baselines, 2 schools ⚡ (§6.6) | vulners 3/3·133 · EnumGrid 2/3·13 · Nuclei 0/3 | `python evaluation/cve_baselines.py --json evaluation/results/cve_baselines_172-28.json` | `cve_baselines_172-28.json` |
 | Discovery vs `nmap -sn` ⚡ (§6.2) | EnumGrid 0.98±0.04 vs 0.06 | `python evaluation/benchmark.py 172.16.2.0/24 --runs 3 --json evaluation/results/benchmark_172-16-2.json` | `benchmark_172-16-2.json` |
-| Cross-env discovery pool (§6.2) | EnumGrid 0.99±0.02 vs `nmap -sn` 0.53±0.93 (n=2) | `python evaluation/aggregate_runs.py evaluation/results/benchmark_*.json --json evaluation/results/pooled_recall.json --plot docs/screenshots/pooled_recall.png` | `pooled_recall.json` |
+| Cross-env discovery pool (§6.2) | EnumGrid 0.97±0.04 vs `nmap -sn` 0.49±0.54 (n=3) | `python evaluation/aggregate_runs.py evaluation/results/benchmark_*.json --json evaluation/results/pooled_recall.json --plot docs/screenshots/pooled_recall.png` | `pooled_recall.json` |
 | Scalability ⚡ (§6.7) | 46.5 ms/addr + 9.1 s, R²=0.83 | `python evaluation/scalability_benchmark.py 172.16.2.0/28 …/24 --repeat 2 --json evaluation/results/scalability_172-16-2.json` | `scalability_172-16-2.json` |
 | Copilot grounding ⚡ (§6.8) | grounding 1.000±0.000 (5 runs) | `python evaluation/copilot_eval.py --provider ollama --model llama3.2 --runs 5 --json evaluation/results/llama3.2_x5.json` | `llama3.2_x5.json` |
 

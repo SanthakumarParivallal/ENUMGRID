@@ -35,23 +35,33 @@ backend: ## Run only the FastAPI backend (:8011)
 frontend: ## Run only the Vite frontend (:5173)
 	cd frontend && npm run dev
 
-# The same gate CI runs and CONTRIBUTING.md documents. `test-backend` used to name
-# two files and `evaluation/` was never run at all, so `make test` reported success
-# after ~200 of the ~1,365 tests, the one command a contributor is told to trust.
-test: lint test-cli test-backend test-eval test-frontend ## Run lint + every suite (the full gate)
+# `make test` mirrors the coverage gates CI enforces, so a change that would fail
+# CI fails here first instead of after a push. Each suite runs the same coverage-
+# gated command its CI job runs: the CLI and every backend module are held at 100%
+# line coverage, the frontend lib at 100% (statements/functions/lines). The
+# security, build and SBOM jobs (bandit, pip-audit, npm audit, vite build, syft)
+# stay CI-only; run `make lint` for ruff.
+test: lint test-cli test-backend test-eval test-frontend ## Run lint + every coverage-gated suite (the full gate)
 	@echo "✓ all checks passed"
 
-test-cli: ## CLI engine suite: tests/
-	$(PY) -m pytest tests -q
+test-cli: ## CLI engine suite at CI's 100% coverage gate (tests/ -> purple_recon.py)
+	$(PY) -m pytest tests --cov=purple_recon --cov-report=term-missing --cov-fail-under=100
 
-test-backend: ## Backend service suite: backend/tests/
-	$(PY) -m pytest backend -q
+test-backend: ## Backend suite at CI's 100% coverage gate (backend/tests/ -> every module)
+	cd backend && ../$(PY) -m pytest -q tests \
+		--cov=adscan --cov=app --cov=audit --cov=campaign --cov=cloudscan --cov=copilot \
+		--cov=credscan --cov=cve --cov=discovery --cov=fingerprint --cov=history --cov=jobs \
+		--cov=mdns --cov=models --cov=nbns --cov=notify --cov=obs --cov=osfp --cov=osv \
+		--cov=passive --cov=provenance --cov=report --cov=scanner --cov=schedule --cov=security \
+		--cov=snmp --cov=ssdp --cov=smbscan --cov=threatintel --cov=vulndb --cov=webscan \
+		--cov-report=term-missing --cov-fail-under=100
 
-test-eval: ## Evaluation + benchmark-scoring suite: evaluation/
+test-eval: ## Evaluation suite + offline CVE accuracy gate (precision & recall == 1.0)
 	$(PY) -m pytest evaluation -q
+	$(PY) evaluation/cve_precision.py --min-precision 1.0 --min-recall 1.0
 
-test-frontend: ## Frontend unit tests (Vitest)
-	cd frontend && npm test
+test-frontend: ## Frontend unit tests at CI's coverage gate (src/lib at 100%)
+	cd frontend && npm run coverage
 
 lint: ## Static analysis (ruff)
 	$(PY) -m ruff check .

@@ -108,18 +108,22 @@ export plus one flag. No result is fabricated here.
 
 ## Cross-environment discovery pooling (`pooled_recall.json`)
 
-`aggregate_runs.py` macro-averages two environments, the `172.16.2.0/24` home LAN and
-the `172.28.0.0/24` testbed, with each network counting as one sample:
+`aggregate_runs.py` macro-averages three environments, the `172.16.2.0/24` home LAN,
+the `172.28.0.0/24` synthetic testbed and the `192.168.0.0/24` production LAN, with
+each network counting as one sample:
 
-| Tool | Recall (mean ± 95% CI across envs) | `172.16.2.0/24` | `172.28.0.0/24` |
-| --- | ---: | ---: | ---: |
-| **EnumGrid** | **0.99 ± 0.02** | 0.98 | 1.00 |
-| **nmap -sn** | **0.53 ± 0.93** | 0.06 | 1.00 |
+| Tool | Recall (mean ± 95% CI across envs) | `172.16.2.0/24` | `172.28.0.0/24` | `192.168.0.0/24` |
+| --- | ---: | ---: | ---: | ---: |
+| **EnumGrid** | **0.97 ± 0.04** | 0.98 | 1.00 | 0.93 |
+| **nmap -sn** | **0.49 ± 0.54** | 0.06 | 1.00 | 0.40 |
 
-EnumGrid is consistently high. `nmap -sn`'s enormous CI reflects that it is
-environment dependent, crippled to 0.06 on the ICMP-filtered real LAN yet perfect on
-the clean testbed. n = 2, one real LAN plus one synthetic testbed, is small and
-reported as such, and more distinct authorised networks would tighten it. Plot: `../../docs/screenshots/pooled_recall.png`.
+EnumGrid is consistently high across all three networks. `nmap -sn`'s wide CI reflects
+that it is environment dependent, crippled to 0.06 on the ICMP-filtered home LAN and
+0.40 on the production LAN, yet perfect on the clean testbed, because it cannot see the
+ICMP-silent devices that EnumGrid's ARP/mDNS passes catch. Both tools hold precision at
+1.00 (no fabricated hosts). n = 3, two real LANs plus one synthetic testbed, is still
+small and reported as such; more distinct authorised networks would tighten the CI
+further. Plot: `../../docs/screenshots/pooled_recall.png`.
 
 Reproduce (testbed up; scans run where container IPs are reachable):
 

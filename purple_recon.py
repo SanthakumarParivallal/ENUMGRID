@@ -60,9 +60,10 @@ import sys
 import threading
 import time
 from collections import Counter, deque
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from concurrent.futures import TimeoutError as FuturesTimeoutError
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
@@ -754,6 +755,16 @@ class SharedState:
             if host is not None and vendor and not host.vendor:
                 host.vendor = vendor
 
+    def load_record(self, record: HostRecord) -> None:
+        """Insert a fully-formed record, replacing any existing one.
+
+        Used to rehydrate a checkpoint on ``--resume``: a completed host keeps
+        its state (``DONE``/``ERROR``), and a host that was only discovered
+        before the crash is restored as ``DISCOVERED`` so it is scanned again.
+        """
+        with self._lock:
+            self._hosts[record.ip] = record
+
     def update_host_record(self, record: HostRecord) -> None:
         """Replace a host's enriched fields after Phase 2 completes."""
         with self._lock:
@@ -833,6 +844,52 @@ class SharedState:
 # --------------------------------------------------------------------------- #
 # Phase 1: high-speed horizontal discovery (sockets + ICMP, threaded)
 # --------------------------------------------------------------------------- #
+class RateLimiter:
+    """Thread-safe token-bucket cap on outbound probe packets per second.
+
+    ``max_rate`` is the sustained ceiling in probes/second; a short burst up to
+    ``max_rate`` is permitted after an idle gap, then the rate settles to the
+    ceiling. When ``max_rate`` is ``None`` the limiter is disabled and
+    :meth:`acquire` returns immediately, so the fast default path pays nothing.
+
+    On fragile networks (industrial, medical, legacy) the figure a network owner
+    cares about is packets per second, and being able to promise a hard ceiling
+    is often what makes a scan permitted at all. nmap enforces this with
+    ``--max-rate``; this limiter enforces the same ceiling on the *built-in*
+    socket scanner (used when nmap is absent), so a ``--max-rate`` promise holds
+    in whichever engine actually runs.
+    """
+
+    def __init__(self, max_rate: float | None) -> None:
+        self.max_rate = float(max_rate) if (max_rate and max_rate > 0) else None
+        self._capacity = max(1.0, self.max_rate or 1.0)
+        self._tokens = self._capacity
+        self._updated = time.monotonic()
+        self._lock = threading.Lock()
+
+    def acquire(self, n: int = 1) -> None:
+        """Block until ``n`` tokens are available, then consume them.
+
+        A no-op when the limiter is disabled. The sleep is capped so an aborted
+        scan does not have to wait out a long refill before its worker exits.
+        """
+        if self.max_rate is None:
+            return
+        while True:
+            with self._lock:
+                now = time.monotonic()
+                self._tokens = min(
+                    self._capacity,
+                    self._tokens + (now - self._updated) * self.max_rate,
+                )
+                self._updated = now
+                if self._tokens >= n:
+                    self._tokens -= n
+                    return
+                wait = (n - self._tokens) / self.max_rate
+            time.sleep(min(wait, 0.25))
+
+
 class DiscoveryEngine:
     """Find live hosts quickly and *without requiring root*, with a deliberate
     bias against false positives.
@@ -866,11 +923,15 @@ class DiscoveryEngine:
         ping_attempts: int = 2,
         use_arp: bool = True,
         oui_table: dict[str, str] | None = None,
+        limiter: "RateLimiter | None" = None,
     ) -> None:
         self.timeout = max(0.05, timeout)
         self.workers = max(1, workers)
         self.use_ping = use_ping and _ping_available()
         self.rst_up = rst_up
+        # Optional packets-per-second ceiling shared with the enumeration engine.
+        # Disabled (a no-op) unless --max-rate was given.
+        self.limiter = limiter or RateLimiter(None)
         # Generous ICMP timeout + a retry: high-latency Wi-Fi devices answer
         # slowly and packets are sometimes lost.
         self.ping_timeout = max(1.0, ping_timeout)
@@ -909,6 +970,7 @@ class DiscoveryEngine:
         strong = False
         saw_rst = False
         for port in SWEEP_PORTS:
+            self.limiter.acquire()  # honour --max-rate before each probe packet
             try:
                 with socket.socket(_af_for(ip), socket.SOCK_STREAM) as sock:
                     sock.settimeout(self.timeout)
@@ -996,6 +1058,7 @@ class DiscoveryEngine:
         cmd = _ping_command(ip, self.ping_timeout)
         deadline = self.ping_timeout + 1.0
         for _ in range(self.ping_attempts):
+            self.limiter.acquire()  # each echo request is a probe packet too
             try:
                 result = subprocess.run(
                     cmd,
@@ -1028,14 +1091,25 @@ class EnumerationEngine:
         workers: int,
         have_nmap: bool,
         connect_timeout: float = 0.6,
+        limiter: "RateLimiter | None" = None,
     ) -> None:
         self.nmap_args = nmap_args
         self.workers = max(1, workers)
         self.have_nmap = have_nmap
         self.connect_timeout = connect_timeout
+        # Rate ceiling for the built-in socket scanner. The nmap engine paces
+        # itself from --max-rate/--min-rate baked into nmap_args, so it is not
+        # gated here (that would throttle twice).
+        self.limiter = limiter or RateLimiter(None)
 
-    def run(self, live_ips: list[str], state: SharedState) -> None:
-        """Enumerate all live hosts concurrently, updating ``state`` live."""
+    def run(self, live_ips: list[str], state: SharedState,
+            on_progress: "Callable[[], None] | None" = None) -> None:
+        """Enumerate all live hosts concurrently, updating ``state`` live.
+
+        ``on_progress`` (used by ``--resume``) is invoked after each host's
+        record is committed, so the checkpoint on disk never lags the work
+        actually done by more than one host.
+        """
         state.set_enum_total(len(live_ips))
         pool = ThreadPoolExecutor(max_workers=self.workers, thread_name_prefix="nmap")
         try:
@@ -1049,6 +1123,8 @@ class EnumerationEngine:
                 # Exceptions are handled inside ``_enumerate_one``; result() is
                 # called only to surface programming errors during development.
                 future.result()
+                if on_progress is not None:
+                    on_progress()
         finally:
             pool.shutdown(wait=False, cancel_futures=True)
 
@@ -1146,6 +1222,7 @@ class EnumerationEngine:
         targets = sorted(set(FALLBACK_PORTS) | set(seed_ports))
         ports: list[PortRecord] = []
         for port in targets:
+            self.limiter.acquire()  # honour --max-rate in the fallback scanner
             try:
                 with socket.socket(_af_for(ip), socket.SOCK_STREAM) as sock:
                     sock.settimeout(self.connect_timeout)
@@ -1200,22 +1277,60 @@ class Orchestrator:
         discovery: DiscoveryEngine,
         enumeration: EnumerationEngine,
         discover_only: bool = False,
+        checkpoint: "Checkpoint | None" = None,
+        resume: "ResumeState | None" = None,
     ) -> None:
         self.state = state
         self.hosts = hosts
         self.discovery = discovery
         self.enumeration = enumeration
         self.discover_only = discover_only
+        # --resume plumbing: `checkpoint` is where progress is journalled;
+        # `resume` (when set and already swept) is a prior journal to continue.
+        self.checkpoint = checkpoint
+        self.resume = resume
+
+    def _save(self, swept: bool) -> None:
+        """Journal current progress if a checkpoint is configured (else no-op)."""
+        if self.checkpoint is not None:
+            self.checkpoint.save(self.state, self.hosts, swept)
+
+    def _resume_prelude(self) -> list[str]:
+        """Rehydrate a prior checkpoint into state; return the pending live IPs."""
+        self.state.set_phase("RESUMING FROM CHECKPOINT")
+        for rec in self.resume.records:
+            # A host still SCANNING when the crash hit was never finished, so
+            # reset it to DISCOVERED and let Phase 2 re-run it.
+            if rec.state == "SCANNING":
+                rec.state = "DISCOVERED"
+            self.state.load_record(rec)
+        # Restore the Phase-1 counters so the cockpit does not show 0 swept.
+        self.state.set_sweep_total(len(self.resume.scope_hosts))
+        self.state.mark_swept(len(self.resume.scope_hosts))
+        live = self.state.live_ips()
+        remaining = [ip for ip in live if ip not in self.resume.enumerated]
+        self.state.push_log(
+            f"Resumed: {len(live)} live, {len(live) - len(remaining)} already "
+            f"enumerated, {len(remaining)} to scan"
+        )
+        return remaining
 
     def execute(self) -> None:
         """Background entry point; converts any failure into a clean state."""
         try:
-            self.state.set_phase("PHASE 1 · HORIZONTAL SWEEP")
-            self.state.push_log(f"Sweeping {len(self.hosts)} candidate host(s)")
-            self.discovery.sweep(self.hosts, self.state)
-
-            live = self.state.live_ips()
-            self.state.push_log(f"Discovery complete: {len(live)} live host(s)")
+            resuming = self.resume is not None and self.resume.swept
+            if resuming:
+                remaining = self._resume_prelude()
+                live = self.state.live_ips()
+            else:
+                self.state.set_phase("PHASE 1 · HORIZONTAL SWEEP")
+                self.state.push_log(f"Sweeping {len(self.hosts)} candidate host(s)")
+                self.discovery.sweep(self.hosts, self.state)
+                live = self.state.live_ips()
+                self.state.push_log(f"Discovery complete: {len(live)} live host(s)")
+                # Journal the discovered scope so a crash in Phase 2 is resumable.
+                self._save(swept=True)
+                remaining = live
 
             if self.state.is_aborted():
                 self.state.set_phase("ABORTED")
@@ -1230,10 +1345,14 @@ class Orchestrator:
                 return
 
             self.state.set_phase("PHASE 2 · NMAP ENUMERATION")
-            if live:
-                self.enumeration.run(live, self.state)
-            else:
+            if remaining:
+                self.enumeration.run(
+                    remaining, self.state, on_progress=lambda: self._save(swept=True)
+                )
+            elif not live:
                 self.state.push_log("No live hosts, skipping deep-dive")
+            else:
+                self.state.push_log("All live hosts already enumerated (resumed)")
 
             self.state.set_phase("ABORTED" if self.state.is_aborted() else "COMPLETE")
         except Exception as exc:  # noqa: BLE001 - last-resort guard for the thread
@@ -1555,6 +1674,115 @@ def reproducibility_manifest(
         "platform": platform.platform(),
         "generated_at": datetime.now(timezone.utc).isoformat(),
     }
+
+
+# --------------------------------------------------------------------------- #
+# Resume: a crash-recoverable checkpoint so an interrupted long scan continues.
+# --------------------------------------------------------------------------- #
+CHECKPOINT_KIND = "enumgrid-checkpoint"
+CHECKPOINT_VERSION = 1
+
+
+def _host_from_dict(d: dict) -> HostRecord:
+    """Rebuild a :class:`HostRecord` (and its ports) from checkpoint JSON.
+
+    Fields are filtered against the dataclasses so an older or newer checkpoint
+    with extra keys still loads, rather than raising ``TypeError``.
+    """
+    port_names = {f.name for f in fields(PortRecord)}
+    host_names = {f.name for f in fields(HostRecord)}
+    ports = [
+        PortRecord(**{k: v for k, v in (pd or {}).items() if k in port_names})
+        for pd in (d.get("ports") or [])
+    ]
+    kw = {k: v for k, v in d.items() if k in host_names and k != "ports"}
+    return HostRecord(ports=ports, **kw)
+
+
+@dataclass
+class ResumeState:
+    """What a loaded checkpoint tells the orchestrator it can skip."""
+
+    target: str
+    scope_hosts: list[str]
+    swept: bool
+    records: list[HostRecord]
+
+    @property
+    def live(self) -> list[str]:
+        return [r.ip for r in self.records]
+
+    @property
+    def enumerated(self) -> set[str]:
+        # A host mid-scan when the crash hit is NOT complete, so it is re-run.
+        return {r.ip for r in self.records if r.state in ("DONE", "ERROR")}
+
+
+class Checkpoint:
+    """A crash-recoverable journal of scan progress, for ``--resume``.
+
+    A long scan (a ``/16`` can run for hours) that is killed, disconnected or
+    Ctrl-C'd would otherwise start from zero. This writes the discovered scope
+    and every host record to a JSON journal after Phase 1 and after each host's
+    Phase 2 completes, so a resume skips discovery and re-enumerates only the
+    hosts that were still pending.
+
+    Written atomically (temp then rename, mode 0600) like every other artifact.
+    It is deliberately *not* fsync'd per host: a rename already survives the
+    process death this targets, and an fsync per host on a ``/16`` is a real,
+    unnecessary cost. The final report remains the durable deliverable.
+    """
+
+    def __init__(self, path: str) -> None:
+        self.path = path
+        self._lock = threading.Lock()
+
+    def save(self, state: SharedState, scope_hosts: list[str], swept: bool) -> None:
+        payload = {
+            "kind": CHECKPOINT_KIND,
+            "checkpoint_version": CHECKPOINT_VERSION,
+            "tool": APP_NAME,
+            "version": VERSION,
+            "target": state.target,
+            "swept": bool(swept),
+            "scope_hosts": list(scope_hosts),
+            "hosts": [asdict(h) for h in state.hosts()],
+        }
+        with self._lock:
+            tmp = f"{self.path}.tmp"
+            with open(tmp, "w", encoding="utf-8") as handle:
+                json.dump(payload, handle, ensure_ascii=False)
+            os.replace(tmp, self.path)
+            try:
+                os.chmod(self.path, 0o600)
+            except OSError:
+                pass
+
+    def discard(self) -> None:
+        """Remove the journal (called once the scan completes cleanly)."""
+        try:
+            os.remove(self.path)
+        except OSError:
+            pass
+
+    @classmethod
+    def load(cls, path: str) -> ResumeState:
+        """Load and validate a checkpoint file.
+
+        Raises ``ValueError`` if the file is not an ENUMGRID checkpoint, so a
+        stray or corrupt file is reported rather than silently misread.
+        """
+        with open(path, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        if not isinstance(data, dict) or data.get("kind") != CHECKPOINT_KIND:
+            raise ValueError("not an ENUMGRID checkpoint file")
+        records = [_host_from_dict(h) for h in (data.get("hosts") or []) if isinstance(h, dict)]
+        return ResumeState(
+            target=str(data.get("target", "")),
+            scope_hosts=[str(x) for x in (data.get("scope_hosts") or [])],
+            swept=bool(data.get("swept")),
+            records=records,
+        )
 
 
 def build_report(
@@ -2559,17 +2787,34 @@ def validate_scan_options(args: argparse.Namespace) -> None:
                         ("--max-hosts", args.max_hosts)):
         if value < 1:
             raise ScopeError(f"{name} must be at least 1 (got {value}).")
+    if not 0 <= args.timing <= 5:
+        raise ScopeError(f"--timing must be between 0 and 5 (got {args.timing}).")
+    for name, value in (("--max-rate", args.max_rate), ("--min-rate", args.min_rate)):
+        if value is not None and value < 1:
+            raise ScopeError(f"{name} must be at least 1 packet/second (got {value}).")
+    if (args.max_rate is not None and args.min_rate is not None
+            and args.min_rate > args.max_rate):
+        raise ScopeError(
+            f"--min-rate ({args.min_rate}) cannot exceed --max-rate ({args.max_rate})."
+        )
 
 
 def build_nmap_args(args: argparse.Namespace, privileged: bool) -> str:
     """Compose the nmap argument string from CLI options + privilege level."""
-    parts = ["-sV", "-Pn", "-T4", "--host-timeout", args.host_timeout]
+    parts = ["-sV", "-Pn", f"-T{args.timing}", "--host-timeout", args.host_timeout]
     if args.full:
         parts += ["-p-"]
     elif args.ports:
         parts += ["-p", args.ports]
     else:
         parts += ["--top-ports", str(args.top_ports)]
+    # Rate ceiling/floor for the packet-heavy deep scan. --max-rate is the hard
+    # ceiling a fragile-network owner asks for; --min-rate keeps a scan moving on
+    # a network that can take it. Both are validated in validate_scan_options.
+    if args.max_rate:
+        parts += ["--max-rate", str(args.max_rate)]
+    if args.min_rate:
+        parts += ["--min-rate", str(args.min_rate)]
     if privileged:
         # OS fingerprinting needs raw sockets; only attempt it as root.
         parts += ["-O", "--osscan-guess"]
@@ -2627,6 +2872,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("-D", "--discover", action="store_true",
                         help="DISCOVERY ONLY: fast device inventory (IP/MAC/hostname), "
                              "skipping the slower nmap deep-dive, best for 'list every device'")
+    parser.add_argument("--timing", type=int, default=4, metavar="0-5",
+                        help="nmap timing template: T0 (paranoid) to T5 (insane)")
+    parser.add_argument("--max-rate", type=int, default=None, metavar="PPS",
+                        help="cap probe packets/second (nmap --max-rate; also the "
+                             "built-in socket scanner) for fragile networks")
+    parser.add_argument("--min-rate", type=int, default=None, metavar="PPS",
+                        help="nmap minimum packets/second (nmap engine only)")
     parser.add_argument("--host-timeout", default="120s",
                         help="per-host nmap timeout")
     parser.add_argument("--sweep-workers", type=int, default=128,
@@ -2664,6 +2916,10 @@ def build_parser() -> argparse.ArgumentParser:
                              "Faraday, DefectDojo and other nmap-XML consumers)")
     parser.add_argument("--markdown", "--md", action="store_true", dest="markdown",
                         help="also write a Markdown report (for engagement write-ups)")
+    parser.add_argument("--resume", metavar="FILE",
+                        help="resume an interrupted scan: pass a path; the first run "
+                             "journals progress there and re-running the same command "
+                             "continues from where it stopped")
     parser.add_argument("--diff", metavar="REPORT.json",
                         help="compare this scan against a previous JSON report")
     parser.add_argument("--no-ui", action="store_true",
@@ -2800,6 +3056,37 @@ def main(argv: list[str] | None = None) -> int:
     if oui_table:
         console.print(f"[dim]» MAC-vendor: {len(oui_table)} OUIs from {oui_path}[/]")
 
+    # --- resume: load a prior checkpoint if --resume names a valid one ----- #
+    checkpoint: Checkpoint | None = None
+    resume: ResumeState | None = None
+    if args.resume:
+        checkpoint = Checkpoint(args.resume)
+        if os.path.exists(args.resume):
+            try:
+                loaded = Checkpoint.load(args.resume)
+            except (OSError, ValueError, json.JSONDecodeError) as exc:
+                console.print(
+                    f"[{C_AMBER}]» Ignoring unreadable checkpoint '{args.resume}' "
+                    f"({exc}); starting a fresh scan.[/]"
+                )
+            else:
+                if loaded.target != args.target:
+                    console.print(Panel(
+                        f"Checkpoint '{args.resume}' was written for target "
+                        f"'{loaded.target}', not '{args.target}'. Refusing to resume a "
+                        f"different scope into the same file.",
+                        title="[bold]RESUME REJECTED[/]", border_style=C_CRIMSON,
+                        box=box.HEAVY,
+                    ))
+                    return 2
+                if loaded.swept:
+                    resume = loaded
+                    console.print(
+                        f"[{C_GREEN}]» Resuming from {args.resume}: "
+                        f"{len(loaded.live)} live host(s), "
+                        f"{len(loaded.enumerated)} already enumerated.[/]"
+                    )
+
     # --- assemble the pipeline ------------------------------------------- #
     state = SharedState(
         target=args.target,
@@ -2807,6 +3094,12 @@ def main(argv: list[str] | None = None) -> int:
         engine_label=engine_label,
         operator=operator,
     )
+    # One rate ceiling shared by both phases so --max-rate is a whole-run promise.
+    limiter = RateLimiter(args.max_rate)
+    if args.max_rate:
+        console.print(
+            f"[dim]» Rate limited to {args.max_rate} probe packet(s)/second.[/]"
+        )
     discovery = DiscoveryEngine(
         timeout=args.sweep_timeout,
         workers=args.sweep_workers,
@@ -2815,14 +3108,17 @@ def main(argv: list[str] | None = None) -> int:
         ping_timeout=args.ping_timeout,
         use_arp=not args.no_arp,
         oui_table=oui_table,
+        limiter=limiter,
     )
     enumeration = EnumerationEngine(
         nmap_args=build_nmap_args(args, privileged),
         workers=args.scan_workers,
         have_nmap=have_nmap,
+        limiter=limiter,
     )
     orchestrator = Orchestrator(
-        state, scope.hosts, discovery, enumeration, discover_only=args.discover
+        state, scope.hosts, discovery, enumeration, discover_only=args.discover,
+        checkpoint=checkpoint, resume=resume,
     )
 
     # Optional differential baseline (loaded up-front so a bad path warns early
@@ -2859,12 +3155,27 @@ def main(argv: list[str] | None = None) -> int:
     if baseline is not None:
         report["diff"] = diff_reports(baseline, report)
 
+    report_written = False
     if not args.no_export:
         try:
             path = write_report(report, args.output_dir)
             console.print(f"[{C_GREEN}]» Report written:[/] {path}")
+            report_written = True
         except OSError as exc:
             console.print(f"[{C_CRIMSON}]» Export failed:[/] {exc}")
+
+    # A completed scan makes the checkpoint redundant: the JSON report is now the
+    # durable artifact. Discard the journal only once that report is safely on
+    # disk, so a failed export never costs the resumable progress. An aborted or
+    # errored run keeps its checkpoint so the operator can resume it.
+    if checkpoint is not None:
+        if state.snapshot().phase == "COMPLETE" and (report_written or args.no_export):
+            checkpoint.discard()
+        else:
+            console.print(
+                f"[{C_AMBER}]» Scan did not complete; checkpoint kept at "
+                f"{args.resume}. Re-run the same command to resume.[/]"
+            )
 
     # Optional extra formats (independent of the JSON export).
     for enabled, writer, label in (

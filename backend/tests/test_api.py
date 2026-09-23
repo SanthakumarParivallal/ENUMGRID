@@ -631,6 +631,31 @@ def test_ad_enum_success_and_validation(monkeypatch):
     assert client.post("/api/ad/enum", json={"dc_host": "dc"}).status_code == 400   # missing fields
 
 
+def test_host_smb_success_and_validation(monkeypatch):
+    captured = {}
+
+    def _fake_enum(ip, username, password, domain="", shares=None):
+        captured["shares"] = shares
+        return {"ok": True, "host": ip, "account": f"{domain}\\{username}" if domain else username,
+                "shares": [{"name": "C$", "admin": True, "access": "READ", "entries": 3}]}
+
+    monkeypatch.setattr(A.smbscan, "enumerate_shares", _fake_enum)
+    # Default share set (no `shares` in the body → None passed through).
+    ok = client.post("/api/host/smb",
+                     json={"ip": "192.168.50.5", "username": "CORP\\alice", "password": "x"})  # nosec B105 - test fixture
+    assert ok.status_code == 200 and ok.json()["ok"] is True
+    assert ok.json()["shares"][0]["name"] == "C$"
+    assert captured["shares"] is None
+    # An explicit share list is forwarded (blank entries filtered out).
+    ok2 = client.post("/api/host/smb",
+                      json={"ip": "192.168.50.5", "username": "alice", "password": "x",  # nosec B105 - test fixture
+                            "shares": ["Data", "  "]})
+    assert ok2.status_code == 200 and captured["shares"] == ["Data"]
+    # Missing password is a 400, not a 500.
+    assert client.post("/api/host/smb",
+                       json={"ip": "192.168.50.5", "username": "u"}).status_code == 400
+
+
 def test_passive_success(monkeypatch):
     monkeypatch.setattr(A.passive, "discover_passive",
                         lambda s, i: {"available": True, "seconds": s, "hosts": [], "count": 0})
@@ -757,6 +782,7 @@ _GATED_ENDPOINTS = [
     ("get", "/api/campaign?targets=192.168.50.0/24", None),
     ("get", "/api/cloud/aws", None),
     ("post", "/api/ad/enum", {"dc_host": "d", "domain": "c", "username": "u", "password": "p"}),  # nosec B105 - test fixture
+    ("post", "/api/host/smb", {"ip": "192.168.50.5", "username": "u", "password": "p"}),  # nosec B105 - test fixture
     ("post", "/api/passive?seconds=5", None),
     ("post", "/api/jobs/submit", {"kind": "host_scan", "ip": "192.168.50.5"}),
     ("get", "/api/jobs", None),
@@ -839,6 +865,8 @@ def test_scan_stream_swallows_history_and_notify_errors(monkeypatch):
 def test_host_credscan_and_webscan_reject_out_of_scope():
     assert client.post("/api/host/credscan", json={"ip": "8.8.8.8", "username": "u"}).status_code == 400
     assert client.get("/api/host/webscan?ip=8.8.8.8").status_code == 400
+    assert client.post("/api/host/smb",
+                       json={"ip": "8.8.8.8", "username": "u", "password": "p"}).status_code == 400  # nosec B105 - test fixture
 
 
 def test_report_pdf_renders_despite_copilot_error(monkeypatch):

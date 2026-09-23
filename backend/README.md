@@ -130,8 +130,14 @@ script, and a curated offline reference. Findings carry CVSS, an NVD link, and a
   discovery.
 - **Cloud.** `GET /api/cloud/aws` covers EC2, world-open SGs and public S3 via
   `boto3` and your AWS credential chain. For AD, `POST /api/ad/enum` enumerates
-  computers and users over LDAP via `ldap3`. Both are optional dependencies, both are
+  computers and users over LDAP via `ldap3`. All are optional dependencies, all are
   read-only, and credentials are never logged.
+- **Authenticated SMB.** `POST /api/host/smb` verifies, with a credential, which
+  shares an account can actually read (a read-only listing of each share root, no
+  writes, no password guessing). Reaching an administrative share such as `C$` or
+  `ADMIN$` is the classic local-admin signal. Share names come from nmap's
+  unauthenticated `smb-enum-shares` (already run in the recon profile) or the standard
+  administrative set. It uses `smbprotocol` (optional); credentials are in-memory only.
 - **Job queue (scale).** `POST /api/jobs/submit` queues a scan and `GET /api/jobs/{id}`
   polls it. A bounded worker pool drains the queue and jobs persist across restarts.
   The SQLite queue is swappable for Redis to scale horizontally.

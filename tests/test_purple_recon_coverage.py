@@ -585,8 +585,9 @@ class _FakeEnum:
     def __init__(self):
         self.ran_with = None
 
-    def run(self, ips, state):
+    def run(self, ips, state, on_progress=None):
         self.ran_with = list(ips)
+        self.on_progress = on_progress
 
 
 def _orch(disc, enum, **kw):
@@ -1122,7 +1123,8 @@ def test_ip_key_handles_garbage():
 
 
 def test_build_nmap_args_explicit_ports():
-    ns = SimpleNamespace(full=False, ports="1-1024", top_ports=100, host_timeout="120s")
+    ns = SimpleNamespace(full=False, ports="1-1024", top_ports=100, host_timeout="120s",
+                         timing=4, max_rate=None, min_rate=None)
     args = pr.build_nmap_args(ns, privileged=False)
     assert "-p 1-1024" in args
 
@@ -1271,6 +1273,201 @@ def test_main_blocked_entries_and_downloaded_oui(monkeypatch, tmp_path):
     rc = pr.main(["192.168.1.10,127.0.0.1", "--no-ui", "--download-oui",
                   "--no-export", "-o", str(tmp_path)])
     assert rc == 0
+
+
+# --------------------------------------------------------------------------- #
+# Coverage completion: targeting + export + resume edge lines
+# --------------------------------------------------------------------------- #
+_XML_REPORT = {
+    "tool": "ENUMGRID", "version": "1.0.0", "target": "10.0.0.0/30",
+    "operator": "alice", "engine": "socket-scan",
+    "started_at": "2026-09-23T10:00:00+00:00",
+    "finished_at": "2026-09-23T10:01:00+00:00", "duration_seconds": 60.0,
+    "summary": {"live_hosts": 1, "candidates": 2, "total_open_ports": 0},
+    "hosts": [{"ip": "10.0.0.1", "status": "up", "open_count": 0, "ports": []}],
+}
+
+
+def test_resolve_hostname_times_out(monkeypatch):
+    import socket as _socket
+    import time as _time
+    # A resolver slower than the budget must be abandoned, returning [] rather
+    # than blocking the caller (the getaddrinfo-has-no-timeout guard).
+    monkeypatch.setattr(_socket, "getaddrinfo", lambda *a, **k: (_time.sleep(0.4), [])[1])
+    assert pr._resolve_hostname("slow.example", timeout=0.05) == []
+
+
+def test_exclusion_larger_than_max_hosts_raises():
+    with pytest.raises(pr.ScopeError):
+        pr.ScopeValidator(max_hosts=4096).validate("192.168.0.0/28", exclude="10.0.0.0/8")
+
+
+def test_hostname_refused_when_resolution_disabled():
+    # resolve_names=False (the web-API posture): a name is refused outright.
+    with pytest.raises(pr.ScopeError):
+        pr.ScopeValidator(resolve_names=False).validate("myhost.local")
+
+
+def test_enumeration_run_invokes_on_progress(monkeypatch):
+    eng = _enum(have_nmap=False)
+    monkeypatch.setattr(eng, "_enumerate_one", lambda ip, st: None)
+    st = pr.SharedState("x", False, "y")
+    calls = []
+    eng.run(["10.0.0.1", "10.0.0.2"], st, on_progress=lambda: calls.append(1))
+    assert len(calls) == 2  # fired once per completed host
+
+
+def test_checkpoint_save_tolerates_chmod_failure(monkeypatch, tmp_path):
+    import os as _os
+    cp = pr.Checkpoint(str(tmp_path / "c.state"))
+    st = pr.SharedState("t", False, "y")
+    monkeypatch.setattr(
+        _os, "chmod", lambda *a, **k: (_ for _ in ()).throw(OSError("no chmod"))
+    )
+    cp.save(st, ["10.0.0.1"], swept=True)  # best-effort chmod: must not raise
+    assert (tmp_path / "c.state").exists()
+
+
+def test_nmap_xml_host_without_hostname():
+    import xml.etree.ElementTree as ET
+    root = ET.fromstring(pr.render_nmap_xml(_XML_REPORT))
+    assert root.find("host/hostnames") is not None  # empty <hostnames/> emitted
+
+
+def test_epoch_of_edge_cases():
+    assert pr._epoch_of("") == 0
+    assert pr._epoch_of("not-a-timestamp") == 0
+    assert pr._epoch_of("2026-01-01T00:00:00+00:00") > 0
+
+
+def test_markdown_skips_detail_for_hosts_without_ports():
+    out = pr.render_markdown_report(_XML_REPORT)
+    assert "10.0.0.1" in out              # still summarised in the table
+    assert "### 10.0.0.1" not in out      # but no per-host detail section
+
+
+def test_print_summary_reports_excluded_addresses():
+    import io
+    from datetime import datetime, timezone
+    from types import SimpleNamespace as NS
+    console = Console(file=io.StringIO(), force_terminal=True)
+    st = pr.SharedState("10.0.0.0/29", False, "socket-scan")
+    scope = NS(n_hosts=6, has_public=False, blocked=[], excluded=["10.0.0.5"])
+    now = datetime.now(timezone.utc)
+    pr.print_summary(console, st, scope, now, now)
+    import re
+    clean = re.sub(r"\x1b\[[0-9;]*m", "", console.file.getvalue())  # strip ANSI
+    assert "Excluded 1 address" in clean
+
+
+def test_main_with_target_file(main_env, tmp_path):
+    f = tmp_path / "targets.txt"
+    f.write_text("192.168.1.10\n")
+    main_env.setattr(pr, "run_headless", _stub_runner(add_host=True))
+    rc = pr.main(["-iL", str(f), "--no-ui", "--no-export", "-o", str(tmp_path)])
+    assert rc == 0
+
+
+def test_main_with_exclude_file(main_env, tmp_path):
+    tf = tmp_path / "t.txt"
+    tf.write_text("192.168.1.0/29\n")
+    ef = tmp_path / "e.txt"
+    ef.write_text("192.168.1.2\n")
+    main_env.setattr(pr, "run_headless", _stub_runner(add_host=True))
+    rc = pr.main(["-iL", str(tf), "--exclude-file", str(ef), "--no-ui",
+                  "--no-export", "-o", str(tmp_path)])
+    assert rc == 0
+
+
+def test_main_no_target_supplied_is_rejected(main_env):
+    # No positional target and no -iL: nothing to scan, refused with exit 2.
+    assert pr.main(["--no-ui", "--no-export"]) == 2
+
+
+# --------------------------------------------------------------------------- #
+# main(): --max-rate and --resume wiring
+# --------------------------------------------------------------------------- #
+def _complete_runner(add_host=True):
+    """Like _stub_runner but drives phase to COMPLETE so the resume-discard
+    branch in main() (which fires only on a clean completion) is exercised."""
+    def _run(state, orchestrator, console):
+        if add_host:
+            state.add_live_host("10.0.0.1", "icmp", [80], "strong")
+            state.update_host_record(
+                pr.HostRecord(ip="10.0.0.1", os="Linux", state="DONE",
+                              ports=[pr.PortRecord(port=80, service="http")])
+            )
+        state.set_phase("COMPLETE")
+        state.finish()
+    return _run
+
+
+def test_main_max_rate_prints_and_runs(main_env, tmp_path):
+    main_env.setattr(pr, "run_headless", _stub_runner(add_host=True))
+    rc = pr.main(["192.168.1.10", "--no-ui", "--no-export", "--max-rate", "50",
+                  "-o", str(tmp_path)])
+    assert rc == 0
+
+
+def test_main_resume_fresh_creates_and_discards_checkpoint(main_env, tmp_path):
+    main_env.setattr(pr, "run_headless", _complete_runner(add_host=True))
+    cp = tmp_path / "run.state"
+    rc = pr.main(["192.168.1.10", "--no-ui", "--resume", str(cp), "-o", str(tmp_path)])
+    assert rc == 0
+    # Completed cleanly with the JSON report written, so the checkpoint is consumed.
+    assert not cp.exists()
+
+
+def test_main_resume_kept_when_incomplete(main_env, tmp_path):
+    # A runner that does NOT reach COMPLETE leaves the checkpoint in place. The
+    # checkpoint is pre-created (the stub bypasses the orchestrator that would
+    # otherwise write it) so the "kept" branch has a real file to preserve.
+    cp = tmp_path / "run.state"
+    st0 = pr.SharedState("192.168.1.10", False, "socket-scan")
+    pr.Checkpoint(str(cp)).save(st0, ["192.168.1.10"], swept=True)
+    main_env.setattr(pr, "run_headless", _stub_runner(add_host=True))
+    rc = pr.main(["192.168.1.10", "--no-ui", "--no-export", "--resume", str(cp),
+                  "-o", str(tmp_path)])
+    assert rc == 0
+    assert cp.exists()  # kept for a later resume (phase never reached COMPLETE)
+
+
+def test_main_resume_from_valid_checkpoint(main_env, tmp_path):
+    cp = tmp_path / "run.state"
+    st0 = pr.SharedState("192.168.1.10", False, "socket-scan")
+    st0.load_record(pr.HostRecord(ip="192.168.1.10", state="DONE", status="up"))
+    pr.Checkpoint(str(cp)).save(st0, ["192.168.1.10"], swept=True)
+    main_env.setattr(pr, "run_headless", _complete_runner(add_host=False))
+    rc = pr.main(["192.168.1.10", "--no-ui", "--no-export", "--resume", str(cp),
+                  "-o", str(tmp_path)])
+    assert rc == 0
+
+
+def test_main_resume_rejects_mismatched_target(main_env, tmp_path):
+    cp = tmp_path / "run.state"
+    st0 = pr.SharedState("192.168.1.99", False, "socket-scan")
+    pr.Checkpoint(str(cp)).save(st0, ["192.168.1.99"], swept=True)
+    # Checkpoint target differs from the CLI target -> refuse (exit 2).
+    rc = pr.main(["192.168.1.10", "--no-ui", "--no-export", "--resume", str(cp),
+                  "-o", str(tmp_path)])
+    assert rc == 2
+
+
+def test_main_resume_ignores_foreign_file(main_env, tmp_path):
+    cp = tmp_path / "run.state"
+    cp.write_text("this is not a checkpoint")  # unreadable as JSON
+    main_env.setattr(pr, "run_headless", _complete_runner(add_host=True))
+    rc = pr.main(["192.168.1.10", "--no-ui", "--resume", str(cp), "-o", str(tmp_path)])
+    assert rc == 0  # warned, ran a fresh scan
+
+
+def test_main_resume_existing_but_unswept_starts_fresh(main_env, tmp_path):
+    cp = tmp_path / "run.state"
+    st0 = pr.SharedState("192.168.1.10", False, "socket-scan")
+    pr.Checkpoint(str(cp)).save(st0, ["192.168.1.10"], swept=False)  # not swept
+    main_env.setattr(pr, "run_headless", _complete_runner(add_host=True))
+    rc = pr.main(["192.168.1.10", "--no-ui", "--resume", str(cp), "-o", str(tmp_path)])
+    assert rc == 0  # a not-yet-swept checkpoint is not resumable; fresh scan
 
 
 # --------------------------------------------------------------------------- #

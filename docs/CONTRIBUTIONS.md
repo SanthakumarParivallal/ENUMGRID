@@ -191,10 +191,10 @@ result is error-free in general, and the write-up says so.
    results into a cross-environment recall figure (mean ± 95 % CI across environments) + a
    plot. *A fresh 3-run pass on `172.16.2.0/24` (2026-07-11) reconfirmed EnumGrid recall
    **0.98 ± 0.04** vs `nmap -sn` **0.06** unprivileged* ([`../evaluation/results/benchmark_172-16-2.json`](../evaluation/results/benchmark_172-16-2.json)),
-   and `aggregate_runs.py` **pooled two real environments** (that LAN + the colima testbed)
-   → EnumGrid **0.99 ± 0.02** vs `nmap -sn` **0.53 ± 0.93** across environments
+   and `aggregate_runs.py` **pooled three environments** (two real LANs + the colima testbed)
+   → EnumGrid **0.97 ± 0.04** vs `nmap -sn` **0.49 ± 0.54** across environments
    ([`../evaluation/results/pooled_recall.json`](../evaluation/results/pooled_recall.json)).
-   But n = 2, one real LAN plus one synthetic testbed, is still small. Real external
+   But n = 3, two real LANs plus one synthetic testbed, is still small. Real external
    validity needs several distinct authorised real networks, which must not be fabricated.
    *Turnkey scaffolding (2026-07-11):* [`evaluation/COLLECTING_NETWORKS.md`](../evaluation/COLLECTING_NETWORKS.md)
    is a three-command-per-network runbook + authorisation checklist that feeds `aggregate_runs.py`;

@@ -26,8 +26,8 @@ and evaluate each. First, honesty as a property: the offline CVE matcher scores
 precision 1.00 and recall 1.00 with 0 false positives on a 33-case adversarial
 corpus, and the copilot fabricates 0 CVEs across five runs (grounding
 1.000 ± 0.000). Second, unprivileged fidelity: a four-signal discovery and OS fusion
-(TTL, OUI, hostname, mDNS) recalls 0.99 ± 0.02 of hosts across two environments
-against 0.53 ± 0.93 for an unprivileged `nmap -sn`, all without root. Third, a
+(TTL, OUI, hostname, mDNS) recalls 0.97 ± 0.04 of hosts across three environments
+against 0.49 ± 0.54 for an unprivileged `nmap -sn`, all without root. Third, a
 grounded triage copilot with structural hallucination guards. We further measure the
 primary live-NVD CVE path (recall 1.00, 8/8; version-scoping precision 1.00, 7/7)
 and report where it fails: a CPE-dictionary drift between nmap and NVD that the
@@ -203,7 +203,7 @@ The backend is Python/FastAPI (~30 modules: scanner, CVE correlation across
 NVD/`vulners`/OSV, KEV/EPSS triage, report/PDF, auth with per-IP throttling,
 structured logging). The frontend is React/Vite/TypeScript. Engineering rigour is
 part of the credibility argument rather than the research claim: the repository
-carries 1,365 automated tests (Python 1,151, being CLI 197, backend 776 and
+carries 1,480 automated tests (Python 1,266, being CLI 294, backend 794 and
 evaluation 178, plus frontend 214), CI-gated line-coverage floors (100% on
 load-bearing modules), clean
 SAST (`bandit`) and dependency audit (`pip-audit`), an SBOM, and a digest-pinned
@@ -253,16 +253,16 @@ Three runs on the real `172.16.2.0/24` LAN, unprivileged
 An unprivileged `nmap -sn` sees one host on this ICMP-filtered consumer LAN, while
 ENUMGRID's four-signal discovery sees about 18 times as many. Pooling this LAN with
 the testbed
-([`pooled_recall.json`](../evaluation/results/pooled_recall.json), n = 2 envs):
+([`pooled_recall.json`](../evaluation/results/pooled_recall.json), n = 3 envs):
 
-| Tool | Recall (mean ± 95% CI across envs) | `172.16.2.0/24` | `172.28.0.0/24` |
-|---|---:|---:|---:|
-| **EnumGrid** | **0.99 ± 0.02** | 0.98 | 1.00 |
-| `nmap -sn` | **0.53 ± 0.93** | 0.06 | 1.00 |
+| Tool | Recall (mean ± 95% CI across envs) | `172.16.2.0/24` | `172.28.0.0/24` | `192.168.0.0/24` |
+|---|---:|---:|---:|---:|
+| **EnumGrid** | **0.97 ± 0.04** | 0.98 | 1.00 | 0.93 |
+| `nmap -sn` | **0.49 ± 0.54** | 0.06 | 1.00 | 0.40 |
 
 The headline is `nmap -sn`'s enormous CI. It is environment dependent, crippled on
 the filtered LAN yet perfect on the clean testbed, whereas EnumGrid is consistently
-high. n = 2, one real LAN plus one synthetic testbed, is small and reported as such.
+high. n = 3, two real LANs plus one synthetic testbed, is small and reported as such.
 [`COLLECTING_NETWORKS.md`](../evaluation/COLLECTING_NETWORKS.md) is the turnkey
 runbook to widen it with more authorised networks.
 
@@ -470,9 +470,9 @@ can treat no fabrication as a measurable property, by banding its confidence, sa
 false-positive and hallucination behaviour of both its deterministic matcher and its
 LLM copilot. It backs that claim with reproducible numbers: precision 1.00 and recall
 1.00 on an adversarial CVE corpus, with the one false positive it did find fixed and
-regression-locked; 0 fabricated CVEs across five copilot runs; 0.99 ± 0.02
-unprivileged discovery recall across two environments against a highly
-environment-dependent 0.53 ± 0.93 baseline; and a primary live-NVD path measured to
+regression-locked; 0 fabricated CVEs across five copilot runs; 0.97 ± 0.04
+unprivileged discovery recall across three environments against a highly
+environment-dependent 0.49 ± 0.54 baseline; and a primary live-NVD path measured to
 1.00 recall, with its one real failure mode surfaced and attributed. The evaluation
 is deliberately bounded and every limit is named. The contribution is the discipline
 and its measurement.

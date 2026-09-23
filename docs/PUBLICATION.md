@@ -48,13 +48,13 @@ Full table and methodology in [`ACCURACY.md`](ACCURACY.md); raw artifacts in
 | Live-NVD primary path | recall 8/8, scoping 7/7, 0 truncation | `nvd_live.json` |
 | Detection (9-host testbed) | ports 1.00/1.00, service 0.89, version 0.83, planted-CVE 3/3 | `detection_172-28.json` |
 | CVE baselines (two schools) | vulners 3/3·133 · EnumGrid 2/3·13 · Nuclei 0/3 | `cve_baselines_172-28.json` |
-| Discovery, cross-env pool (n=2) | EnumGrid 0.99±0.02 vs nmap-sn 0.53±0.93 | `pooled_recall.json` |
+| Discovery, cross-env pool (n=3) | EnumGrid 0.97±0.04 vs nmap-sn 0.49±0.54 | `pooled_recall.json` |
 | Scalability | 46.5 ms/addr + 9.1 s, R²=0.83 | `scalability_172-16-2.json` |
 | Copilot grounding | 1.000 ± 0.000 (5 runs, 0 fabrications) | `llama3.2_x5.json` |
 
 ## Quality status
 
-- 1,365 automated tests: Python 1,151 (CLI 197, backend 776, evaluation 178) plus
+- 1,480 automated tests: Python 1,266 (CLI 294, backend 794, evaluation 178) plus
   frontend 214. All green.
 - ruff clean; SAST (bandit) and dependency audit (pip-audit) clean; SBOM; digest-pinned
   non-root Docker image.
@@ -68,7 +68,7 @@ and must not be invented. See [`CONTRIBUTIONS.md`](CONTRIBUTIONS.md) §8.
 
 | Gap | Turnkey entry point | What you must supply |
 | --- | --- | --- |
-| More distinct authorised networks (tighten the n=2 CI) | [`../evaluation/COLLECTING_NETWORKS.md`](../evaluation/COLLECTING_NETWORKS.md) | Real networks you are authorised to scan |
+| More distinct authorised networks (tighten the n=3 CI) | [`../evaluation/COLLECTING_NETWORKS.md`](../evaluation/COLLECTING_NETWORKS.md) | Real networks you are authorised to scan |
 | Held-out CVE corpus (kill the fit-to-matcher objection) | [`../evaluation/nvd_corpus_heldout.json`](../evaluation/nvd_corpus_heldout.json) | A blind, independent sample |
 | OpenVAS/Nessus baseline (broader precision picture) | `cve_baselines.py --tools openvas,nessus` | An exported scanner report |
 | Analyst user study (the HCI contribution) | [`USER_STUDY_PROTOCOL.md`](USER_STUDY_PROTOCOL.md) | Real participants under ethics approval |

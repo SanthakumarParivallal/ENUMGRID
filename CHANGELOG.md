@@ -80,6 +80,24 @@ is treated as a correctness bug, not a missing feature.
 - **Markdown export** (`--markdown`) for engagement write-ups.
 - **`--version`**, which previously exited 2 as an unrecognized option.
 - **`--operator NAME`** to record who ran the scan.
+- **Packet-rate limiting for fragile networks.** `--max-rate PPS` caps outbound probe
+  packets per second, enforced by a shared token-bucket limiter in both the nmap engine
+  (`--max-rate`) and the built-in socket scanner, so the ceiling holds whichever engine
+  runs. `--min-rate` and `--timing 0-5` expose nmap's rate floor and timing templates.
+  On industrial, medical and legacy networks a hard packets-per-second ceiling is often
+  what makes a scan permitted at all.
+- **Resumable scans (`--resume FILE`).** A long scan (a `/16` can run for hours) that is
+  killed, disconnected or Ctrl-C'd no longer starts over. Progress is journalled to a
+  checkpoint after discovery and after each host's enumeration; re-running the same
+  command with the same `--resume` path skips discovery and re-enumerates only the hosts
+  still pending. A checkpoint written for a different target is refused rather than
+  resumed into the wrong scope, and a clean completion consumes the journal.
+- **Authenticated SMB enumeration** (backend `POST /api/host/smb`, `backend/smbscan.py`).
+  ENUMGRID already discovers shares unauthenticated via nmap; this verifies, with a
+  credential, which shares an account can actually read (a read-only listing of each
+  share root, no writes, no password guessing). Reaching an administrative share such as
+  `C$`/`ADMIN$` is the classic local-admin signal. Optional `smbprotocol` dependency,
+  credential-gated, credentials in memory only, mirroring the SSH and LDAP modules.
 
 ### Security
 
@@ -105,8 +123,20 @@ is treated as a correctness bug, not a missing feature.
   updates are unaffected: GitHub raises those through a separate mechanism that this
   limit does not apply to, so a published advisory still opens a pull request. The groups
   and schedules are retained, so version updates can be restored by raising the limits.
-- Test count: **1420** (249 CLI, 779 backend, 178 evaluation, 214 frontend), up from
-  1365.
+- `make test` now runs the same coverage gates CI enforces. The local target ran plain
+  `pytest -q` with no coverage gate while CI ran `--cov-fail-under=100`, so code could
+  pass `make test` and still fail CI on coverage (as commit `c8e1580` did, at 99% on the
+  CLI). `test-cli`, `test-backend` and `test-frontend` now invoke the identical coverage-
+  gated commands (the CLI and every backend module at 100% line coverage, the frontend
+  lib via `npm run coverage`), and `test-eval` adds the offline CVE accuracy gate, so a
+  coverage regression now fails locally before a push instead of after it.
+- Cross-environment discovery evaluation now pools **three** networks (added a real run
+  on `192.168.0.0/24`), so the macro-averaged recall is EnumGrid 0.97 ± 0.04 vs `nmap -sn`
+  0.49 ± 0.54. The paper, accuracy and publication docs and the pooled plot were
+  re-derived from the regenerated `pooled_recall.json`; n = 3 is still small and reported
+  as such.
+- Test count: **1480** (294 CLI, 794 backend, 178 evaluation, 214 frontend), up from
+  1365. `backend/smbscan.py` is covered to the same CI-gated 100% as the other modules.
 
 ---
 

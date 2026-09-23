@@ -38,6 +38,7 @@ import passive
 import provenance
 import schedule
 import security
+import smbscan
 import threatintel
 import webscan
 from discovery import run_discovery
@@ -237,6 +238,9 @@ def health() -> dict:
     return {
         "status": "ok",
         "nmap": nmap_available(),
+        # Optional credentialed enumerators; true only when their library is
+        # installed (ssh=paramiko, ad=ldap3, smb=smbprotocol).
+        "smb": smbscan.available(),
         "privileged": is_privileged(),
         # How scans get their privilege: "root" (running as root), "sudo"
         # (passwordless sudo, elevated per scan), or "unprivileged" (root-only
@@ -974,6 +978,53 @@ def ad_enum(
     )
     audit.record("ad_enum", domain=payload.get("domain"), user=payload.get("username"),
                  ok=bool(result.get("ok")), computers=len(result.get("computers", [])))
+    return JSONResponse(result)
+
+
+@app.post("/api/host/smb")
+def host_smb(
+    payload: dict = Body(...),
+    token: str | None = Query(None),
+    authorization: str | None = Header(None),
+) -> JSONResponse:
+    """Authenticated SMB enumeration: verify which shares an account can read.
+
+    ENUMGRID discovers shares unauthenticated via nmap; this confirms, with a
+    credential, which of them the account can actually reach (read-only listing
+    of each share root, no writes). Reaching an administrative share (C$/ADMIN$)
+    is the classic local-admin signal. Credentials are used in memory only,
+    never logged. Authorized use only. Body:
+    ``{ip, username, password, domain?, shares?}`` (``shares`` defaults to the
+    standard administrative set).
+    """
+    if not admin_ok(token, authorization):
+        raise HTTPException(status_code=401, detail="admin token required")
+    ip = str(payload.get("ip") or "").strip()
+    username = str(payload.get("username") or "").strip()
+    password = payload.get("password")
+    if not ip or not username or not password:
+        return JSONResponse(
+            {"ok": False, "error": "ip, username and password are required"},
+            status_code=400,
+        )
+    try:
+        vet_target(ip)
+    except ScopeRejected as exc:
+        return JSONResponse({"ok": False, "error": exc.reason}, status_code=400)
+    raw_shares = payload.get("shares")
+    shares = None
+    if isinstance(raw_shares, list):
+        shares = [str(s).strip() for s in raw_shares if str(s).strip()]
+    result = smbscan.enumerate_shares(
+        ip, username, str(password),
+        domain=str(payload.get("domain") or "").strip(),
+        shares=shares,
+    )
+    # Audit the attempt WITHOUT the credentials.
+    audit.record(
+        "smb_enum", target=ip, user=username, ok=bool(result.get("ok")),
+        shares=len(result.get("shares", [])),
+    )
     return JSONResponse(result)
 
 

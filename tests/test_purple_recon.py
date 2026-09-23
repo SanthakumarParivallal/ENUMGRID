@@ -226,12 +226,14 @@ def test_ip_key_orders_numerically_not_lexically():
 
 
 def test_build_nmap_args():
-    base = SimpleNamespace(full=False, ports=None, top_ports=100, host_timeout="120s")
+    base = SimpleNamespace(full=False, ports=None, top_ports=100, host_timeout="120s",
+                           timing=4, max_rate=None, min_rate=None)
     args = pr.build_nmap_args(base, privileged=False)
     assert "-sV" in args and "-Pn" in args and "--top-ports 100" in args
     assert "-O" not in args                                   # no root → no -O
     assert "-O" in pr.build_nmap_args(base, privileged=True)  # root → -O
-    full = SimpleNamespace(full=True, ports=None, top_ports=100, host_timeout="60s")
+    full = SimpleNamespace(full=True, ports=None, top_ports=100, host_timeout="60s",
+                           timing=4, max_rate=None, min_rate=None)
     assert "-p-" in pr.build_nmap_args(full, privileged=False)
 
 
