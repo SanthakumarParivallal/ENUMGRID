@@ -372,6 +372,18 @@ repository totals at the time of each pass.
   214/214 tests, `src/lib/**` still at 100% statements, functions and lines, and a
   byte-identical build output. `npm audit`: 0.
 
+**Added**
+
+- Community-health files, so the repository presents a complete GitHub Community
+  Standards profile. `CITATION.cff` drives the *Cite this repository* button with APA and
+  BibTeX export; `SUPPORT.md` routes questions, bug reports, security disclosures and
+  disputed-measurement reports to the right place and lists the four checks that resolve
+  most reports; `.github/CODEOWNERS` makes review ownership explicit and names the
+  security, quality-gate and evaluation paths individually; `.github/dependabot.yml`
+  tracks all four ecosystems in the repository (pip under `/` and `/backend`, npm under
+  `/frontend`, GitHub Actions and the Docker base image), grouping minor and patch bumps
+  weekly so the security gates that already run in CI do not go stale.
+
 **Changed**
 
 - `make test` now runs the gate it documents. `test-backend` named two files and
@@ -397,6 +409,24 @@ repository totals at the time of each pass.
   copies stay reachable in the history preceding this removal.
 
 **Fixed**
+
+- Published figures that no longer matched their own artifacts. `docs/EVALUATION.md`
+  carried the superseded 2026-07-06 discovery run (15-host reference, `nmap -sn` recall
+  0.07, "roughly 15 times"), while the only checked-in artifact,
+  `evaluation/results/benchmark_172-16-2.json` from 2026-07-11, records an 18-host union
+  reference, EnumGrid 17.67 ± 0.65 hosts at recall 0.98 ± 0.04, and `nmap -sn` at 1.00
+  host and recall 0.06; `pooled_recall.json` confirms which run is authoritative through
+  its `per_env_recall` field. The plot had already been regenerated from the newer run, so
+  the figure contradicted its own caption and the README's alt text. The table, the ratio,
+  the date and the four documents quoting them are now derived from the artifact.
+- `docs/banner.svg` advertised 1292 tests against an actual 1365, and its `aria-label`,
+  which screen readers read aloud, carried an em dash that the house-style pass had missed
+  because the sweep filtered by source extension rather than scanning every tracked file.
+- `CHANGELOG.md` and `docs/PUBLICATION.md` told readers to recover the removed paper
+  binaries with `git show 4b1b7f3:…`, a commit orphaned by the history rewrite and
+  therefore absent from any fresh clone. Both now describe the location without a volatile
+  SHA. The same entry's "all 53 commits" became a count that goes stale on every commit,
+  and now reads as the entire history.
 
 - The main column clipped the asset grid on short windows. `<main>` carried
   `lg:overflow-hidden`, so once the viewport was too short for the KPI strip, the scan

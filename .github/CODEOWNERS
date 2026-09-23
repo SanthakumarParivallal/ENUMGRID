@@ -1,0 +1,31 @@
+# Code owners for ENUMGRID.
+#
+# GitHub requests a review from the owner listed here whenever a pull request
+# touches a matching path. Ownership is currently global: ENUMGRID is maintained
+# by one person, and this file exists so that stays explicit as the project takes
+# outside contributions.
+#
+# Note that CODEOWNERS only blocks a merge when the branch protection rule for
+# `main` has "Require review from Code Owners" enabled. Without that setting it
+# is advisory, and it assigns the reviewer automatically but does not gate.
+#
+# Later entries win, so the global rule comes first and the narrower paths follow.
+
+*                       @SanthakumarParivallal
+
+# Security policy, threat model and the scanning engine that enforces scope.
+/SECURITY.md            @SanthakumarParivallal
+/docs/THREAT_MODEL.md   @SanthakumarParivallal
+/backend/security.py    @SanthakumarParivallal
+/backend/scanner.py     @SanthakumarParivallal
+/purple_recon.py        @SanthakumarParivallal
+
+# The quality gate itself. A change here changes what every other change proves.
+/.github/workflows/     @SanthakumarParivallal
+/Makefile               @SanthakumarParivallal
+/pyproject.toml         @SanthakumarParivallal
+
+# Measured claims and the harness that produces them.
+/evaluation/            @SanthakumarParivallal
+/docs/ACCURACY.md       @SanthakumarParivallal
+/docs/EVALUATION.md     @SanthakumarParivallal

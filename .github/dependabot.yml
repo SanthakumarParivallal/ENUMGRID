@@ -1,0 +1,79 @@
+# Dependabot configuration for ENUMGRID.
+#
+# ENUMGRID is a security tool, so a stale transitive dependency is a finding in its
+# own right. The CI gate already runs pip-audit, bandit and npm audit on every push;
+# Dependabot is what keeps those gates from going red in the first place.
+#
+# Updates are grouped so a solo maintainer gets a few reviewable pull requests each
+# week instead of one per package. Security updates are never grouped away: GitHub
+# raises those separately and immediately, regardless of the schedule below.
+version: 2
+
+updates:
+  # Backend runtime dependencies (FastAPI, python-nmap, the CVE/NVD clients).
+  - package-ecosystem: pip
+    directory: /backend
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels: [dependencies, backend]
+    commit-message:
+      prefix: "deps(backend)"
+    groups:
+      backend-minor-and-patch:
+        update-types: [minor, patch]
+
+  # Root Python tooling: pyproject.toml and requirements-dev.txt
+  # (pytest, ruff, bandit, pip-audit, coverage).
+  - package-ecosystem: pip
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels: [dependencies, tooling]
+    commit-message:
+      prefix: "deps(python)"
+    groups:
+      dev-tooling-minor-and-patch:
+        update-types: [minor, patch]
+
+  # Cockpit UI: React, Vite, Tailwind, Vitest.
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels: [dependencies, frontend]
+    commit-message:
+      prefix: "deps(frontend)"
+    groups:
+      frontend-minor-and-patch:
+        update-types: [minor, patch]
+
+  # Pinned action SHAs and majors in .github/workflows/ci.yml.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    labels: [dependencies, ci]
+    commit-message:
+      prefix: "deps(actions)"
+    groups:
+      actions-all:
+        patterns: ["*"]
+
+  # Base image in the root Dockerfile, which ships as a non-root container.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    labels: [dependencies, docker]
+    commit-message:
+      prefix: "deps(docker)"

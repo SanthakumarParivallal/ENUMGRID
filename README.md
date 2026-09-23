@@ -519,6 +519,8 @@ every push.
 | [`docs/CONTRIBUTIONS.md`](docs/CONTRIBUTIONS.md) | contribution and novelty framing, related work, threats to validity, ethics, for publication |
 | [`docs/COPILOT.md`](docs/COPILOT.md) | the grounded AI copilot (free Ollama and Gemini paths) |
 | [`docs/screenshots/README.md`](docs/screenshots/README.md) | figure manifest for the dissertation (all real runs) |
+| [`docs/REPRODUCE.md`](docs/REPRODUCE.md) | every headline number, its command, and its artifact |
+| [`SUPPORT.md`](SUPPORT.md) | where to ask questions and what to include in a bug report |
 | [`CHANGELOG.md`](CHANGELOG.md) | version history |
 
 ---
@@ -552,10 +554,14 @@ Makefile               # setup / dev / test / lint / clean
 
 ## Contributing and community
 
+- **Getting help:** see [`SUPPORT.md`](SUPPORT.md) for where to raise what, and the
+  checks worth running before filing a bug.
 - **Contributing:** see [`CONTRIBUTING.md`](CONTRIBUTING.md) for dev setup and the quality
   gate.
 - **Security disclosure:** see [`SECURITY.md`](SECURITY.md).
 - **Community standards:** see [`CODE_OF_CONDUCT.md`](CODE_OF_CONDUCT.md).
+- **Citing this work:** the repository ships a [`CITATION.cff`](CITATION.cff), so GitHub's
+  "Cite this repository" button exports APA and BibTeX.
 
 ## License
 
