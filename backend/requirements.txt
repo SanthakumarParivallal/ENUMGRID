@@ -4,7 +4,7 @@ fastapi>=0.110
 uvicorn>=0.27
 python-nmap>=0.7.1
 reportlab>=4.0   # one-click PDF report (pure-Python, no system libraries)
-zeroconf>=0.130  # mDNS / Bonjour device-name + service discovery (optional but recommended)
+zeroconf>=0.151.3  # mDNS / Bonjour device-name + service discovery (optional but recommended)
 paramiko>=3.4    # optional: authenticated (SSH) credentialed host scans (exact OS/packages)
 cryptography>=48.0.1  # security floor: <48.0.1 is affected by GHSA-537c-gmf6-5ccf (pulled in via paramiko)
 # pydantic 2.x is pulled in by fastapi
