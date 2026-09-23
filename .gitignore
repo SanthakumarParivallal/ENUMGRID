@@ -52,6 +52,9 @@ oui.txt
 .enumgrid_ollama_key
 .enumgrid_copilot_provider
 .enumgrid_ollama_model
+# Belt-and-suspenders: any current/future provider key or model file (keys are the sensitive ones).
+.enumgrid_*_key
+.enumgrid_*_model
 
 # ---- runtime logs + local intel caches (operator data) ----
 *.log

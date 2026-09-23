@@ -6,7 +6,7 @@ python-nmap>=0.7.1
 reportlab>=4.0   # one-click PDF report (pure-Python, no system libraries)
 zeroconf>=0.130  # mDNS / Bonjour device-name + service discovery (optional but recommended)
 paramiko>=3.4    # optional: authenticated (SSH) credentialed host scans (exact OS/packages)
-cryptography>=48.0.1  # security floor: <48.0.1 is affected by GHSA-537c-gmf6-5ccf (pulled in via paramiko)
+cryptography>=50.0.1  # security floor: <50.0.1 affected by GHSA-537c-gmf6-5ccf and PYSEC-2026-3552/3553/3554 (pulled in via paramiko/smbprotocol)
 # pydantic 2.x is pulled in by fastapi
 # CVE/threat-intel (NVD, CISA KEV, FIRST EPSS), OSV backport matching, SNMP and
 # the job queue use only the Python stdlib.
@@ -14,6 +14,7 @@ cryptography>=48.0.1  # security floor: <48.0.1 is affected by GHSA-537c-gmf6-5c
 # Optional integrations (install only if you use them):
 #   boto3>=1.34   # AWS cloud asset discovery  (GET /api/cloud/aws)
 #   ldap3>=2.9    # Active Directory enumeration (POST /api/ad/enum)
+#   pyasn1>=0.6.4 # security floor for ldap3's transitive pyasn1 (<0.6.4: PYSEC-2026-3455/3456/3457)
 #   smbprotocol>=1.13  # authenticated SMB share enumeration (POST /api/host/smb)
 #   scapy>=2.5    # passive (zero-packet) discovery  (POST /api/passive), needs raw-socket privilege
 #   anthropic>=0.40  # AI copilot via Anthropic Claude          (paid)
