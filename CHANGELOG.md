@@ -22,142 +22,7 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project versions accord
 
 ## [Unreleased]
 
-A correctness and operator-workflow pass. The headline fix is IPv6: a v6 target passed
-scope validation and was then reported **down**, because every probe opened an IPv4
-socket. A silent false negative is the worst failure mode for an enumeration tool, so it
-is treated as a correctness bug, not a missing feature.
-
-### Fixed
-
-- **IPv6 targets are now actually probed.** `DiscoveryEngine.is_alive` and
-  `EnumerationEngine._socket_scan` opened a hardcoded `AF_INET` socket, so every port
-  probe against an IPv6 address raised `OSError` and the host was recorded as down.
-  Probes now open a socket of the target's own family (`_af_for`), ICMP uses the
-  platform's v6 invocation (`ping6` on macOS, where `ping` rejects `-6`; `-6` on Linux
-  and Windows), and per-host nmap adds `-6`. Verified against a live IPv6 listener:
-  the sweep completes a handshake and returns a `strong` signal where it previously
-  returned "down".
-- **Reports no longer misattribute the scan.** Every JSON and HTML report recorded
-  `author` as the *tool's* author, and the HTML rendered it under the label **Operator**,
-  so a client deliverable named the wrong person. Reports now carry `tool_author` and
-  `operator` as separate fields, with `operator` resolved from `--operator`,
-  `$ENUMGRID_OPERATOR` or the OS login name. `author` is retained as a deprecated alias
-  of `operator` so existing report consumers keep working.
-- **The product prints its own name.** The pre-scan banner, the live dashboard header and
-  the HTML report heading rendered the pre-release name `PURPLERECON`, including in the
-  client-facing report. All three now render `ENUMGRID`, and the two conflicting taglines
-  are replaced by a single `TAGLINE` constant.
-- **Author name.** `AUTHOR` was `santhakumarParivallal`, which reached `--help`, the
-  banner and every exported report. Corrected to `Santhakumar Parivallal`, matching
-  `CITATION.cff` and `pyproject.toml`.
-- **Invalid scan options fail before the scan, not during it.** `--top-ports`, `--ports`
-  and `--host-timeout` were passed to nmap unchecked, so `--top-ports 0` or a malformed
-  port spec surfaced as an opaque per-host nmap failure after the scan had started.
-  `validate_scan_options` now rejects them up front with an actionable message. These
-  values were never a shell-injection vector: python-nmap splits the argument string with
-  `shlex` and execs a list, never a shell.
-- **DNS lookups during scope validation are bounded.** `socket.getaddrinfo` takes no
-  timeout and blocks for as long as the system resolver does. Hostname resolution now
-  runs on a worker thread with a `DNS_TIMEOUT_S` (5 s) budget, so a blackholed resolver
-  cannot stall validation.
-
-### Added
-
-- **Target forms an operator actually types.** Hyphenated ranges in both nmap spellings
-  (`192.168.1.10-20` last-octet shorthand and `10.0.0.1-10.0.0.50` fully qualified) and
-  hostnames, resolved through DNS. A name with several A/AAAA records expands to all of
-  them rather than being silently narrowed to one, and a name that does not resolve is an
-  error rather than an empty scope. A range is never widened to a CIDR.
-- **Scope files and exclusions.** `-iL/--target-file` reads an engagement scope list (one
-  entry per line, `#` comments and inline comments stripped); `--exclude` and
-  `--exclude-file` subtract out-of-scope or fragile assets. Excluded addresses are
-  reported, so an operator can verify what was left out instead of trusting it. A missing
-  or empty scope file is an error, never a silently empty scan.
-- **Nmap-compatible XML export** (`--xml`), so results import into Metasploit's
-  `db_import`, Faraday, DefectDojo and other nmap-XML consumers. The `scanner` attribute
-  is `enumgrid`, not `nmap`: the schema is nmap's, the data is ours, and claiming
-  otherwise would misrepresent where the results came from.
-- **Markdown export** (`--markdown`) for engagement write-ups.
-- **`--version`**, which previously exited 2 as an unrecognized option.
-- **`--operator NAME`** to record who ran the scan.
-- **Packet-rate limiting for fragile networks.** `--max-rate PPS` caps outbound probe
-  packets per second, enforced by a shared token-bucket limiter in both the nmap engine
-  (`--max-rate`) and the built-in socket scanner, so the ceiling holds whichever engine
-  runs. `--min-rate` and `--timing 0-5` expose nmap's rate floor and timing templates.
-  On industrial, medical and legacy networks a hard packets-per-second ceiling is often
-  what makes a scan permitted at all.
-- **Resumable scans (`--resume FILE`).** A long scan (a `/16` can run for hours) that is
-  killed, disconnected or Ctrl-C'd no longer starts over. Progress is journalled to a
-  checkpoint after discovery and after each host's enumeration; re-running the same
-  command with the same `--resume` path skips discovery and re-enumerates only the hosts
-  still pending. A checkpoint written for a different target is refused rather than
-  resumed into the wrong scope, and a clean completion consumes the journal.
-- **Authenticated SMB enumeration** (backend `POST /api/host/smb`, `backend/smbscan.py`).
-  ENUMGRID already discovers shares unauthenticated via nmap; this verifies, with a
-  credential, which shares an account can actually read (a read-only listing of each
-  share root, no writes, no password guessing). Reaching an administrative share such as
-  `C$`/`ADMIN$` is the classic local-admin signal. Optional `smbprotocol` dependency,
-  credential-gated, credentials in memory only, mirroring the SSH and LDAP modules.
-- **SARIF 2.1.0 export** (`--sarif`). Each reachable service is emitted as one
-  SARIF result at level `note`, so exposure surfaces in a code-scanning view (GitHub
-  and other SARIF consumers) beside the usual reports. The CLI pipeline carries no CVE
-  data, so no severity or CVSS is invented: the export records what is reachable, never
-  a vulnerability it did not measure.
-- **Greppable output** (`--greppable`/`--grep`, written as `.gnmap`). Nmap's greppable
-  line format, one `Host:` line per live host, so results drop straight into the
-  `grep`/`awk`/`cut` pipelines an operator already runs. The port tuple keeps Nmap's
-  `port/state/protocol/owner/service/rpc/version/` shape, so existing parsers read it
-  unchanged.
-- **Source interface and source port** (`--interface`, `--source-port`). Route probes
-  out of a chosen interface (nmap `-e`) or from a fixed TCP source port (nmap
-  `--source-port`), which a firewall allowlist sometimes requires. Both are raw-packet
-  controls, so they apply to the nmap engine only and are validated up front; the
-  built-in socket scanner cannot honour them.
-
-### Security
-
-- **The web API refuses hostname targets** (`ScopeValidator(resolve_names=False)`).
-  Adding hostname support to the shared validator would have extended it to the HTTP API,
-  where `vet_target` and the scan resolve the name **separately**: the API vets the
-  string, then hands the original string to nmap, which resolves it again. A name
-  resolving to a permitted private address at vet time could resolve to loopback or a
-  public host moments later, which is DNS rebinding straight through the scope policy
-  (threat T1). Resolution is therefore enabled only for the CLI, where the operator types
-  the target locally and no such window exists. Covered by a regression test that fails if
-  the API attempts a lookup at all.
-
-### Changed
-
-- The CLI test suite no longer performs DNS lookups. Because `validate()` resolves
-  hostnames, the property-based fuzz test was sending random strings such as `"Xsv"` to
-  the system resolver, making the suite network-dependent and flaky. An autouse fixture
-  stubs resolution, restoring the suite's no-network-I/O contract.
-- Dependabot no longer raises scheduled version-bump pull requests. All five ecosystems
-  in `.github/dependabot.yml` are set to `open-pull-requests-limit: 0`, and the 17 open
-  bot branches were deleted, so the repository presents a single `main` branch. Security
-  updates are unaffected: GitHub raises those through a separate mechanism that this
-  limit does not apply to, so a published advisory still opens a pull request. The groups
-  and schedules are retained, so version updates can be restored by raising the limits.
-- `make test` now runs the same coverage gates CI enforces. The local target ran plain
-  `pytest -q` with no coverage gate while CI ran `--cov-fail-under=100`, so code could
-  pass `make test` and still fail CI on coverage (as commit `c8e1580` did, at 99% on the
-  CLI). `test-cli`, `test-backend` and `test-frontend` now invoke the identical coverage-
-  gated commands (the CLI and every backend module at 100% line coverage, the frontend
-  lib via `npm run coverage`), and `test-eval` adds the offline CVE accuracy gate, so a
-  coverage regression now fails locally before a push instead of after it.
-- Cross-environment discovery evaluation now pools **three** networks (added a real run
-  on `192.168.0.0/24`), so the macro-averaged recall is EnumGrid 0.97 ± 0.04 vs `nmap -sn`
-  0.49 ± 0.54. The paper, accuracy and publication docs and the pooled plot were
-  re-derived from the regenerated `pooled_recall.json`; n = 3 is still small and reported
-  as such.
-- Test count: **1501** (315 CLI, 794 backend, 178 evaluation, 214 frontend), up from
-  1365. `backend/smbscan.py` is covered to the same CI-gated 100% as the other modules.
-- Both SVG diagrams are re-synced with the codebase. `docs/architecture.svg` still
-  advertised **422 tests**, a stale count from when the diagram was first added; it now
-  reads **1501**, matching the banner, the README and the count above. The em dashes in
-  the `architecture.svg` and `banner.svg` captions are replaced with the middot the
-  diagrams already use as a separator, so the rendered docs hold to the no-em-dash house
-  style. Both files still parse as well-formed XML.
+_Nothing yet. Changes land here before the next tagged release._
 
 ---
 
@@ -173,6 +38,11 @@ answer, it says so. An unreachable backend produces an error banner instead of a
 plausible grid, an uninstalled baseline scanner is reported as unavailable instead of as
 having found nothing, and a missing LLM provider returns `ready: false` with a reason
 instead of a generated reply. Tests enforce that discipline.
+
+The release also completed a correctness and operator-workflow pass. Its headline fix
+is IPv6: a v6 target passed scope validation and was then reported **down**, because
+every probe opened an IPv4 socket. A silent false negative is the worst failure mode
+for an enumeration tool, so it is treated as a correctness bug, not a missing feature.
 
 ### Added
 
@@ -396,6 +266,124 @@ instead of a generated reply. Tests enforce that discipline.
 - Coverage gates fail the build on any regression.
 - `make setup | dev | test | lint | clean` as the local entry points.
 
+- **Target forms an operator actually types.** Hyphenated ranges in both nmap spellings
+  (`192.168.1.10-20` last-octet shorthand and `10.0.0.1-10.0.0.50` fully qualified) and
+  hostnames, resolved through DNS. A name with several A/AAAA records expands to all of
+  them rather than being silently narrowed to one, and a name that does not resolve is an
+  error rather than an empty scope. A range is never widened to a CIDR.
+- **Scope files and exclusions.** `-iL/--target-file` reads an engagement scope list (one
+  entry per line, `#` comments and inline comments stripped); `--exclude` and
+  `--exclude-file` subtract out-of-scope or fragile assets. Excluded addresses are
+  reported, so an operator can verify what was left out instead of trusting it. A missing
+  or empty scope file is an error, never a silently empty scan.
+- **Nmap-compatible XML export** (`--xml`), so results import into Metasploit's
+  `db_import`, Faraday, DefectDojo and other nmap-XML consumers. The `scanner` attribute
+  is `enumgrid`, not `nmap`: the schema is nmap's, the data is ours, and claiming
+  otherwise would misrepresent where the results came from.
+- **Markdown export** (`--markdown`) for engagement write-ups.
+- **`--version`**, which previously exited 2 as an unrecognized option.
+- **`--operator NAME`** to record who ran the scan.
+- **Packet-rate limiting for fragile networks.** `--max-rate PPS` caps outbound probe
+  packets per second, enforced by a shared token-bucket limiter in both the nmap engine
+  (`--max-rate`) and the built-in socket scanner, so the ceiling holds whichever engine
+  runs. `--min-rate` and `--timing 0-5` expose nmap's rate floor and timing templates.
+  On industrial, medical and legacy networks a hard packets-per-second ceiling is often
+  what makes a scan permitted at all.
+- **Resumable scans (`--resume FILE`).** A long scan (a `/16` can run for hours) that is
+  killed, disconnected or Ctrl-C'd no longer starts over. Progress is journalled to a
+  checkpoint after discovery and after each host's enumeration; re-running the same
+  command with the same `--resume` path skips discovery and re-enumerates only the hosts
+  still pending. A checkpoint written for a different target is refused rather than
+  resumed into the wrong scope, and a clean completion consumes the journal.
+- **Authenticated SMB enumeration** (backend `POST /api/host/smb`, `backend/smbscan.py`).
+  ENUMGRID already discovers shares unauthenticated via nmap; this verifies, with a
+  credential, which shares an account can actually read (a read-only listing of each
+  share root, no writes, no password guessing). Reaching an administrative share such as
+  `C$`/`ADMIN$` is the classic local-admin signal. Optional `smbprotocol` dependency,
+  credential-gated, credentials in memory only, mirroring the SSH and LDAP modules.
+- **SARIF 2.1.0 export** (`--sarif`). Each reachable service is emitted as one
+  SARIF result at level `note`, so exposure surfaces in a code-scanning view (GitHub
+  and other SARIF consumers) beside the usual reports. The CLI pipeline carries no CVE
+  data, so no severity or CVSS is invented: the export records what is reachable, never
+  a vulnerability it did not measure.
+- **Greppable output** (`--greppable`/`--grep`, written as `.gnmap`). Nmap's greppable
+  line format, one `Host:` line per live host, so results drop straight into the
+  `grep`/`awk`/`cut` pipelines an operator already runs. The port tuple keeps Nmap's
+  `port/state/protocol/owner/service/rpc/version/` shape, so existing parsers read it
+  unchanged.
+- **Source interface and source port** (`--interface`, `--source-port`). Route probes
+  out of a chosen interface (nmap `-e`) or from a fixed TCP source port (nmap
+  `--source-port`), which a firewall allowlist sometimes requires. Both are raw-packet
+  controls, so they apply to the nmap engine only and are validated up front; the
+  built-in socket scanner cannot honour them.
+
+### Changed
+
+- The CLI test suite no longer performs DNS lookups. Because `validate()` resolves
+  hostnames, the property-based fuzz test was sending random strings such as `"Xsv"` to
+  the system resolver, making the suite network-dependent and flaky. An autouse fixture
+  stubs resolution, restoring the suite's no-network-I/O contract.
+- Dependabot no longer raises scheduled version-bump pull requests. All five ecosystems
+  in `.github/dependabot.yml` are set to `open-pull-requests-limit: 0`, and the 17 open
+  bot branches were deleted, so the repository presents a single `main` branch. Security
+  updates are unaffected: GitHub raises those through a separate mechanism that this
+  limit does not apply to, so a published advisory still opens a pull request. The groups
+  and schedules are retained, so version updates can be restored by raising the limits.
+- `make test` now runs the same coverage gates CI enforces. The local target ran plain
+  `pytest -q` with no coverage gate while CI ran `--cov-fail-under=100`, so code could
+  pass `make test` and still fail CI on coverage (as commit `c8e1580` did, at 99% on the
+  CLI). `test-cli`, `test-backend` and `test-frontend` now invoke the identical coverage-
+  gated commands (the CLI and every backend module at 100% line coverage, the frontend
+  lib via `npm run coverage`), and `test-eval` adds the offline CVE accuracy gate, so a
+  coverage regression now fails locally before a push instead of after it.
+- Cross-environment discovery evaluation now pools **three** networks (added a real run
+  on `192.168.0.0/24`), so the macro-averaged recall is EnumGrid 0.97 ± 0.04 vs `nmap -sn`
+  0.49 ± 0.54. The paper, accuracy and publication docs and the pooled plot were
+  re-derived from the regenerated `pooled_recall.json`; n = 3 is still small and reported
+  as such.
+- Test count: **1501** (315 CLI, 794 backend, 178 evaluation, 214 frontend), up from
+  1365. `backend/smbscan.py` is covered to the same CI-gated 100% as the other modules.
+- Both SVG diagrams are re-synced with the codebase. `docs/architecture.svg` still
+  advertised **422 tests**, a stale count from when the diagram was first added; it now
+  reads **1501**, matching the banner, the README and the count above. The em dashes in
+  the `architecture.svg` and `banner.svg` captions are replaced with the middot the
+  diagrams already use as a separator, so the rendered docs hold to the no-em-dash house
+  style. Both files still parse as well-formed XML.
+
+### Fixed
+
+- **IPv6 targets are now actually probed.** `DiscoveryEngine.is_alive` and
+  `EnumerationEngine._socket_scan` opened a hardcoded `AF_INET` socket, so every port
+  probe against an IPv6 address raised `OSError` and the host was recorded as down.
+  Probes now open a socket of the target's own family (`_af_for`), ICMP uses the
+  platform's v6 invocation (`ping6` on macOS, where `ping` rejects `-6`; `-6` on Linux
+  and Windows), and per-host nmap adds `-6`. Verified against a live IPv6 listener:
+  the sweep completes a handshake and returns a `strong` signal where it previously
+  returned "down".
+- **Reports no longer misattribute the scan.** Every JSON and HTML report recorded
+  `author` as the *tool's* author, and the HTML rendered it under the label **Operator**,
+  so a client deliverable named the wrong person. Reports now carry `tool_author` and
+  `operator` as separate fields, with `operator` resolved from `--operator`,
+  `$ENUMGRID_OPERATOR` or the OS login name. `author` is retained as a deprecated alias
+  of `operator` so existing report consumers keep working.
+- **The product prints its own name.** The pre-scan banner, the live dashboard header and
+  the HTML report heading rendered the pre-release name `PURPLERECON`, including in the
+  client-facing report. All three now render `ENUMGRID`, and the two conflicting taglines
+  are replaced by a single `TAGLINE` constant.
+- **Author name.** `AUTHOR` was `santhakumarParivallal`, which reached `--help`, the
+  banner and every exported report. Corrected to `Santhakumar Parivallal`, matching
+  `CITATION.cff` and `pyproject.toml`.
+- **Invalid scan options fail before the scan, not during it.** `--top-ports`, `--ports`
+  and `--host-timeout` were passed to nmap unchecked, so `--top-ports 0` or a malformed
+  port spec surfaced as an opaque per-host nmap failure after the scan had started.
+  `validate_scan_options` now rejects them up front with an actionable message. These
+  values were never a shell-injection vector: python-nmap splits the argument string with
+  `shlex` and execs a list, never a shell.
+- **DNS lookups during scope validation are bounded.** `socket.getaddrinfo` takes no
+  timeout and blocks for as long as the system resolver does. Hostname resolution now
+  runs on a worker thread with a `DNS_TIMEOUT_S` (5 s) budget, so a blackholed resolver
+  cannot stall validation.
+
 ### Security
 
 - **No shell anywhere in the scan path.** `nmap` is invoked with a fixed argv, targets
@@ -421,6 +409,16 @@ instead of a generated reply. Tests enforce that discipline.
   by `sha256` digest.
 - Reporting process and deployment guidance: [`SECURITY.md`](SECURITY.md). Assets, trust
   boundaries and the STRIDE analysis: [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md).
+
+- **The web API refuses hostname targets** (`ScopeValidator(resolve_names=False)`).
+  Adding hostname support to the shared validator would have extended it to the HTTP API,
+  where `vet_target` and the scan resolve the name **separately**: the API vets the
+  string, then hands the original string to nmap, which resolves it again. A name
+  resolving to a permitted private address at vet time could resolve to loopback or a
+  public host moments later, which is DNS rebinding straight through the scope policy
+  (threat T1). Resolution is therefore enabled only for the CLI, where the operator types
+  the target locally and no such window exists. Covered by a regression test that fails if
+  the API attempts a lookup at all.
 
 ### Known limitations
 
@@ -839,4 +837,5 @@ asserts a mobile OS.
 
 [kac]: https://keepachangelog.com/en/1.1.0/
 [semver]: https://semver.org/spec/v2.0.0.html
+[Unreleased]: https://github.com/SanthakumarParivallal/ENUMGRID/compare/v1.0.0...HEAD
 [1.0.0]: https://github.com/SanthakumarParivallal/ENUMGRID/releases/tag/v1.0.0
