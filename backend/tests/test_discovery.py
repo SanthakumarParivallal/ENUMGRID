@@ -109,10 +109,12 @@ import asyncio  # noqa: E402
 
 def _install_stubs(monkeypatch, *, is_alive=None, arp=None, proxy=None, ndp=None,
                    probe_open=(), nbns=None, snmp_info=None, ttl="", mdns=None, ssdp=None,
-                   local=(None, set()), gateway=None):
+                   local=(None, set()), gateway=None, ptr=None):
     monkeypatch.setattr(d, "_oui_table", lambda: {})
-    # Hermetic by default: no gateway read from the host OS routing table.
+    # Hermetic by default: no gateway read from the host OS routing table, and no
+    # real PTR query sent to it.
     monkeypatch.setattr(d, "_default_gateway", lambda: gateway)
+    monkeypatch.setattr(d, "_gateway_ptr_names", lambda ips, server, timeout=1.0: dict(ptr or {}))
 
     class _Engine:
         def __init__(self, **kw): pass
@@ -450,3 +452,149 @@ def test_run_discovery_eduroam_all_three_notes(monkeypatch):
         d.ARP_HIDDEN_NOTE,
     ])
     assert final.message == expected
+
+
+# --- gateway PTR: reverse names from the router's own DNS -------------------- #
+import ipaddress as _ip  # noqa: E402
+import struct as _struct  # noqa: E402
+
+
+def _dns_encode(name):
+    return b"".join(_struct.pack("B", len(p)) + p.encode() for p in name.split(".")) + b"\x00"
+
+
+def _dns_ptr_response(qip, answer_name, *, tid=0x4547, an=1, rcode=0, atype=12):
+    """Craft a DNS response to a PTR query for qip (answer NAME uses a 0xC00C
+    compression pointer back to the question, like dnsmasq does)."""
+    rev = _ip.ip_address(qip).reverse_pointer
+    header = _struct.pack(">HHHHHH", tid, 0x8180 | rcode, 1, an, 0, 0)
+    body = header + _dns_encode(rev) + _struct.pack(">HH", 12, 1)
+    for _ in range(an):
+        rdata = _dns_encode(answer_name)
+        body += b"\xc0\x0c" + _struct.pack(">HHIH", atype, 1, 0, len(rdata)) + rdata
+    return body
+
+
+class _FakeSock:
+    def __init__(self, resp=None, boom=False):
+        self._resp, self._boom = resp, boom
+
+    def settimeout(self, t): pass
+    def sendto(self, data, addr): self.sent = (data, addr)
+
+    def recvfrom(self, n):
+        if self._boom:
+            raise OSError("network down")
+        return self._resp, ("10.0.0.1", 53)
+
+    def close(self): self.closed = True
+
+
+def _use_sock(monkeypatch, resp=None, boom=False):
+    monkeypatch.setattr(d.socket, "socket", lambda *a, **k: _FakeSock(resp, boom))
+
+
+def test_dns_name_parsing():
+    # Inline labels ending in a zero octet.
+    name, end = d._dns_name(_dns_encode("host.home"), 0)
+    assert name == "host.home" and end == len(_dns_encode("host.home"))
+    # A compression pointer (0xC0 0x05) jumps to an inline name later in the packet.
+    buf = b"\xc0\x05" + b"\x00\x00\x00" + _dns_encode("x.y")
+    name, end = d._dns_name(buf, 0)
+    assert name == "x.y" and end == 2                    # end is just past the 2-byte pointer
+    # Defensive: truncated pointer, truncated buffer, and a self-referential loop.
+    assert d._dns_name(b"\xc0", 0) == ("", 0)            # pointer cut off
+    assert d._dns_name(b"", 0) == ("", 0)                # nothing to read
+    assert d._dns_name(b"\xc0\x00", 0)[0] == ""          # points at itself -> guard stops it
+
+
+def test_ptr_query_success(monkeypatch):
+    _use_sock(monkeypatch, resp=_dns_ptr_response("192.168.1.90", "iPhone.home"))
+    assert d._ptr_query("192.168.1.90", "192.168.1.1", 0.5) == "iPhone.home"
+
+
+def test_ptr_query_rejects_bad_ip():
+    assert d._ptr_query("not-an-ip", "192.168.1.1") is None
+
+
+def test_ptr_query_socket_error(monkeypatch):
+    _use_sock(monkeypatch, boom=True)
+    assert d._ptr_query("192.168.1.90", "192.168.1.1", 0.1) is None
+
+
+def test_ptr_query_short_and_error_responses(monkeypatch):
+    _use_sock(monkeypatch, resp=b"\x00\x00\x00")                       # < 12 bytes
+    assert d._ptr_query("192.168.1.90", "192.168.1.1") is None
+    _use_sock(monkeypatch, resp=_dns_ptr_response("192.168.1.90", "x.home", rcode=3))
+    assert d._ptr_query("192.168.1.90", "192.168.1.1") is None        # NXDOMAIN
+    _use_sock(monkeypatch, resp=_dns_ptr_response("192.168.1.90", "x", tid=0x1111))
+    assert d._ptr_query("192.168.1.90", "192.168.1.1") is None        # wrong transaction id
+    _use_sock(monkeypatch, resp=_dns_ptr_response("192.168.1.90", "x", an=0))
+    assert d._ptr_query("192.168.1.90", "192.168.1.1") is None        # no answers
+
+
+def test_ptr_query_non_ptr_answer_and_truncation(monkeypatch):
+    # A non-PTR answer (e.g. type 5) is stepped over, yielding no name.
+    _use_sock(monkeypatch, resp=_dns_ptr_response("192.168.1.90", "x.home", atype=5))
+    assert d._ptr_query("192.168.1.90", "192.168.1.1") is None
+    # Header claims an answer but the answer bytes are missing -> bail, not crash.
+    rev = _ip.ip_address("192.168.1.90").reverse_pointer
+    truncated = _struct.pack(">HHHHHH", 0x4547, 0x8180, 1, 1, 0, 0) \
+        + _dns_encode(rev) + _struct.pack(">HH", 12, 1)
+    _use_sock(monkeypatch, resp=truncated)
+    assert d._ptr_query("192.168.1.90", "192.168.1.1") is None
+
+
+def test_gateway_ptr_names(monkeypatch):
+    assert d._gateway_ptr_names([], "10.0.0.1") == {}                 # nothing to resolve
+    table = {"10.0.0.9": "nas.home", "10.0.0.10": None}
+    monkeypatch.setattr(d, "_ptr_query", lambda ip, server, timeout=1.0: table.get(ip))
+    assert d._gateway_ptr_names(["10.0.0.9", "10.0.0.10"], "10.0.0.1") == {"10.0.0.9": "nas.home"}
+
+
+def test_run_discovery_gateway_ptr_fills_names(monkeypatch):
+    # Reverse DNS finds nothing (public resolver), but the gateway's own DNS names
+    # the DHCP clients. Those names land on the hosts.
+    _install_stubs(
+        monkeypatch,
+        is_alive={"192.168.1.90": (True, "ping", [], 64),
+                  "192.168.1.116": (True, "ping", [], 64)},
+        arp={"192.168.1.90": "aa:bb:cc:dd:ee:90"},         # ARP readable -> no ARP note
+        gateway="192.168.1.1",
+        ptr={"192.168.1.90": "iPhone.home", "192.168.1.116": "wiz_4a06ba.home"},
+    )
+    by_ip = {h.ip: h for h in _run("192.168.1.0/24")[-1].hosts}
+    assert by_ip["192.168.1.90"].hostname == "iPhone.home"
+    assert by_ip["192.168.1.116"].hostname == "wiz_4a06ba.home"
+
+
+def test_run_discovery_service_name_beats_gateway_ptr(monkeypatch):
+    # A device-declared name (mDNS) must win over the router's bare DHCP label.
+    _install_stubs(
+        monkeypatch,
+        is_alive={"192.168.1.90": (True, "ping", [], 64)},
+        arp={"192.168.1.90": "aa:bb:cc:dd:ee:90"},
+        mdns={"192.168.1.90": {"hostname": "santhas-iphone.local", "device_type": "Phone"}},
+        gateway="192.168.1.1",
+        ptr={"192.168.1.90": "iPhone.home"},               # would apply only if still unnamed
+    )
+    host = _run("192.168.1.0/24")[-1].hosts[0]
+    assert host.hostname == "santhas-iphone.local"         # mDNS name kept, PTR skipped
+
+
+def test_run_discovery_survives_gateway_ptr_failure(monkeypatch):
+    # A failing gateway PTR lookup must not sink the scan; the host stays unnamed.
+    _install_stubs(
+        monkeypatch,
+        is_alive={"192.168.1.90": (True, "ping", [], 64)},
+        arp={"192.168.1.90": "aa:bb:cc:dd:ee:90"},
+        gateway="192.168.1.1",
+    )
+
+    def _boom(*a, **k):
+        raise RuntimeError("dns down")
+
+    monkeypatch.setattr(d, "_gateway_ptr_names", _boom)
+    final = _run("192.168.1.0/24")[-1]
+    assert final.phase == d.ScanPhase.COMPLETE
+    assert final.hosts[0].hostname is None

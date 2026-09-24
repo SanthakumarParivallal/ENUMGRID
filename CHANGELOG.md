@@ -24,6 +24,15 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project versions accord
 
 ### Added
 
+- Device hostnames now resolve on home networks where the OS resolver is pointed
+  at public DNS. When the normal reverse-DNS pass comes back empty (public
+  resolvers such as `1.1.1.1` hold no record for a private address), discovery
+  asks the default gateway's own DNS directly over UDP/53, which is where a
+  home router keeps its DHCP-client names (`iPhone.home`, `Mac.home`). It runs
+  as a last-resort fill, so a device-declared mDNS, SSDP or NetBIOS name always
+  wins over a bare DHCP label. Pure stdlib, best-effort, and only for hosts
+  nothing richer could name. This closes the common gap where other scanners
+  showed names and ENUMGRID showed none.
 - Discovery scan notes now explain an empty or partial sweep instead of leaving
   the operator to guess. When only your own device answers a sweep of 16 or more
   addresses, the dashboard flags likely client isolation (common on eduroam,

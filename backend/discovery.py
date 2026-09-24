@@ -322,6 +322,107 @@ def _reverse_dns(ip: str) -> tuple[str, str | None]:
         return ip, None
 
 
+def _dns_name(data: bytes, idx: int) -> tuple[str, int]:
+    """Read a DNS name at ``idx``, following compression pointers.
+
+    Returns the dotted name and the offset just past the name in the stream (the
+    offset of the *pointer*, not its target, so the caller keeps reading in
+    order). A step guard makes a malformed pointer loop terminate.
+    """
+    labels: list[str] = []
+    end = idx
+    jumped = False
+    guard = 0
+    while guard < 64:
+        guard += 1
+        if idx >= len(data):
+            break
+        length = data[idx]
+        if length == 0:
+            idx += 1
+            if not jumped:
+                end = idx
+            break
+        if length & 0xC0 == 0xC0:                       # compression pointer
+            if idx + 1 >= len(data):
+                break
+            if not jumped:
+                end = idx + 2
+            idx = ((length & 0x3F) << 8) | data[idx + 1]
+            jumped = True
+            continue
+        idx += 1
+        labels.append(data[idx:idx + length].decode("ascii", "replace"))
+        idx += length
+    return ".".join(labels), end
+
+
+def _ptr_query(ip: str, server: str, timeout: float = 1.0) -> str | None:
+    """Reverse-DNS PTR for ``ip`` asked directly of ``server`` over UDP/53.
+
+    Home routers answer PTR for their own DHCP clients (``iPhone.home``,
+    ``Mac.home``) even when the OS resolver is pointed at public DNS that has no
+    record for a private address, which is why a plain reverse-DNS pass comes
+    back empty on many home LANs while the router knows every name. Pure stdlib,
+    best-effort, bounded by ``timeout``; any error yields None.
+    """
+    try:
+        rev = ipaddress.ip_address(ip).reverse_pointer
+    except ValueError:
+        return None
+    tid = 0x4547  # "EG"
+    header = struct.pack(">HHHHHH", tid, 0x0100, 1, 0, 0, 0)  # one question, RD set
+    qname = b"".join(
+        struct.pack("B", len(part)) + part.encode("ascii") for part in rev.split(".")
+    ) + b"\x00"
+    query = header + qname + struct.pack(">HH", 12, 1)  # QTYPE=PTR(12), QCLASS=IN(1)
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    sock.settimeout(timeout)
+    try:
+        sock.sendto(query, (server, 53))
+        data, _ = sock.recvfrom(2048)
+    except OSError:
+        return None
+    finally:
+        sock.close()
+    if len(data) < 12:
+        return None
+    rid, flags, qd, an = struct.unpack(">HHHH", data[:8])
+    if rid != tid or flags & 0x000F or an == 0:         # wrong reply, error rcode, or no answer
+        return None
+    idx = 12
+    for _ in range(qd):                                 # step over the echoed question(s)
+        _, idx = _dns_name(data, idx)
+        idx += 4
+    for _ in range(an):
+        _, idx = _dns_name(data, idx)
+        if idx + 10 > len(data):
+            return None
+        atype, _cls, _ttl, rdlen = struct.unpack(">HHIH", data[idx:idx + 10])
+        idx += 10
+        if atype == 12:                                 # PTR record: RDATA is the name
+            name, _ = _dns_name(data, idx)
+            return name.rstrip(".") or None
+        idx += rdlen
+    return None
+
+
+def _gateway_ptr_names(ips: list[str], server: str, timeout: float = 1.0,
+                       workers: int = 32) -> dict[str, str]:
+    """PTR names for ``ips`` resolved via ``server`` (the default gateway), in
+    parallel. Only hosts the server actually names appear in the result."""
+    out: dict[str, str] = {}
+    if not ips:
+        return out
+    with ThreadPoolExecutor(
+        max_workers=min(workers, len(ips)), thread_name_prefix="ptr"
+    ) as pool:
+        for ip, name in zip(ips, pool.map(lambda i: _ptr_query(i, server, timeout), ips)):
+            if name:
+                out[ip] = name
+    return out
+
+
 async def run_discovery(target: str, scan_id: str | None):
     """Async generator yielding `ScanState` snapshots as devices are found."""
     loop = asyncio.get_running_loop()
@@ -533,6 +634,26 @@ async def run_discovery(target: str, scan_id: str | None):
         if own_name and not hosts[ip].hostname:
             hosts[ip].hostname = own_name
 
+    # --- 4d) gateway PTR: last-resort names from the router's own DNS -------- #
+    # The OS resolver is often pointed at public DNS (1.1.1.1/8.8.8.8) that has
+    # no record for a private address, so reverse DNS came back empty even though
+    # the router knows every DHCP client's name (iPhone.home, Mac.home). Ask the
+    # gateway itself, but only for hosts nothing richer (mDNS/SSDP/NBNS/own-OS)
+    # could name, so a device-declared name always wins over a bare DHCP label.
+    # Computed once here and reused for the finish-line scope notes.
+    gateway = _default_gateway()
+    unresolved = [ip for ip, h in hosts.items() if not h.hostname]
+    if gateway and unresolved:
+        try:
+            ptr = await loop.run_in_executor(
+                None, lambda: _gateway_ptr_names(unresolved, gateway)
+            )
+        except Exception:
+            ptr = {}
+        for ip, name in ptr.items():
+            if name and not hosts[ip].hostname:
+                hosts[ip].hostname = name
+
     # (Re)classify device type from every signal we now have, crucially the open
     # ports, whose signatures are the *strongest* hint (e.g. 9100→Printer,
     # 554→Camera, 445+139→Computer). Skip hosts already typed by a service
@@ -571,7 +692,7 @@ async def run_discovery(target: str, scan_id: str | None):
     # Combine the "why does this look empty" notes (client isolation, and
     # scanning only a slice of a larger subnet) with the ARP-hidden note, in
     # reading order, into the single operator-facing scan note.
-    notes = _scope_notes(target, set(hosts), set(own_addrs), _default_gateway(), len(candidates))
+    notes = _scope_notes(target, set(hosts), set(own_addrs), gateway, len(candidates))
     if notice:
         notes.append(notice)
     yield snapshot(
