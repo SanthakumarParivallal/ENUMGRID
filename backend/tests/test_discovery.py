@@ -109,8 +109,10 @@ import asyncio  # noqa: E402
 
 def _install_stubs(monkeypatch, *, is_alive=None, arp=None, proxy=None, ndp=None,
                    probe_open=(), nbns=None, snmp_info=None, ttl="", mdns=None, ssdp=None,
-                   local=(None, set())):
+                   local=(None, set()), gateway=None):
     monkeypatch.setattr(d, "_oui_table", lambda: {})
+    # Hermetic by default: no gateway read from the host OS routing table.
+    monkeypatch.setattr(d, "_default_gateway", lambda: gateway)
 
     class _Engine:
         def __init__(self, **kw): pass
@@ -335,3 +337,116 @@ def test_run_discovery_own_machine_without_hostname(monkeypatch):
     )
     final = _run("10.0.0.0/30")[-1]
     assert final.hosts[0].hostname is None and final.message is None
+
+
+# --- scope notes: client isolation + scanning only a slice of a subnet ------ #
+
+def test_default_gateway_linux_proc_route(monkeypatch):
+    # Linux /proc/net/route: default route (dest 00000000, RTF_GATEWAY flag),
+    # gateway stored little-endian hex -> 0102A8C0 is 192.168.2.1.
+    table = (
+        "Iface\tDestination\tGateway\tFlags\tRefCnt\tUse\tMetric\tMask\n"
+        "eth0\t00000000\t0102A8C0\t0003\t0\t0\t0\t00000000\n"
+    )
+
+    class _FH:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self): return table
+
+    monkeypatch.setattr("builtins.open", lambda *a, **k: _FH())
+    assert d._default_gateway() == "192.168.2.1"
+
+
+def test_default_gateway_macos_route_command(monkeypatch):
+    # No /proc on macOS -> fall back to parsing `route -n get default`.
+    monkeypatch.setattr("builtins.open", lambda *a, **k: (_ for _ in ()).throw(OSError()))
+    monkeypatch.setattr(d.shutil, "which", lambda name: "/sbin/route")
+
+    class _CP:
+        stdout = "   route to: default\n   gateway: 10.195.0.1\n   interface: en0\n"
+
+    monkeypatch.setattr(d.subprocess, "run", lambda *a, **k: _CP())
+    assert d._default_gateway() == "10.195.0.1"
+
+
+def test_default_gateway_route_command_fails(monkeypatch):
+    # /proc missing and the route subprocess errors -> empty output -> None.
+    monkeypatch.setattr("builtins.open", lambda *a, **k: (_ for _ in ()).throw(OSError()))
+    monkeypatch.setattr(d.shutil, "which", lambda name: "/sbin/route")
+    monkeypatch.setattr(d.subprocess, "run",
+                        lambda *a, **k: (_ for _ in ()).throw(OSError("boom")))
+    assert d._default_gateway() is None
+
+
+def test_default_gateway_no_route_binary(monkeypatch):
+    # /proc missing and no `route` binary at all -> None.
+    monkeypatch.setattr("builtins.open", lambda *a, **k: (_ for _ in ()).throw(OSError()))
+    monkeypatch.setattr(d.shutil, "which", lambda name: None)
+    assert d._default_gateway() is None
+
+
+def test_scope_note_helpers():
+    # _target_networks keeps valid IPv4 CIDRs; skips blanks, IPv6 and junk.
+    nets = d._target_networks("10.0.0.0/24, , ::1, nonsense, 192.168.5.7")
+    assert [str(n) for n in nets] == ["10.0.0.0/24", "192.168.5.7/32"]
+    # _slice_here returns the scanned net holding our own IP (bad addrs ignored),
+    # and None when we are not scanning our own subnet.
+    assert str(d._slice_here("10.0.0.0/24", {"10.0.0.9", "bad-ip"})) == "10.0.0.0/24"
+    assert d._slice_here("10.0.0.0/24", {"192.168.1.9"}) is None
+    # Nothing unusual -> no notes.
+    assert d._scope_notes("10.0.0.0/24", {"10.0.0.9", "10.0.0.10"},
+                          {"192.168.1.5"}, None, 254) == []
+    # A malformed gateway string is ignored (no slice note, no crash).
+    assert d._scope_notes("10.0.0.0/24", {"10.0.0.9", "10.0.0.10"},
+                          {"10.0.0.9"}, "not-an-ip", 254) == []
+
+
+def test_run_discovery_flags_client_isolation(monkeypatch):
+    # A full /24 sweep where only our own device answers -> isolation note.
+    _install_stubs(
+        monkeypatch,
+        is_alive={"10.0.0.50": (True, "ping", [], 64)},
+        arp={"10.0.0.50": "aa:bb:cc:dd:ee:50"},        # ARP readable -> no ARP note
+        local=("my-Mac", {"10.0.0.50"}),
+        gateway=None,                                  # gateway unknown -> no slice note
+    )
+    final = _run("10.0.0.0/24")[-1]
+    assert [h.ip for h in final.hosts] == ["10.0.0.50"]
+    assert final.message == d._ISOLATION_NOTE.format(n=254)
+
+
+def test_run_discovery_flags_subnet_slice(monkeypatch):
+    # Our own IP is inside the scanned /24 but the gateway is outside it: the real
+    # network is larger than the slice that was swept. A second host suppresses
+    # the isolation note, isolating the slice note.
+    _install_stubs(
+        monkeypatch,
+        is_alive={"10.195.94.142": (True, "ping", [], 64),
+                  "10.195.94.7": (True, "ping", [], 64)},
+        arp={"10.195.94.142": "aa:bb:cc:dd:ee:01"},    # ARP readable -> no ARP note
+        local=("my-Mac", {"10.195.94.142"}),
+        gateway="10.195.0.1",
+    )
+    final = _run("10.195.94.0/24")[-1]
+    assert final.message == d._SLICE_NOTE.format(
+        gw="10.195.0.1", net="10.195.94.0/24", prefix=24)
+
+
+def test_run_discovery_eduroam_all_three_notes(monkeypatch):
+    # The real eduroam case: only our own device answers, the gateway is outside
+    # the scanned /24, and macOS hid the ARP table. All three notes, in order.
+    _install_stubs(
+        monkeypatch,
+        is_alive={"10.195.94.142": (True, "ping", [], 64)},
+        arp={},                                        # OS hid the ARP table
+        local=("my-Mac", {"10.195.94.142"}),
+        gateway="10.195.0.1",
+    )
+    final = _run("10.195.94.0/24")[-1]
+    expected = " ".join([
+        d._ISOLATION_NOTE.format(n=254),
+        d._SLICE_NOTE.format(gw="10.195.0.1", net="10.195.94.0/24", prefix=24),
+        d.ARP_HIDDEN_NOTE,
+    ])
+    assert final.message == expected

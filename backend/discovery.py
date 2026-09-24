@@ -19,6 +19,8 @@ import ipaddress
 import os
 import shutil
 import socket
+import struct
+import subprocess
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -145,6 +147,125 @@ ARP_HIDDEN_NOTE = (
     "ARP table (on macOS, Local Network privacy hides it from some unprivileged "
     "processes). Elevate with the privilege control, or start with ./start.sh, to include them."
 )
+
+# Shown when the operator's own device is the only host that answered a real
+# sweep: usually client isolation (eduroam/guest WiFi block device-to-device
+# traffic), or simply an otherwise-idle network. Phrased as both possibilities
+# so it never overclaims.
+_ISOLATION_NOTE = (
+    "Only your own device answered a sweep of {n} addresses. Either every other device is "
+    "offline, or this network enforces client isolation (common on eduroam, campus and guest "
+    "Wi-Fi), which blocks device-to-device discovery."
+)
+
+# Only raise the isolation note for a sweep big enough that "only you" is
+# genuinely surprising. A tiny deliberate range (a /30 link, a handful of IPs)
+# legitimately holds just one host, so those never trigger it.
+_MIN_ISOLATION_SWEEP = 16
+
+# Shown when the default gateway sits outside the range that was scanned, which
+# means the network is larger than the slice we swept (e.g. a /24 auto-suggested
+# from the local IP while the real subnet is a /16). Only raised for a scan of
+# the operator's *own* subnet, so a deliberate scan of a remote range is never
+# second-guessed.
+_SLICE_NOTE = (
+    "The default gateway {gw} is outside the scanned range {net}, so your network is larger than "
+    "the /{prefix} that was scanned. Devices on other parts of it are out of range; widen the "
+    "target to reach them (a full sweep of a large network can be slow and may breach an "
+    "acceptable-use policy)."
+)
+
+
+def _default_gateway() -> str | None:
+    """This host's default-route gateway IPv4, read from the OS routing table.
+
+    Linux via ``/proc/net/route`` (dependency-free), macOS/BSD via
+    ``route -n get default``. Best-effort: returns None when the OS will not
+    reveal it. Lets discovery explain that a scanned range is only a slice of a
+    larger subnet (the gateway falls outside it).
+    """
+    try:
+        with open("/proc/net/route", encoding="ascii") as fh:
+            rows = fh.read().splitlines()
+        for row in rows[1:]:
+            fields = row.split()
+            # Default route: destination 0.0.0.0 with the RTF_GATEWAY flag set.
+            if len(fields) > 3 and fields[1] == "00000000" and int(fields[3], 16) & 0x2:
+                gw = socket.inet_ntoa(struct.pack("<L", int(fields[2], 16)))
+                if gw != "0.0.0.0":
+                    return gw
+    except (OSError, ValueError):
+        pass
+    exe = shutil.which("route")
+    if exe:
+        try:
+            out = subprocess.run(
+                [exe, "-n", "get", "default"],
+                capture_output=True, text=True, timeout=3,
+            ).stdout
+        except (OSError, subprocess.SubprocessError):
+            out = ""
+        for line in out.splitlines():
+            line = line.strip()
+            if line.startswith("gateway:"):
+                return line.split(":", 1)[1].strip() or None
+    return None
+
+
+def _target_networks(target: str) -> list[ipaddress.IPv4Network]:
+    """The IPv4 networks named by a 'CIDR / IP / comma-list' target string."""
+    nets: list[ipaddress.IPv4Network] = []
+    for part in target.split(","):
+        part = part.strip()
+        if not part or ":" in part:
+            continue
+        try:
+            net = ipaddress.ip_network(part, strict=False)
+        except ValueError:
+            continue
+        if isinstance(net, ipaddress.IPv4Network):
+            nets.append(net)
+    return nets
+
+
+def _slice_here(target: str, own_addrs: set[str]) -> ipaddress.IPv4Network | None:
+    """The scanned network that contains one of *our own* addresses, or None.
+
+    Returning None for a scan that does not include our own IP means a
+    deliberate scan of a remote subnet is never flagged as "only a slice".
+    """
+    own_ips: list[ipaddress.IPv4Address] = []
+    for addr in own_addrs:
+        try:
+            own_ips.append(ipaddress.IPv4Address(addr))
+        except ValueError:
+            continue
+    for net in _target_networks(target):
+        if any(ip in net for ip in own_ips):
+            return net
+    return None
+
+
+def _scope_notes(
+    target: str, host_ips: set[str], own_addrs: set[str], gateway: str | None, sweep_size: int
+) -> list[str]:
+    """Operator-readable notes on *why* a sweep may look empty: client isolation
+    (only our own device answered) and scanning a slice of a larger subnet (the
+    gateway sits outside the scanned range). Pure: every OS fact is passed in, so
+    it is fully unit-testable.
+    """
+    notes: list[str] = []
+    if sweep_size >= _MIN_ISOLATION_SWEEP and len(host_ips) == 1 and host_ips <= own_addrs:
+        notes.append(_ISOLATION_NOTE.format(n=sweep_size))
+    here = _slice_here(target, own_addrs)
+    if here is not None and gateway:
+        try:
+            gw = ipaddress.IPv4Address(gateway)
+        except ValueError:
+            gw = None
+        if gw is not None and gw not in here:
+            notes.append(_SLICE_NOTE.format(gw=gateway, net=here, prefix=here.prefixlen))
+    return notes
 
 
 def _read_arp() -> dict[str, str]:
@@ -447,4 +568,12 @@ async def run_discovery(target: str, scan_id: str | None):
             if refined:
                 host.os = refined
 
-    yield snapshot(ScanPhase.COMPLETE, 100, finished=True, message=notice)
+    # Combine the "why does this look empty" notes (client isolation, and
+    # scanning only a slice of a larger subnet) with the ARP-hidden note, in
+    # reading order, into the single operator-facing scan note.
+    notes = _scope_notes(target, set(hosts), set(own_addrs), _default_gateway(), len(candidates))
+    if notice:
+        notes.append(notice)
+    yield snapshot(
+        ScanPhase.COMPLETE, 100, finished=True, message=" ".join(notes) or None
+    )

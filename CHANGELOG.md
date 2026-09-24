@@ -22,7 +22,18 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project versions accord
 
 ## [Unreleased]
 
-_Nothing yet. Changes land here before the next tagged release._
+### Added
+
+- Discovery scan notes now explain an empty or partial sweep instead of leaving
+  the operator to guess. When only your own device answers a sweep of 16 or more
+  addresses, the dashboard flags likely client isolation (common on eduroam,
+  campus and guest Wi-Fi, which block device-to-device traffic). When the default
+  gateway falls outside the scanned range, it flags that the network is larger
+  than the swept slice (for example a `/24` auto-suggested from the local IP while
+  the real subnet is a `/16`) and that the target should be widened. Both notes
+  are derived from the real OS routing table and the live scan result, never
+  assumed, and they share the existing scan-note banner alongside the
+  MAC-address-hidden note.
 
 ---
 
