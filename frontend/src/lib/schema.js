@@ -210,6 +210,21 @@ export function PortModel(data = {}) {
   };
 }
 
+/** Build a validated TLS certificate summary from a raw payload. */
+export function TlsCertModel(data = {}) {
+  data = asObject(data);
+  return {
+    port: toInt(data.port, 0),
+    subject: data.subject != null ? String(data.subject) : '',
+    issuer: data.issuer != null ? String(data.issuer) : '',
+    sans: Array.isArray(data.sans) ? data.sans.map(String) : [],
+    not_before: data.not_before != null ? String(data.not_before) : '',
+    not_after: data.not_after != null ? String(data.not_after) : '',
+    self_signed: Boolean(data.self_signed),
+    issues: Array.isArray(data.issues) ? data.issues.map(String) : [],
+  };
+}
+
 /**
  * @typedef {Object} Host
  * @property {string} ip
@@ -220,6 +235,8 @@ export function PortModel(data = {}) {
  * @property {string} scan_note
  * @property {string} scan_warning
  * @property {Port[]} ports
+ * @property {Object[]} tls
+ * @property {string[]} anomalies
  */
 
 /** Build a validated Host from a raw (possibly partial) payload. */
@@ -248,6 +265,8 @@ export function HostModel(data = {}) {
     scanError: Boolean(data.scanError), // transient: the last per-host scan failed
     ports: Array.isArray(data.ports) ? data.ports.map(PortModel) : [],
     vulns: Array.isArray(data.vulns) ? data.vulns.map(VulnModel) : [],
+    tls: Array.isArray(data.tls) ? data.tls.map(TlsCertModel) : [],
+    anomalies: Array.isArray(data.anomalies) ? data.anomalies.map(String) : [],
   };
 }
 

@@ -109,12 +109,16 @@ import asyncio  # noqa: E402
 
 def _install_stubs(monkeypatch, *, is_alive=None, arp=None, proxy=None, ndp=None,
                    probe_open=(), nbns=None, snmp_info=None, ttl="", mdns=None, ssdp=None,
-                   local=(None, set()), gateway=None, ptr=None):
+                   local=(None, set()), gateway=None, ptr=None, tls=None, snmp_arp=None):
     monkeypatch.setattr(d, "_oui_table", lambda: {})
-    # Hermetic by default: no gateway read from the host OS routing table, and no
-    # real PTR query sent to it.
+    # Hermetic by default: no gateway read from the host OS routing table, no real
+    # PTR query or SNMP walk sent to it, and no real TLS handshake. ptr maps
+    # ip -> name, tls maps (ip, port) -> cert, snmp_arp maps ip -> mac.
     monkeypatch.setattr(d, "_default_gateway", lambda: gateway)
     monkeypatch.setattr(d, "_gateway_ptr_names", lambda ips, server, timeout=1.0: dict(ptr or {}))
+    monkeypatch.setattr(d.tlsinspect, "inspect",
+                        lambda ip, port, timeout=2.0: (tls or {}).get((ip, port)))
+    monkeypatch.setattr(d.snmp, "arp_table", lambda ip, timeout=1.5: dict(snmp_arp or {}))
 
     class _Engine:
         def __init__(self, **kw): pass
@@ -598,3 +602,138 @@ def test_run_discovery_survives_gateway_ptr_failure(monkeypatch):
     final = _run("192.168.1.0/24")[-1]
     assert final.phase == d.ScanPhase.COMPLETE
     assert final.hosts[0].hostname is None
+
+
+# --- TLS certificate inspection (names + expiry from TLS services) ---------- #
+
+def _cert(**over):
+    base = {"port": 443, "subject": "nas.home", "issuer": "nas.home", "sans": ["nas.home"],
+            "not_before": "2026-01-01", "not_after": "2027-01-01",
+            "self_signed": True, "issues": ["self-signed"]}
+    base.update(over)
+    return base
+
+
+def test_run_discovery_tls_cert_fills_name_and_attaches(monkeypatch):
+    # .50 presents a cert (names it + attaches details); .51 has 443 open but no
+    # cert (covers the "no cert" skip) and stays unnamed.
+    _install_stubs(
+        monkeypatch,
+        is_alive={"192.168.1.50": (True, "ping", [], 64),
+                  "192.168.1.51": (True, "ping", [], 64)},
+        arp={"192.168.1.50": "aa:bb:cc:dd:ee:50"},
+        probe_open=[("192.168.1.50", 443), ("192.168.1.51", 443)],
+        tls={("192.168.1.50", 443): _cert()},          # .51 absent -> inspect returns None
+    )
+    by_ip = {h.ip: h for h in _run("192.168.1.0/24")[-1].hosts}
+    assert by_ip["192.168.1.50"].hostname == "nas.home"
+    cert = by_ip["192.168.1.50"].tls[0]
+    assert cert.self_signed and cert.issues == ["self-signed"] and cert.port == 443
+    assert by_ip["192.168.1.51"].tls == [] and by_ip["192.168.1.51"].hostname is None
+
+
+def test_run_discovery_mdns_name_beats_tls_cert(monkeypatch):
+    # A device-declared mDNS name wins, but the cert is still attached.
+    _install_stubs(
+        monkeypatch,
+        is_alive={"192.168.1.50": (True, "ping", [], 64)},
+        arp={"192.168.1.50": "aa:bb:cc:dd:ee:50"},
+        probe_open=[("192.168.1.50", 443)],
+        mdns={"192.168.1.50": {"hostname": "living-room-tv.local", "device_type": "Media / TV"}},
+        tls={("192.168.1.50", 443): _cert(subject="generic")},
+    )
+    host = _run("192.168.1.0/24")[-1].hosts[0]
+    assert host.hostname == "living-room-tv.local"     # mDNS kept
+    assert host.tls[0].subject == "generic"            # cert still attached
+
+
+def test_run_discovery_survives_tls_failure(monkeypatch):
+    # A crashing cert reader must not sink the scan.
+    _install_stubs(
+        monkeypatch,
+        is_alive={"192.168.1.50": (True, "ping", [], 64)},
+        arp={"192.168.1.50": "aa:bb:cc:dd:ee:50"},
+        probe_open=[("192.168.1.50", 443)],
+    )
+
+    def _boom(ip, port, timeout=2.0):
+        raise RuntimeError("tls down")
+
+    monkeypatch.setattr(d.tlsinspect, "inspect", _boom)
+    final = _run("192.168.1.0/24")[-1]
+    assert final.phase == d.ScanPhase.COMPLETE
+    assert final.hosts[0].tls == []
+
+
+# --- MAC/vendor recovery from the gateway's SNMP ARP table ------------------ #
+
+def test_run_discovery_recovers_mac_from_gateway_snmp(monkeypatch):
+    # The OS hid the ARP table (no local MAC); the gateway's SNMP ARP cache has it.
+    _install_stubs(
+        monkeypatch,
+        is_alive={"192.168.1.90": (True, "ping", [], 64)},
+        arp={},                                            # OS hid the ARP table
+        gateway="192.168.1.1",
+        snmp_arp={"192.168.1.90": "aa:bb:cc:dd:ee:90"},
+    )
+    host = _run("192.168.1.0/24")[-1].hosts[0]
+    assert host.mac == "aa:bb:cc:dd:ee:90"
+    assert host.vendor == "VendorX"                        # OUI-resolved from the recovered MAC
+
+
+def test_run_discovery_survives_snmp_arp_failure(monkeypatch):
+    _install_stubs(
+        monkeypatch,
+        is_alive={"192.168.1.90": (True, "ping", [], 64)},
+        arp={},
+        gateway="192.168.1.1",
+    )
+
+    def _boom(ip, timeout=1.5):
+        raise RuntimeError("snmp down")
+
+    monkeypatch.setattr(d.snmp, "arp_table", _boom)
+    final = _run("192.168.1.0/24")[-1]
+    assert final.phase == d.ScanPhase.COMPLETE and final.hosts[0].mac is None
+
+
+# --- rogue / spoof detection (a MAC shared across IPs) ---------------------- #
+
+def _host(ip, mac):
+    return d.Host(ip=ip, status=d.HostStatus.UP, mac=mac)
+
+
+def test_flag_mac_anomalies_shared_and_unique():
+    hosts = {
+        "192.168.1.5": _host("192.168.1.5", "AA:BB:CC:DD:EE:FF"),
+        "192.168.1.9": _host("192.168.1.9", "aa:bb:cc:dd:ee:ff"),   # same MAC (case-insensitive)
+        "192.168.1.1": _host("192.168.1.1", "11:22:33:44:55:66"),   # unique -> not flagged
+        "192.168.1.7": _host("192.168.1.7", None),                  # no MAC -> ignored
+    }
+    n = d._flag_mac_anomalies(hosts, gateway="192.168.1.1")
+    assert n == 2
+    assert "shares its MAC" in hosts["192.168.1.5"].anomalies[0]
+    assert hosts["192.168.1.1"].anomalies == [] and hosts["192.168.1.7"].anomalies == []
+
+
+def test_flag_mac_anomalies_gateway_impersonation():
+    hosts = {
+        "192.168.1.1": _host("192.168.1.1", "aa:bb:cc:00:00:01"),
+        "192.168.1.50": _host("192.168.1.50", "aa:bb:cc:00:00:01"),  # same MAC as the gateway
+    }
+    assert d._flag_mac_anomalies(hosts, gateway="192.168.1.1") == 2
+    impersonator = hosts["192.168.1.50"].anomalies[0]
+    assert "gateway" in impersonator and "ARP spoofing" in impersonator
+    assert "gateway" not in hosts["192.168.1.1"].anomalies[0]       # the gateway gets the generic note
+
+
+def test_run_discovery_flags_shared_mac(monkeypatch):
+    _install_stubs(
+        monkeypatch,
+        is_alive={"192.168.1.5": (True, "ping", [], 64), "192.168.1.9": (True, "ping", [], 64)},
+        arp={"192.168.1.5": "aa:bb:cc:dd:ee:ff", "192.168.1.9": "aa:bb:cc:dd:ee:ff"},
+    )
+    final = _run("192.168.1.0/24")[-1]
+    by_ip = {h.ip: h for h in final.hosts}
+    assert by_ip["192.168.1.5"].anomalies and by_ip["192.168.1.9"].anomalies
+    assert "share a MAC" in (final.message or "")

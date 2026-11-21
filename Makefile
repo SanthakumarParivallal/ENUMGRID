@@ -53,7 +53,7 @@ test-backend: ## Backend suite at CI's 100% coverage gate (backend/tests/ -> eve
 		--cov=credscan --cov=cve --cov=discovery --cov=fingerprint --cov=history --cov=jobs \
 		--cov=mdns --cov=models --cov=nbns --cov=notify --cov=obs --cov=osfp --cov=osv \
 		--cov=passive --cov=provenance --cov=report --cov=scanner --cov=schedule --cov=security \
-		--cov=snmp --cov=ssdp --cov=smbscan --cov=threatintel --cov=vulndb --cov=webscan \
+		--cov=snmp --cov=ssdp --cov=smbscan --cov=threatintel --cov=tlsinspect --cov=vulndb --cov=webscan \
 		--cov-report=term-missing --cov-fail-under=100
 
 test-eval: ## Evaluation suite + offline CVE accuracy gate (precision & recall == 1.0)

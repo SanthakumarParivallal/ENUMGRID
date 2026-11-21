@@ -24,6 +24,30 @@ The format follows [Keep a Changelog 1.1.0][kac] and the project versions accord
 
 ### Added
 
+- TLS certificate inspection during discovery. For every host found listening on
+  a TLS port (443, 8443, 993, 995, 465 and similar), the engine completes one
+  handshake and reads the certificate it presents: subject, subjectAltName,
+  issuer, validity dates and whether it is self-signed. The chain is not verified
+  (a self-signed cert is normal on a LAN); the point is to read what the server
+  actually presents. A device with no DNS, mDNS or NetBIOS name is often named by
+  its own certificate, so the subject or SAN fills the hostname (as a last-resort
+  fill, below any device-declared name), and an expired, not-yet-valid or
+  self-signed certificate is surfaced as a per-host flag. Shown in the host
+  detail. Certificates are parsed with `cryptography`; nothing is inferred.
+- MAC and vendor recovery from the gateway's SNMP ARP table. When the OS hides
+  its own ARP table from an unprivileged process (macOS Local Network privacy
+  blanks the MAC/vendor column), the engine reads the router's ARP cache
+  (`ipNetToMediaPhysAddress`) over SNMP and fills the MAC and OUI vendor for the
+  hosts it could not resolve locally. Pure-stdlib SNMP v2c GetNext walk, read-only,
+  and `{}` on a router that does not answer SNMP, so nothing is fabricated: no
+  answer leaves the column blank.
+- Rogue-device detection. Discovery now flags a Layer-2 anomaly when one MAC
+  address is claimed by more than one IP. On a normal LAN each interface has a
+  unique MAC, so a shared MAC is either one device on several addresses or
+  address spoofing; a non-gateway host sharing the gateway's MAC is called out as
+  a man-in-the-middle tell. Flags appear on the host and are summarized in the
+  scan note. Derived only from the discovered hosts, so a healthy network produces
+  nothing.
 - Device hostnames now resolve on home networks where the OS resolver is pointed
   at public DNS. When the normal reverse-DNS pass comes back empty (public
   resolvers such as `1.1.1.1` hold no record for a private address), discovery

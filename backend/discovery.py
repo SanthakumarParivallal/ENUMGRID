@@ -38,9 +38,19 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _ensure_on_path(_ROOT)
 import scanner  # noqa: E402
 import snmp  # noqa: E402
+import tlsinspect  # noqa: E402
 from fingerprint import guess_device_type  # noqa: E402
 from mdns import discover_mdns  # noqa: E402
-from models import Host, HostStatus, Port, PortState, Protocol, ScanPhase, ScanState  # noqa: E402
+from models import (  # noqa: E402
+    Host,
+    HostStatus,
+    Port,
+    PortState,
+    Protocol,
+    ScanPhase,
+    ScanState,
+    TlsCert,
+)
 from nbns import nbns_names  # noqa: E402
 from osfp import os_hint, refine_os  # noqa: E402
 from ssdp import discover_ssdp  # noqa: E402
@@ -71,6 +81,13 @@ PORT_PROBE_TIMEOUT = float(os.environ.get("ENUMGRID_PORT_TIMEOUT", "0.5"))
 MDNS_SECS = float(os.environ.get("ENUMGRID_MDNS_SECS", "6.0"))
 # How long to wait for SSDP/UPnP replies (routers, smart TVs, media, IoT).
 SSDP_SECS = float(os.environ.get("ENUMGRID_SSDP_SECS", "2.5"))
+
+# TLS certificate read: on by default, one short handshake per open TLS port.
+TLS_INSPECT = os.environ.get("ENUMGRID_TLS_INSPECT", "1").lower() not in ("0", "false", "no")
+TLS_TIMEOUT = float(os.environ.get("ENUMGRID_TLS_TIMEOUT", "2.0"))
+
+# Recover MACs from the gateway's SNMP ARP table when the OS hides its own.
+SNMP_ARP_RECOVERY = os.environ.get("ENUMGRID_SNMP_ARP", "1").lower() not in ("0", "false", "no")
 
 # The common TCP ports knocked per host (reuses the CLI's curated top-ports set).
 _COMMON_PORTS: tuple[int, ...] = pr.FALLBACK_PORTS
@@ -266,6 +283,46 @@ def _scope_notes(
         if gw is not None and gw not in here:
             notes.append(_SLICE_NOTE.format(gw=gateway, net=here, prefix=here.prefixlen))
     return notes
+
+
+def _flag_mac_anomalies(hosts: dict[str, Host], gateway: str | None) -> int:
+    """Flag L2 anomalies on the discovered hosts and return how many were flagged.
+
+    The signal: one MAC address claimed by more than one IP. On a normal LAN each
+    interface has a unique MAC, so a shared MAC is either one device on several
+    IPs or address spoofing. A non-gateway host sharing the *gateway's* MAC is the
+    classic man-in-the-middle tell and is called out specifically. Pure: it reads
+    only the hosts passed in, and a healthy LAN produces nothing.
+    """
+    by_mac: dict[str, list[str]] = {}
+    for ip, host in hosts.items():
+        if host.mac:
+            by_mac.setdefault(host.mac.lower(), []).append(ip)
+    flagged = 0
+    for mac, ips in by_mac.items():
+        if len(ips) < 2:
+            continue
+        ordered = sorted(ips, key=_ip_key)
+        for ip in ordered:
+            others = [o for o in ordered if o != ip]
+            if gateway in ordered and ip != gateway:
+                hosts[ip].anomalies.append(
+                    f"shares its MAC ({mac}) with the gateway {gateway}: a host answering for the "
+                    "gateway can intercept traffic (possible ARP spoofing / man-in-the-middle)"
+                )
+            else:
+                hosts[ip].anomalies.append(
+                    f"shares its MAC ({mac}) with {', '.join(others)}: one device on several IPs, "
+                    "or address spoofing"
+                )
+            flagged += 1
+    return flagged
+
+
+_ANOMALY_NOTE = (
+    "Security: {n} host(s) share a MAC address (one device on several IPs, or possible ARP "
+    "spoofing). See the flagged hosts."
+)
 
 
 def _read_arp() -> dict[str, str]:
@@ -490,6 +547,31 @@ async def run_discovery(target: str, scan_id: str | None):
         host.vendor = pr._mac_vendor(mac, oui)
         host.device_type = guess_device_type(vendor=host.vendor, hostname=host.hostname)
         hosts[ip] = host
+
+    # --- 2c) gateway ARP via SNMP: recover MACs the OS hid from us ----------- #
+    # macOS Local Network privacy blanks the ARP table for an unprivileged
+    # process, so the MAC/vendor column comes back empty. The router keeps its own
+    # ARP cache; if it answers SNMP (community "public") we read IP->MAC from it
+    # and fill only the hosts we could not resolve locally. {} on a locked-down
+    # router, so nothing is fabricated: no answer means the column stays blank.
+    # The gateway is resolved once here and reused for PTR and the scope notes.
+    gateway = _default_gateway()
+    need_mac = [ip for ip, h in hosts.items() if not h.mac]
+    if SNMP_ARP_RECOVERY and gateway and need_mac:
+        try:
+            gw_macs = await loop.run_in_executor(None, lambda: snmp.arp_table(gateway, timeout=1.5))
+        except Exception:
+            gw_macs = {}
+        for ip in need_mac:
+            mac = gw_macs.get(ip)
+            if not mac:
+                continue
+            host = hosts[ip]
+            host.mac = mac
+            host.vendor = pr._mac_vendor(mac, oui)
+            if not host.device_type:
+                host.device_type = guess_device_type(vendor=host.vendor, hostname=host.hostname)
+
     yield snapshot(ScanPhase.NMAP_ENUMERATION, 75)
 
     # --- 2b) fast TCP connect-scan of the common ports (unprivileged) ------- #
@@ -634,14 +716,46 @@ async def run_discovery(target: str, scan_id: str | None):
         if own_name and not hosts[ip].hostname:
             hosts[ip].hostname = own_name
 
+    # --- 4c2) TLS certificates: names + expiry from any TLS service ---------- #
+    # A device with no DNS/mDNS/NetBIOS name is often named by its own TLS
+    # certificate (subject or SAN), and an expired or self-signed cert is a real
+    # finding worth surfacing. We read what the server presents (no chain
+    # verification, since self-signed is normal on a LAN). Cert details attach to
+    # every TLS host; the name fills only still-unnamed hosts, so a device-declared
+    # name always wins over a certificate subject.
+    tls_targets = [
+        (h.ip, p.port)
+        for h in hosts.values()
+        for p in h.ports
+        if p.port in tlsinspect.TLS_PORTS and p.state in (PortState.OPEN, PortState.OPEN_FILTERED)
+    ] if TLS_INSPECT else []
+    if tls_targets:
+        def _grab_cert(pair):
+            ip, port = pair
+            return ip, tlsinspect.inspect(ip, port, timeout=TLS_TIMEOUT)
+
+        try:
+            with ThreadPoolExecutor(
+                max_workers=min(32, len(tls_targets)), thread_name_prefix="tls"
+            ) as tls_pool:
+                cert_results = list(tls_pool.map(_grab_cert, tls_targets))
+        except Exception:
+            cert_results = []
+        for ip, info in cert_results:
+            if not info:
+                continue
+            host = hosts[ip]
+            host.tls.append(TlsCert(**info))
+            name = tlsinspect.preferred_name(info)
+            if name and not host.hostname:
+                host.hostname = name
+
     # --- 4d) gateway PTR: last-resort names from the router's own DNS -------- #
     # The OS resolver is often pointed at public DNS (1.1.1.1/8.8.8.8) that has
     # no record for a private address, so reverse DNS came back empty even though
     # the router knows every DHCP client's name (iPhone.home, Mac.home). Ask the
-    # gateway itself, but only for hosts nothing richer (mDNS/SSDP/NBNS/own-OS)
-    # could name, so a device-declared name always wins over a bare DHCP label.
-    # Computed once here and reused for the finish-line scope notes.
-    gateway = _default_gateway()
+    # gateway itself (resolved once in step 2c), but only for hosts nothing richer
+    # (mDNS/SSDP/NBNS/own-OS) could name, so a device-declared name always wins.
     unresolved = [ip for ip, h in hosts.items() if not h.hostname]
     if gateway and unresolved:
         try:
@@ -689,10 +803,16 @@ async def run_discovery(target: str, scan_id: str | None):
             if refined:
                 host.os = refined
 
+    # Flag L2 anomalies (a MAC shared across IPs) on the hosts, and summarize them
+    # in the scan note so the banner surfaces them even before a host is opened.
+    anomaly_count = _flag_mac_anomalies(hosts, gateway)
+
     # Combine the "why does this look empty" notes (client isolation, and
-    # scanning only a slice of a larger subnet) with the ARP-hidden note, in
-    # reading order, into the single operator-facing scan note.
+    # scanning only a slice of a larger subnet) with the anomaly summary and the
+    # ARP-hidden note, in reading order, into the single operator-facing scan note.
     notes = _scope_notes(target, set(hosts), set(own_addrs), gateway, len(candidates))
+    if anomaly_count:
+        notes.append(_ANOMALY_NOTE.format(n=anomaly_count))
     if notice:
         notes.append(notice)
     yield snapshot(

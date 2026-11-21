@@ -1680,10 +1680,37 @@ function PortDetailTable({ host }) {
         </div>
       )}
 
+      {host.anomalies?.length > 0 && (
+        <div role="alert" className="flex flex-col gap-1 rounded-lg border border-crimson/50 bg-crimson/[0.09] px-3 py-1.5 text-[11px] text-crimson-glow">
+          {host.anomalies.map((a) => (
+            <span key={a} className="flex items-start gap-2">
+              <Icon.Alert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span><b>Anomaly:</b> {a}.</span>
+            </span>
+          ))}
+        </div>
+      )}
+
       {host.ipv6?.length > 0 && (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-matrix/30 bg-matrix/[0.06] px-3 py-1.5 font-mono text-[10px] text-slate-300">
           <span className="rounded-sm border border-matrix/40 bg-matrix/10 px-1 text-[8px] font-semibold uppercase tracking-wider text-matrix">IPv6</span>
           {host.ipv6.map((a) => <span key={a} className="text-slate-400">{a}</span>)}
+        </div>
+      )}
+
+      {host.tls?.length > 0 && (
+        <div className="flex flex-col gap-1 rounded-lg border border-sky-400/30 bg-sky-400/[0.06] px-3 py-1.5 text-[11px] text-slate-300">
+          {host.tls.map((c) => (
+            <div key={c.port} className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+              <span className="rounded-sm border border-sky-400/40 bg-sky-400/10 px-1 text-[8px] font-semibold uppercase tracking-wider text-sky-300">TLS {c.port}</span>
+              <span className="text-slate-200">{c.subject || '(no subject)'}</span>
+              {c.issuer && <span className="text-slate-500">· issued by {c.issuer}</span>}
+              {c.not_after && <span className="text-slate-500">· valid to {c.not_after}</span>}
+              {c.issues.map((iss) => (
+                <span key={iss} className="rounded-sm border border-crimson/40 bg-crimson/10 px-1 text-[9px] font-semibold uppercase tracking-wide text-crimson-glow">{iss}</span>
+              ))}
+            </div>
+          ))}
         </div>
       )}
 

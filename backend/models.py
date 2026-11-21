@@ -92,6 +92,22 @@ class Port(BaseModel):
     vulns: list[Vuln] = Field(default_factory=list)
 
 
+class TlsCert(BaseModel):
+    """The X.509 certificate a TLS service presents, read as-is (the chain is not
+    verified, since a self-signed cert is normal on a LAN). A device with no DNS
+    name is often named by its own cert; an expired or self-signed cert is a real,
+    reportable fact. Every field is read from the certificate, never inferred."""
+
+    port: int
+    subject: str = ""                              # subject common name
+    issuer: str = ""                               # issuer common name
+    sans: list[str] = Field(default_factory=list)  # subjectAltName entries
+    not_before: str = ""                           # validity start (ISO date)
+    not_after: str = ""                            # validity end (ISO date)
+    self_signed: bool = False
+    issues: list[str] = Field(default_factory=list)  # e.g. "expired", "self-signed"
+
+
 class Host(BaseModel):
     ip: str
     hostname: str | None = None
@@ -114,6 +130,8 @@ class Host(BaseModel):
     scan_warning: str = ""
     ports: list[Port] = Field(default_factory=list)
     vulns: list[Vuln] = Field(default_factory=list)  # host-level NSE findings
+    tls: list[TlsCert] = Field(default_factory=list)  # certs read from TLS ports
+    anomalies: list[str] = Field(default_factory=list)  # L2 security flags (e.g. a shared MAC)
 
 
 class ScanState(BaseModel):

@@ -13,6 +13,7 @@ import {
   Severity,
   PortModel,
   HostModel,
+  TlsCertModel,
   VulnModel,
   ScanStateModel,
   emptyScanState,
@@ -91,6 +92,32 @@ describe('VulnModel', () => {
   });
 });
 
+describe('TlsCertModel', () => {
+  it('defaults every field when absent', () => {
+    const c = TlsCertModel({});
+    expect(c.port).toBe(0);
+    expect(c.subject).toBe('');
+    expect(c.issuer).toBe('');
+    expect(c.sans).toEqual([]);
+    expect(c.not_before).toBe('');
+    expect(c.not_after).toBe('');
+    expect(c.self_signed).toBe(false);
+    expect(c.issues).toEqual([]);
+  });
+
+  it('carries and coerces provided fields', () => {
+    const c = TlsCertModel({
+      port: '8443', subject: 'cam', issuer: 'CA', sans: ['a', 1],
+      not_before: '2026-01-01', not_after: '2027-01-01', self_signed: 1, issues: ['expired'],
+    });
+    expect(c.port).toBe(8443);
+    expect(c.sans).toEqual(['a', '1']);
+    expect(c.self_signed).toBe(true);
+    expect(c.issues).toEqual(['expired']);
+    expect(c.not_after).toBe('2027-01-01');
+  });
+});
+
 describe('HostModel', () => {
   it('fills mac/vendor/discovered_via and maps nested ports', () => {
     const h = HostModel({
@@ -129,6 +156,23 @@ describe('HostModel', () => {
     expect(h.scanError).toBe(false);
     expect(h.scan_note).toBe('UDP→connect');
     expect(h.scan_warning).toBe('');
+  });
+
+  it('defaults tls and anomalies to empty arrays', () => {
+    const h = HostModel({ ip: '10.0.0.4' });
+    expect(h.tls).toEqual([]);
+    expect(h.anomalies).toEqual([]);
+  });
+
+  it('maps nested tls certs and stringifies anomalies', () => {
+    const h = HostModel({
+      ip: '10.0.0.5',
+      tls: [{ port: 443, subject: 'nas.home', self_signed: true, issues: ['self-signed'] }],
+      anomalies: ['shares its MAC with 10.0.0.6', 42],
+    });
+    expect(h.tls[0].subject).toBe('nas.home');
+    expect(h.tls[0].self_signed).toBe(true);
+    expect(h.anomalies).toEqual(['shares its MAC with 10.0.0.6', '42']);
   });
 
   it('carries scan_warning so a timed-out host never reads as "no ports"', () => {
